@@ -42,7 +42,7 @@ extension BrowserTab: WKWebExtensionTab {
     }
 
     func zoomFactor(for context: WKWebExtensionContext) -> Double {
-        webView?.pageZoom ?? 1
+        Double(webView?.pageZoom ?? 1)
     }
 
     func loadURL(_ url: URL, for context: WKWebExtensionContext) async throws {

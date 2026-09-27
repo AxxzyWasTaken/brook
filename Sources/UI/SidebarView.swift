@@ -39,7 +39,7 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
 
     // Bottom
     private lazy var fireButton = IconButton(symbol: "flame", tooltip: "Burn Tabs & Data (⇧⌘⌫)") { [weak self] in self?.browser?.fire() }
-    private lazy var downloadsButton = IconButton(symbol: "arrow.down.circle", tooltip: "Downloads") { [weak self] in
+    private lazy var downloadsButton: IconButton = IconButton(symbol: "arrow.down.circle", tooltip: "Downloads") { [weak self] in
         guard let self else { return }
         self.browser?.showDownloads(from: self.downloadsButton)
     }
