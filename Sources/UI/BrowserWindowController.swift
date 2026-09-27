@@ -54,6 +54,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
     private(set) var sidebarHidden = Settings.sidebarHidden
     private var peeking = false
     private var peekMonitor: Any?
+    /// Bumped on every sidebar show/hide so a stale fade can't undo a newer one.
+    private var lightsGeneration = 0
     private var inset: CGFloat = Settings.pageMargin
     private var onRight = Settings.sidebarPosition == .right
 
@@ -375,8 +377,32 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
         let hidden = sidebarHidden && !peeking
         // The traffic lights ride in the sidebar's corner, so they come and go with it.
         let lightsHidden = sidebarHidden && !peeking
-        let lights: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-        for b in lights { window?.standardWindowButton(b)?.isHidden = lightsHidden }
+        let lights = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+            .compactMap { window?.standardWindowButton($0) }
+        // Lights appear only once the sidebar has landed (fading in), and leave straight away
+        // (fading out) as it slides off, so they never float over an empty corner.
+        lightsGeneration &+= 1
+        let generation = lightsGeneration
+        let wasHidden = lights.first?.isHidden ?? true
+        if lightsHidden {
+            if animated && !wasHidden {
+                NSAnimationContext.runAnimationGroup({ ctx in
+                    ctx.duration = 0.1
+                    for b in lights { b.animator().alphaValue = 0 }
+                }, completionHandler: { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard self?.lightsGeneration == generation else { return }
+                        for b in lights { b.isHidden = true; b.alphaValue = 1 }
+                    }
+                })
+            } else {
+                for b in lights { b.isHidden = true; b.alphaValue = 1 }
+            }
+        } else if animated && wasHidden {
+            for b in lights { b.alphaValue = 0; b.isHidden = false }
+        } else {
+            for b in lights { b.isHidden = false; b.alphaValue = 1 }
+        }
         contentToSidebar.isActive = !sidebarHidden
         contentToEdge.isActive = sidebarHidden
         handle.isHidden = sidebarHidden
@@ -388,13 +414,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
             return s
         }() : nil
         let leading = hidden ? -(sidebarWidth + inset * 2 + 24) : inset
-        NSAnimationContext.runAnimationGroup { ctx in
+        NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = animated ? 0.25 : 0
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             ctx.allowsImplicitAnimation = true
             sidebarEdge.animator().constant = leading
             root.layoutSubtreeIfNeeded()
-        }
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.lightsGeneration == generation, !lightsHidden else { return }
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = animated ? 0.15 : 0
+                    for b in lights { b.animator().alphaValue = 1 }
+                }
+            }
+        })
         alignNavRow()
     }
 
