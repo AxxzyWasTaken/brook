@@ -41,7 +41,11 @@ final class BrowserTab: NSObject {
         self.url = url
         self.title = title
         super.init()
-        if let host = url?.host() { favicon = FaviconStore.shared.cachedIcon(for: host) }
+        if let host = url?.host() {
+            favicon = FaviconStore.shared.cachedIcon(for: host)
+            // Restored tabs that were never loaded still deserve their site icon, not a globe.
+            if favicon == nil { refreshFavicon() }
+        }
     }
 
     /// A tab created by a page (window.open). WebKit loads it, so we must use its configuration.
@@ -64,7 +68,9 @@ final class BrowserTab: NSObject {
     @discardableResult
     func materialize() -> BrookWebView {
         if let webView { return webView }
-        let config = pendingConfiguration ?? WebViewFactory.makeConfiguration()
+        let config = pendingConfiguration ?? WebViewFactory.makeConfiguration(
+            profileID: state?.profileID(for: self),
+            autoplay: SiteSettings.autoplay(for: url?.host()))
         let isPopup = pendingConfiguration != nil
         pendingConfiguration = nil
 
@@ -76,6 +82,7 @@ final class BrowserTab: NSObject {
         wv.allowsMagnification = true
         wv.isInspectable = true
         wv.underPageBackgroundColor = .textBackgroundColor
+        wv.pageZoom = SiteSettings.zoom(for: url?.host())
         webView = wv
         observe(wv)
         if !isPopup, let url { wv.load(URLRequest(url: url)) }
@@ -186,7 +193,7 @@ final class BrowserTab: NSObject {
         ]
     }
 
-    private func refreshFavicon() {
+    func refreshFavicon() {
         guard let host = url?.host() else { return }
         Task { [weak self] in
             let icon = await FaviconStore.shared.icon(for: host)
@@ -201,7 +208,17 @@ final class BrowserTab: NSObject {
 
 extension BrowserTab: WKNavigationDelegate {
 
-    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
+        let policy = decidePolicy(for: navigationAction)
+        if policy == .allow, navigationAction.targetFrame?.isMainFrame ?? true,
+           let host = navigationAction.request.url?.host() {
+            preferences.allowsContentJavaScript = SiteSettings.javascript(for: host)
+        }
+        return (policy, preferences)
+    }
+
+    private func decidePolicy(for navigationAction: WKNavigationAction) -> WKNavigationActionPolicy {
         guard let url = navigationAction.request.url else { return .allow }
 
         if navigationAction.shouldPerformDownload { return .download }
@@ -249,6 +266,12 @@ extension BrowserTab: WKNavigationDelegate {
             state?.tabDidChange(self, .error)
         }
         state?.tabDidChange(self, .consent)
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        // Per-site zoom, remembered like Safari does.
+        let zoom = SiteSettings.zoom(for: webView.url?.host())
+        if abs(webView.pageZoom - zoom) > 0.001 { webView.pageZoom = zoom }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

@@ -22,69 +22,9 @@ enum AppPaths {
     }
 }
 
-// MARK: - Settings
-
-enum SearchEngine: String, CaseIterable {
-    case duckduckgo, google, bing, brave, kagi
-
-    var title: String {
-        switch self {
-        case .duckduckgo: return "DuckDuckGo"
-        case .google: return "Google"
-        case .bing: return "Bing"
-        case .brave: return "Brave Search"
-        case .kagi: return "Kagi"
-        }
-    }
-
-    func url(for query: String) -> URL {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+=?#")
-        let q = query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query
-        let base: String
-        switch self {
-        case .duckduckgo: base = "https://duckduckgo.com/?q="
-        case .google: base = "https://www.google.com/search?q="
-        case .bing: base = "https://www.bing.com/search?q="
-        case .brave: base = "https://search.brave.com/search?q="
-        case .kagi: base = "https://kagi.com/search?q="
-        }
-        return URL(string: base + q)!
-    }
-}
-
-enum Settings {
-    private static let d = UserDefaults.standard
-
-    static var searchEngine: SearchEngine {
-        get { SearchEngine(rawValue: d.string(forKey: "searchEngine") ?? "") ?? .duckduckgo }
-        set { d.set(newValue.rawValue, forKey: "searchEngine") }
-    }
-
-    static var blockCookiePopups: Bool {
-        get { d.object(forKey: "blockCookiePopups") as? Bool ?? true }
-        set { d.set(newValue, forKey: "blockCookiePopups") }
-    }
-
-    /// Minutes before a background tab is unloaded from memory. 0 = never.
-    static var hibernateMinutes: Int {
-        get { d.object(forKey: "hibernateMinutes") as? Int ?? 30 }
-        set { d.set(newValue, forKey: "hibernateMinutes") }
-    }
-
-    static var sidebarWidth: CGFloat {
-        get { CGFloat(d.object(forKey: "sidebarWidth") as? Double ?? 250) }
-        set { d.set(Double(newValue), forKey: "sidebarWidth") }
-    }
-
-    static var sidebarHidden: Bool {
-        get { d.bool(forKey: "sidebarHidden") }
-        set { d.set(newValue, forKey: "sidebarHidden") }
-    }
-}
-
 // MARK: - URL input
 
+@MainActor
 enum URLParser {
     static func url(from input: String) -> URL? {
         let s = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -104,7 +44,7 @@ enum URLParser {
     }
 
     static func destination(for input: String) -> URL {
-        url(from: input) ?? Settings.searchEngine.url(for: input.trimmingCharacters(in: .whitespacesAndNewlines))
+        url(from: input) ?? SearchEngines.searchURL(for: input.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// Short, human friendly form of a URL for the address pill.

@@ -87,6 +87,8 @@ class HoverControl: NSControl {
 /// An SF Symbol button, Arc-style: no border, soft hover background.
 final class IconButton: HoverControl {
     let imageView = NSImageView()
+    /// Resting tint; hovering always brightens to the label colour.
+    var tint: NSColor = .secondaryLabelColor { didSet { hoverChanged() } }
 
     init(symbol: String, size: CGFloat = 14, tooltip: String? = nil, dimension: CGFloat = 28,
          onClick: (() -> Void)? = nil) {
@@ -119,7 +121,7 @@ final class IconButton: HoverControl {
     }
 
     override func hoverChanged() {
-        imageView.contentTintColor = isHovering ? .labelColor : .secondaryLabelColor
+        imageView.contentTintColor = isHovering && isEnabled ? .labelColor : tint
     }
 }
 

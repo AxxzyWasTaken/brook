@@ -13,6 +13,16 @@ final class ContentAreaView: NSView {
     private(set) weak var webView: WKWebView?
     private weak var tab: BrowserTab?
     var accentColor: NSColor = .controlAccentColor { didSet { progress.backgroundColor = accentColor.cgColor; empty.accent = accentColor } }
+    var cornerRadius: CGFloat = 12 {
+        didSet {
+            clip.layer?.cornerRadius = cornerRadius
+            // Edge-to-edge (no rounding) drops the card border and shadow too.
+            clip.layer?.borderWidth = cornerRadius == 0 ? 0 : 0.5
+            layer?.shadowOpacity = cornerRadius == 0 ? 0 : shadowStrength
+            needsLayout = true
+        }
+    }
+    private var shadowStrength: Float = 0.14
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -62,7 +72,8 @@ final class ContentAreaView: NSView {
 
     override func layout() {
         super.layout()
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: 12, cornerHeight: 12, transform: nil)
+        let r = min(cornerRadius, bounds.width / 2, bounds.height / 2)
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: r, cornerHeight: r, transform: nil)
         updateProgressFrame(animated: false)
     }
 
@@ -74,7 +85,8 @@ final class ContentAreaView: NSView {
     private func updateColors() {
         clip.layer?.backgroundColor = cg(.textBackgroundColor)
         clip.layer?.borderColor = cg(NSColor.dynamic(light: NSColor(white: 0, alpha: 0.08), dark: NSColor(white: 1, alpha: 0.1)))
-        layer?.shadowOpacity = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? 0.35 : 0.14
+        shadowStrength = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? 0.35 : 0.14
+        layer?.shadowOpacity = cornerRadius == 0 ? 0 : shadowStrength
     }
 
     // MARK: Showing tabs

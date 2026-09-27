@@ -3,6 +3,7 @@ import AppKit
 private enum Suggestion {
     case open(URL)
     case search(String)
+    case keywordSearch(SearchEngine, String)
     case tab(BrowserTab)
     case history(HistoryEntry)
 }
@@ -46,6 +47,12 @@ final class CommandBarController: NSObject, NSWindowDelegate, NSTextFieldDelegat
         panel.animationBehavior = .utilityWindow
 
         let root = NSView()
+        // Clip to the glass's shape: the glass paints a faint square halo into its corners, and the
+        // window shadow (traced from content alpha) would otherwise come out square.
+        root.wantsLayer = true
+        root.layer?.cornerRadius = 20
+        root.layer?.cornerCurve = .continuous
+        root.layer?.masksToBounds = true
         glass.cornerRadius = 20
         glass.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(glass)
@@ -157,6 +164,10 @@ final class CommandBarController: NSObject, NSWindowDelegate, NSTextFieldDelegat
         let top = pf.maxY - pf.height * 0.2
         panel.setFrame(NSRect(x: pf.midX - w / 2, y: top - height, width: w, height: height), display: true)
         separator.isHidden = visibleRows == 0
+        // The window shadow is traced from the content's alpha. Retrace it once the glass has drawn
+        // its rounded shape at the new size, or a square shadow shows outside the corners.
+        panel.invalidateShadow()
+        DispatchQueue.main.async { [weak panel] in panel?.invalidateShadow() }
     }
 
     // MARK: Suggestions
@@ -176,6 +187,7 @@ final class CommandBarController: NSObject, NSWindowDelegate, NSTextFieldDelegat
                 .sorted { $0.lastActive > $1.lastActive }.prefix(6)
             list = recent.map { .tab($0) }
         } else {
+            if let (engine, query) = SearchEngines.keywordMatch(text) { list.append(.keywordSearch(engine, query)) }
             if let url = URLParser.url(from: text) { list.append(.open(url)) }
             list.append(.search(text))
             let q = text.lowercased()
@@ -190,7 +202,8 @@ final class CommandBarController: NSObject, NSWindowDelegate, NSTextFieldDelegat
                 .map { .history($0) }
             let searchPhrases = phrases.filter { $0.lowercased() != q }.prefix(4)
             if !searchPhrases.isEmpty {
-                let insertAt = min(list.count, (URLParser.url(from: text) != nil ? 2 : 1))
+                let lead = (URLParser.url(from: text) != nil ? 1 : 0) + (SearchEngines.keywordMatch(text) != nil ? 1 : 0)
+                let insertAt = min(list.count, lead + 1)
                 list.insert(contentsOf: searchPhrases.map { .search($0) }, at: insertAt)
             }
         }
@@ -259,7 +272,8 @@ final class CommandBarController: NSObject, NSWindowDelegate, NSTextFieldDelegat
         if let s = suggestions[safe: row] {
             switch s {
             case .open(let url): destination = url
-            case .search(let q): destination = Settings.searchEngine.url(for: q)
+            case .search(let q): destination = SearchEngines.current.url(for: q)
+            case .keywordSearch(let engine, let q): destination = engine.url(for: q)
             case .history(let e): destination = URL(string: e.url)
             case .tab(let tab):
                 dismiss()
@@ -296,7 +310,10 @@ final class CommandBarController: NSObject, NSWindowDelegate, NSTextFieldDelegat
                            title: url.absoluteString, subtitle: nil, trailing: "Open")
         case .search(let q):
             cell.configure(icon: NSImage.symbol("magnifyingglass", size: 14), title: q, subtitle: nil,
-                           trailing: Settings.searchEngine.title)
+                           trailing: SearchEngines.current.name)
+        case .keywordSearch(let engine, let q):
+            cell.configure(icon: NSImage.symbol("magnifyingglass", size: 14), title: q, subtitle: nil,
+                           trailing: "Search \(engine.name)")
         case .tab(let tab):
             cell.configure(icon: tab.favicon ?? NSImage.symbol("globe", size: 14), title: tab.displayTitle,
                            subtitle: URLParser.display(tab.url), trailing: "Switch to Tab")

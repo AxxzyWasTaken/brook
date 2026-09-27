@@ -3,7 +3,7 @@ import AppKit
 // MARK: - Address pill
 
 final class URLPillView: HoverControl {
-    private let icon = NSImageView()
+    let siteButton = IconButton(symbol: "magnifyingglass", size: 11, tooltip: "Site Settings", dimension: 22)
     private let label = NSTextField(labelWithString: "")
     private let cookie = NSImageView()
     let extensionsButton = IconButton(symbol: "puzzlepiece.extension", size: 12, tooltip: "Extensions", dimension: 24)
@@ -15,8 +15,6 @@ final class URLPillView: HoverControl {
         hoverColor = Palette.pill.withAlphaComponent(0.12)
         toolTip = "Search or enter address (⌘L)"
 
-        icon.contentTintColor = .secondaryLabelColor
-        icon.translatesAutoresizingMaskIntoConstraints = false
         label.font = .systemFont(ofSize: 13, weight: .regular)
         label.textColor = .secondaryLabelColor
         label.lineBreakMode = .byTruncatingTail
@@ -26,13 +24,13 @@ final class URLPillView: HoverControl {
         cookie.contentTintColor = .systemGreen
         cookie.isHidden = true
         cookie.translatesAutoresizingMaskIntoConstraints = false
-        ([icon, label, cookie, extensionsButton] as [NSView]).forEach { addSubview($0) }
+        ([siteButton, label, cookie, extensionsButton] as [NSView]).forEach { addSubview($0) }
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 34),
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 11),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 7),
+            siteButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            siteButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.leadingAnchor.constraint(equalTo: siteButton.trailingAnchor, constant: 2),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             cookie.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 4),
             cookie.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -46,14 +44,21 @@ final class URLPillView: HoverControl {
 
     func update(tab: BrowserTab?) {
         guard let tab, let url = tab.url else {
-            icon.image = NSImage.symbol("magnifyingglass", size: 11)
+            siteButton.setSymbol("magnifyingglass", size: 11)
+            siteButton.imageView.contentTintColor = .secondaryLabelColor
+            siteButton.isEnabled = false
+            siteButton.imageView.alphaValue = 1
+            siteButton.toolTip = nil
             label.stringValue = "Search or enter address"
             cookie.isHidden = true
             return
         }
         let secure = url.scheme == "https"
-        icon.image = NSImage.symbol(secure ? "lock.fill" : (url.scheme == "http" ? "exclamationmark.triangle" : "globe"), size: 10)
-        icon.contentTintColor = url.scheme == "http" ? .systemOrange : .tertiaryLabelColor
+        siteButton.setSymbol(secure ? "lock.fill" : (url.scheme == "http" ? "exclamationmark.triangle" : "globe"), size: 10)
+        siteButton.tint = url.scheme == "http" ? .systemOrange : .tertiaryLabelColor
+        siteButton.isEnabled = url.host() != nil
+        siteButton.imageView.alphaValue = 1
+        siteButton.toolTip = url.host() != nil ? "Settings for this website" : nil
         label.stringValue = URLParser.display(url)
         if let cmp = tab.consentCMP {
             cookie.isHidden = false
@@ -134,6 +139,7 @@ final class FavoritesGridView: NSView {
     private var heightConstraint: NSLayoutConstraint!
     private let tileHeight: CGFloat = 44
     private let gap: CGFloat = 8
+    var maxColumns = 4 { didSet { if maxColumns != oldValue { updateHeight(); needsLayout = true } } }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -147,7 +153,7 @@ final class FavoritesGridView: NSView {
 
     override var isFlipped: Bool { true }
 
-    private var columns: Int { max(1, min(4, tiles.count)) }
+    private var columns: Int { max(1, min(maxColumns, tiles.count)) }
 
     func reload(favorites: [BrowserTab], selected: BrowserTab?) {
         let existing = Dictionary(uniqueKeysWithValues: tiles.map { ($0.tab.id, $0) })
@@ -161,9 +167,13 @@ final class FavoritesGridView: NSView {
         }
         tiles.forEach { addSubview($0) }
         updateSelection(selected)
+        updateHeight()
+        needsLayout = true
+    }
+
+    private func updateHeight() {
         let rows = tiles.isEmpty ? 0 : Int(ceil(Double(tiles.count) / Double(columns)))
         heightConstraint.constant = rows == 0 ? 0 : CGFloat(rows) * tileHeight + CGFloat(rows - 1) * gap
-        needsLayout = true
     }
 
     func updateSelection(_ selected: BrowserTab?) {

@@ -33,11 +33,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         state.load()
         windowController = BrowserWindowController()
         windowController.start()
-        for url in pendingURLs { state.openTab(url: url, select: true) }
+        for url in pendingURLs { state.openTab(url: url, in: externalLinksSpace, select: true) }
         pendingURLs.removeAll()
 
         Task { await ExtensionManager.shared.loadAll() }
         startMemoryManagement()
+        NotificationCenter.default.addObserver(forName: .brookSettingsDidChange, object: nil, queue: .main) { note in
+            let key = note.userInfo?["key"] as? String ?? "*"
+            MainActor.assumeIsolated {
+                // Cached settings blobs are re-read after an import/reset.
+                guard key == "*" else { return }
+                SearchEngines.invalidate()
+                SiteSettings.invalidate()
+                Boosts.invalidate()
+                WebViewFactory.reloadBoosts()
+            }
+        }
         NSApp.activate()
     }
 
@@ -58,8 +69,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Links opened from other apps when Brook is the default browser.
     func application(_ application: NSApplication, open urls: [URL]) {
         guard windowController != nil else { pendingURLs += urls; return }
-        for url in urls { state.openTab(url: url, select: true) }
+        for url in urls { state.openTab(url: url, in: externalLinksSpace, select: true) }
         windowController.showWindow(nil)
+    }
+
+    /// Space chosen in Settings → General for links from other apps (nil = current space).
+    private var externalLinksSpace: Space? {
+        guard let id = Settings.externalLinksSpace else { return nil }
+        return state.spaces.first { $0.id == id }
     }
 
     // MARK: Memory
@@ -69,6 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             MainActor.assumeIsolated {
                 let minutes = Settings.hibernateMinutes
                 if minutes > 0 { BrowserState.shared.hibernate(olderThan: TimeInterval(minutes * 60)) }
+                let hours = Settings.archiveHours
+                if hours > 0 { BrowserState.shared.archive(olderThan: TimeInterval(hours * 3600)) }
             }
         }
         hibernateTimer?.tolerance = 60
@@ -86,7 +105,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private var wc: BrowserWindowController { windowController }
 
-    @objc func newTab(_ sender: Any?) { wc.showWindow(nil); wc.showCommandBar(editing: false) }
+    @objc func newTab(_ sender: Any?) { wc.showWindow(nil); wc.newTab() }
+    @objc func showSettings(_ sender: Any?) { SettingsWindowController.shared.show() }
+    @objc func showSiteSettings(_ sender: Any?) { wc.showSiteInfo() }
+    @objc func stopLoading(_ sender: Any?) { state.selectedTab?.webView?.stopLoading() }
+    @objc func printPage(_ sender: Any?) {
+        guard let wv = state.selectedTab?.webView, let window = wc.window else { return }
+        let op = wv.printOperation(with: NSPrintInfo.shared)
+        op.view?.frame = wv.bounds
+        op.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+    }
     @objc func openLocation(_ sender: Any?) { wc.showWindow(nil); wc.showCommandBar(editing: true) }
     @objc func closeTab(_ sender: Any?) {
         if let key = NSApp.keyWindow, key !== wc.window, !(key is KeyPanel) { key.performClose(nil); return }
@@ -121,28 +149,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Settings.blockCookiePopups.toggle()
         wc.showToast(Settings.blockCookiePopups ? "Cookie popups will be declined" : "Cookie popup blocking off")
     }
-    @objc func setSearchEngine(_ sender: NSMenuItem) {
-        if let e = SearchEngine(rawValue: sender.representedObject as? String ?? "") { Settings.searchEngine = e }
-    }
-    @objc func setHibernate(_ sender: NSMenuItem) { Settings.hibernateMinutes = sender.tag }
     @objc func addExtensionFromStore(_ sender: Any?) { wc.promptChromeWebStore() }
     @objc func installExtensionFile(_ sender: Any?) { wc.promptInstallFile() }
     @objc func showMainWindow(_ sender: Any?) { wc.showWindow(nil) }
-    @objc func setAsDefaultBrowser(_ sender: Any?) {
-        let appURL = Bundle.main.bundleURL
-        Task {
-            try? await NSWorkspace.shared.setDefaultApplication(at: appURL, toOpenURLsWithScheme: "http")
-        }
-    }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case #selector(toggleCookiePopups(_:)):
             menuItem.state = Settings.blockCookiePopups ? .on : .off
-        case #selector(setSearchEngine(_:)):
-            menuItem.state = (menuItem.representedObject as? String) == Settings.searchEngine.rawValue ? .on : .off
-        case #selector(setHibernate(_:)):
-            menuItem.state = menuItem.tag == Settings.hibernateMinutes ? .on : .off
+        case #selector(stopLoading(_:)):
+            return state.selectedTab?.isLoading == true
+        case #selector(showSiteSettings(_:)), #selector(printPage(_:)):
+            return state.selectedTab?.url?.host() != nil
         case #selector(togglePin(_:)):
             menuItem.title = state.selectedTab?.isPinned == true ? "Unpin Tab" : "Pin Tab"
             return state.selectedTab != nil
@@ -185,26 +203,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         // App
-        let engines = NSMenu()
-        for e in SearchEngine.allCases {
-            let i = item(e.title, #selector(setSearchEngine(_:)))
-            i.representedObject = e.rawValue
-            engines.addItem(i)
-        }
-        let engineItem = NSMenuItem(title: "Search Engine", action: nil, keyEquivalent: "")
-        engineItem.submenu = engines
-        let hibernate = NSMenu()
-        for (title, minutes) in [("After 15 Minutes", 15), ("After 30 Minutes", 30), ("After 1 Hour", 60), ("After 4 Hours", 240), ("Never", 0)] {
-            hibernate.addItem(item(title, #selector(setHibernate(_:)), tag: minutes))
-        }
-        let hibernateItem = NSMenuItem(title: "Unload Background Tabs", action: nil, keyEquivalent: "")
-        hibernateItem.submenu = hibernate
         _ = submenu("Brook", [
             item("About Brook", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
             .separator(),
-            engineItem,
-            hibernateItem,
-            item("Set as Default Browser", #selector(setAsDefaultBrowser(_:))),
+            item("Settings…", #selector(showSettings(_:)), ","),
             .separator(),
             item("Hide Brook", #selector(NSApplication.hide(_:)), "h"),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
@@ -223,7 +225,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item("Pin Tab", #selector(togglePin(_:)), "d"),
             item("Add to Favorites", #selector(toggleFavorite(_:)), "d", [.command, .shift]),
             item("Duplicate Tab", #selector(duplicateTab(_:)), "k", [.command, .option]),
-            item("Copy Link", #selector(copyURL(_:)), "c", [.command, .shift])
+            item("Copy Link", #selector(copyURL(_:)), "c", [.command, .shift]),
+            .separator(),
+            item("Print…", #selector(printPage(_:)), "p")
         ])
 
         _ = submenu("Edit", [
@@ -246,10 +250,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .separator(),
             item("Reload Page", #selector(reload(_:)), "r"),
             item("Reload Ignoring Cache", #selector(hardReload(_:)), "r", [.command, .shift]),
+            item("Stop", #selector(stopLoading(_:)), "."),
             .separator(),
             item("Actual Size", #selector(actualSize(_:)), "0"),
             item("Zoom In", #selector(zoomIn(_:)), "="),
             item("Zoom Out", #selector(zoomOut(_:)), "-"),
+            .separator(),
+            item("Settings for This Website…", #selector(showSiteSettings(_:))),
             .separator(),
             item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control])
         ])

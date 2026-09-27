@@ -31,6 +31,10 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
     let urlPill = URLPillView()
     private let favoritesGrid = FavoritesGridView()
     private var favoritesTop: NSLayoutConstraint!
+    private var pillTop: NSLayoutConstraint!
+    private var pillHeight: NSLayoutConstraint!
+    private var bottomBar = NSView()
+    private var bottomHeight: NSLayoutConstraint!
 
     // Tabs
     private let scrollView = SidebarScrollView()
@@ -72,6 +76,7 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
         urlPill.translatesAutoresizingMaskIntoConstraints = false
         urlPill.onClick = { [weak self] in self?.browser?.showCommandBar(editing: true) }
         urlPill.extensionsButton.onClick = { [weak self] in self?.browser?.showExtensionsMenu() }
+        urlPill.siteButton.onClick = { [weak self] in self?.browser?.showSiteInfo() }
         addSubview(urlPill)
 
         favoritesGrid.onSelect = { [weak self] tab in self?.state.select(tab) }
@@ -123,7 +128,7 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
         // Bottom bar
         spaceStack.spacing = 2
         spaceStack.translatesAutoresizingMaskIntoConstraints = false
-        let bottom = NSView()
+        let bottom = bottomBar
         bottom.translatesAutoresizingMaskIntoConstraints = false
         addSubview(bottom)
         ([fireButton, downloadsButton, spaceStack, addSpaceButton] as [NSView]).forEach { bottom.addSubview($0) }
@@ -137,7 +142,6 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
             navStack.trailingAnchor.constraint(equalTo: navRow.trailingAnchor),
             navStack.centerYAnchor.constraint(equalTo: navRow.centerYAnchor),
 
-            urlPill.topAnchor.constraint(equalTo: navRow.bottomAnchor, constant: 10),
             urlPill.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             urlPill.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
 
@@ -152,7 +156,6 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
             bottom.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             bottom.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             bottom.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-            bottom.heightAnchor.constraint(equalToConstant: 28),
             fireButton.leadingAnchor.constraint(equalTo: bottom.leadingAnchor),
             fireButton.centerYAnchor.constraint(equalTo: bottom.centerYAnchor),
             downloadsButton.leadingAnchor.constraint(equalTo: fireButton.trailingAnchor, constant: 2),
@@ -165,7 +168,42 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
         navRowTop = navRow.topAnchor.constraint(equalTo: topAnchor, constant: 8)
         navRowLeading = navRow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 78)
         favoritesTop = favoritesGrid.topAnchor.constraint(equalTo: urlPill.bottomAnchor, constant: 12)
-        NSLayoutConstraint.activate([navRowTop, navRowLeading, favoritesTop])
+        pillTop = urlPill.topAnchor.constraint(equalTo: navRow.bottomAnchor, constant: 10)
+        pillHeight = urlPill.heightAnchor.constraint(equalToConstant: 0)
+        bottomHeight = bottom.heightAnchor.constraint(equalToConstant: 28)
+        NSLayoutConstraint.activate([navRowTop, navRowLeading, favoritesTop, pillTop, bottomHeight])
+        applySettings()
+    }
+
+    /// Re-reads the appearance settings that affect the sidebar.
+    func applySettings() {
+        let showPill = Settings.showAddressBar
+        urlPill.isHidden = !showPill
+        pillHeight.isActive = !showPill
+        pillTop.constant = showPill ? 10 : 0
+        let showBottom = Settings.showBottomBar
+        bottomBar.isHidden = !showBottom
+        bottomHeight.constant = showBottom ? 28 : 0
+        favoritesGrid.maxColumns = Settings.favoritesColumns
+        let density = Settings.tabDensity
+        let font = Settings.tabFontSize
+        if density != rowDensity || font != rowFontSize {
+            rowDensity = density
+            rowFontSize = font
+            table.reloadData()
+            updateSelection()
+        }
+        reloadFavorites()
+    }
+
+    private var rowDensity = Settings.tabDensity
+    private var rowFontSize = Settings.tabFontSize
+
+    private func reloadFavorites() {
+        let show = Settings.showFavorites && !state.favorites.isEmpty
+        favoritesGrid.isHidden = !show
+        favoritesGrid.reload(favorites: show ? state.favorites : [], selected: state.selectedTab)
+        favoritesTop.constant = show ? 12 : 0
     }
 
     // MARK: Updates from the window controller
@@ -181,8 +219,7 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
             scrollView.layer?.add(t, forKey: "spaceSwitch")
         }
         table.reloadData()
-        favoritesGrid.reload(favorites: state.favorites, selected: state.selectedTab)
-        favoritesTop.constant = state.favorites.isEmpty ? 0 : 12
+        reloadFavorites()
         rebuildSpaceDots()
         updateSelection()
     }
@@ -237,7 +274,9 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
         backButton.isEnabled = tab?.webView?.canGoBack ?? false
         forwardButton.isEnabled = tab?.webView?.canGoForward ?? false
         reloadButton.isEnabled = tab != nil
-        reloadButton.setSymbol(tab?.isLoading == true ? "xmark" : "arrow.clockwise")
+        let loading = tab?.isLoading == true
+        reloadButton.setSymbol(loading ? "xmark" : "arrow.clockwise")
+        reloadButton.toolTip = loading ? "Stop (⌘.)" : "Reload (⌘R)"
         urlPill.update(tab: tab)
     }
 
@@ -245,7 +284,7 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
         let dm = DownloadManager.shared
         downloadsButton.isHidden = dm.items.isEmpty
         downloadsButton.setSymbol(dm.hasActive ? "arrow.down.circle.dotted" : "arrow.down.circle")
-        downloadsButton.imageView.contentTintColor = dm.hasActive ? .controlAccentColor : .secondaryLabelColor
+        downloadsButton.tint = dm.hasActive ? .controlAccentColor : .secondaryLabelColor
     }
 
     // MARK: Table
@@ -254,7 +293,7 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         if case .divider = rows[row] { return 11 }
-        return 34
+        return rowDensity.rowHeight
     }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
@@ -266,12 +305,15 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
         case .pinned(let tab), .tab(let tab):
             let cell = tableView.makeView(withIdentifier: TabCellView.id, owner: self) as? TabCellView ?? TabCellView()
             cell.onClose = { [weak self] t in self?.state.close(t) }
+            cell.fontSize = rowFontSize
             cell.configure(tab: tab, selected: tab === state.selectedTab)
             return cell
         case .divider:
             return tableView.makeView(withIdentifier: DividerCellView.id, owner: self) as? DividerCellView ?? DividerCellView()
         case .newTab:
-            return tableView.makeView(withIdentifier: NewTabCellView.id, owner: self) as? NewTabCellView ?? NewTabCellView()
+            let cell = tableView.makeView(withIdentifier: NewTabCellView.id, owner: self) as? NewTabCellView ?? NewTabCellView()
+            cell.fontSize = rowFontSize
+            return cell
         }
     }
 
@@ -282,7 +324,7 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
         guard row >= 0, row < rows.count else { return }
         switch rows[row] {
         case .pinned(let t), .tab(let t): state.select(t)
-        case .newTab: browser?.showCommandBar(editing: false)
+        case .newTab: browser?.newTab()
         case .divider: break
         }
     }
@@ -377,6 +419,10 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
     private func spaceMenu(for space: Space) -> NSMenu {
         let m = NSMenu()
         m.addItem(ClosureMenuItem("Edit Space…") { [weak self] in self?.browser?.promptEditSpace(space) })
+        if let i = state.spaces.firstIndex(where: { $0 === space }) {
+            if i > 0 { m.addItem(ClosureMenuItem("Move Left") { [weak self] in self?.state.moveSpace(from: i, to: i - 1) }) }
+            if i < state.spaces.count - 1 { m.addItem(ClosureMenuItem("Move Right") { [weak self] in self?.state.moveSpace(from: i, to: i + 1) }) }
+        }
         if state.spaces.count > 1 {
             m.addItem(ClosureMenuItem("Delete Space") { [weak self] in self?.browser?.confirmDeleteSpace(space) })
         }

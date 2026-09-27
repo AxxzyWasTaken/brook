@@ -25,7 +25,29 @@ Every push to `main` is built by GitHub Actions on a Mac. Download `Brook.zip` f
 | ⌃1–9, ⌥⌘← → , two-finger swipe on sidebar | Switch spaces |
 | ⇧⌘C | Copy link |
 | ⌘F | Find in page |
+| ⌘, | Settings |
+| ⌘P / ⌘. | Print / stop loading |
 | ⇧⌘⌫ | Fire: burn tabs & browsing data |
+
+Any menu shortcut can be remapped in System Settings → Keyboard → Keyboard Shortcuts →
+App Shortcuts (add one for Brook with the exact menu item title).
+
+## Customising
+Everything is in **Settings (⌘,)** and applies instantly:
+- **Appearance**: light/dark/system, sidebar left or right, floating card or edge-to-edge page
+  (margin and corner radius), space tint strength, tab density and text size, which sidebar
+  parts show, favorites columns.
+- **Tabs**: where new tabs open, what a new tab shows (command bar, blank page, or a URL),
+  what ⌘W does on pinned tabs, auto-archiving idle tabs (restore from the archive), unloading
+  background tabs, which space links from other apps open in.
+- **Search**: add any engine with a `%s` URL template and a keyword. Type `w cats` in the
+  command bar to search that engine. Each space can have its own default engine.
+- **Websites**: default zoom, JavaScript and autoplay, plus per-site overrides. Click the lock in
+  the address pill for this site's settings.
+- **Boosts**: your own CSS and JavaScript for the sites you choose (or every site), like Arc's.
+- **Spaces**: any colour, and optionally a **separate profile** so the space keeps its own
+  cookies and logins.
+- **Advanced**: download folder, export/import all settings as a file, reset.
 
 ## Extensions
 Uses WebKit's `WKWebExtension` API (as DuckDuckGo's browser does). Install from the puzzle

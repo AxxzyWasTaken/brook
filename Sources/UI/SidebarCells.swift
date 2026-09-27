@@ -15,6 +15,9 @@ final class TabCellView: NSTableCellView {
     private var tracking: NSTrackingArea?
     private var hovering = false { didSet { updateClose() } }
     private var selected = false
+    var fontSize: CGFloat = 13 {
+        didSet { if fontSize != oldValue { label.font = .systemFont(ofSize: fontSize, weight: .medium) } }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -139,6 +142,10 @@ final class TabCellView: NSTableCellView {
 final class NewTabCellView: NSTableCellView {
     static let id = NSUserInterfaceItemIdentifier("NewTabCell")
     private let background = HoverControl()
+    private let label = NSTextField(labelWithString: "New Tab")
+    var fontSize: CGFloat = 13 {
+        didSet { if fontSize != oldValue { label.font = .systemFont(ofSize: fontSize, weight: .medium) } }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -149,7 +156,6 @@ final class NewTabCellView: NSTableCellView {
         let icon = NSImageView(image: NSImage.symbol("plus", size: 12, weight: .semibold) ?? NSImage())
         icon.contentTintColor = .secondaryLabelColor
         icon.translatesAutoresizingMaskIntoConstraints = false
-        let label = NSTextField(labelWithString: "New Tab")
         label.font = .systemFont(ofSize: 13, weight: .medium)
         label.textColor = .secondaryLabelColor
         label.translatesAutoresizingMaskIntoConstraints = false

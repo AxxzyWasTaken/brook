@@ -9,6 +9,10 @@ final class Space {
     var pinned: [BrowserTab] = []
     var tabs: [BrowserTab] = []
     var lastSelectedID: UUID?
+    /// Overrides the default search engine for this space.
+    var searchEngineID: String?
+    /// When set, the space keeps its own cookies, logins and site data in this store.
+    var profileID: UUID?
 
     init(id: UUID = UUID(), name: String, colorHex: String) {
         self.id = id
@@ -49,6 +53,15 @@ private struct SpaceRecord: Codable {
     var pinned: [TabRecord]
     var tabs: [TabRecord]
     var lastSelected: UUID?
+    var searchEngine: String?
+    var profile: UUID?
+}
+
+struct ArchivedTab: Codable {
+    var url: URL
+    var title: String
+    var spaceID: UUID
+    var date: Date
 }
 
 private struct StateRecord: Codable {
@@ -56,6 +69,7 @@ private struct StateRecord: Codable {
     var spaces: [SpaceRecord]
     var currentSpace: Int
     var selected: UUID?
+    var archived: [ArchivedTab]?
 }
 
 // MARK: - State
@@ -71,6 +85,8 @@ final class BrowserState {
     weak var observer: BrowserStateObserver?
 
     private var recentlyClosed: [(url: URL, title: String, spaceID: UUID)] = []
+    /// Tabs closed automatically after sitting unused (Settings → Tabs → Archive).
+    private(set) var archived: [ArchivedTab] = []
     private let saver = Debouncer(delay: 1.5)
     private let fileURL = AppPaths.support.appendingPathComponent("session.json")
 
@@ -93,9 +109,12 @@ final class BrowserState {
                 s.pinned = sr.pinned.map { makeTab($0, favorite: false, pinned: true) }
                 s.tabs = sr.tabs.map { makeTab($0, favorite: false, pinned: false) }
                 s.lastSelectedID = sr.lastSelected
+                s.searchEngineID = sr.searchEngine
+                s.profileID = sr.profile
                 return s
             }
             currentSpaceIndex = min(max(0, record.currentSpace), spaces.count - 1)
+            archived = record.archived ?? []
             if let sel = record.selected, let tab = allTabs.first(where: { $0.id == sel }) {
                 select(tab)
             } else {
@@ -127,10 +146,12 @@ final class BrowserState {
             favorites: favorites.map(rec),
             spaces: spaces.map {
                 SpaceRecord(id: $0.id, name: $0.name, color: $0.colorHex,
-                            pinned: $0.pinned.map(rec), tabs: $0.tabs.map(rec), lastSelected: $0.lastSelectedID)
+                            pinned: $0.pinned.map(rec), tabs: $0.tabs.map(rec), lastSelected: $0.lastSelectedID,
+                            searchEngine: $0.searchEngineID, profile: $0.profileID)
             },
             currentSpace: currentSpaceIndex,
-            selected: selectedTab?.id)
+            selected: selectedTab?.id,
+            archived: archived)
         if let data = try? JSONEncoder().encode(record) {
             try? data.write(to: fileURL, options: .atomic)
         }
@@ -194,12 +215,23 @@ final class BrowserState {
         if let parent, let i = target.tabs.firstIndex(where: { $0 === parent }) {
             target.tabs.insert(tab, at: i + 1)
         } else {
-            target.tabs.insert(tab, at: 0)   // Arc-style: new tabs appear at the top
+            target.tabs.insert(tab, at: newTabIndex(in: target))
         }
         observer?.browserStateDidChangeStructure()
         if shouldSelect { select(tab) } else if loadNow { tab.materialize() }
         scheduleSave()
         return tab
+    }
+
+    /// Where a new tab goes in a space's list (Settings → Tabs → New tabs open).
+    private func newTabIndex(in space: Space) -> Int {
+        switch Settings.newTabPosition {
+        case .top: return 0
+        case .bottom: return space.tabs.count
+        case .nextToCurrent:
+            if let sel = selectedTab, let i = space.tabs.firstIndex(where: { $0 === sel }) { return i + 1 }
+            return 0
+        }
     }
 
     func insert(popup tab: BrowserTab, after parent: BrowserTab, select shouldSelect: Bool) {
@@ -208,7 +240,7 @@ final class BrowserState {
         if let i = target.tabs.firstIndex(where: { $0 === parent }) {
             target.tabs.insert(tab, at: i + 1)
         } else {
-            target.tabs.insert(tab, at: 0)
+            target.tabs.insert(tab, at: newTabIndex(in: target))
         }
         observer?.browserStateDidChangeStructure()
         if shouldSelect { select(tab) }
@@ -254,11 +286,12 @@ final class BrowserState {
 
     // MARK: Closing
 
-    /// ⌘W behaviour: regular tabs are closed; pinned tabs and favorites are unloaded and reset.
+    /// ⌘W behaviour: regular tabs are closed; pinned tabs and favorites follow Settings → Tabs.
     func close(_ tab: BrowserTab) {
         if tab.isPinned || tab.isFavorite {
+            if tab.isPinned && Settings.pinnedClose == .unpin { remove(tab); return }
             if selectedTab === tab { select(neighbor(of: tab)) }
-            tab.resetToHome()
+            if Settings.pinnedClose == .unloadOnly { tab.unload() } else { tab.resetToHome() }
             observer?.browserStateTabDidChange(tab, change: [.url, .title, .loaded])
             scheduleSave()
         } else {
@@ -317,8 +350,14 @@ final class BrowserState {
         default: break
         }
         let wasSelected = selectedTab === tab
+        let oldProfile = profileID(for: tab)
         detach(tab)
         attach(tab, to: destination, at: idx)
+        // A tab's web view is tied to its profile's data store; reload it in the new one.
+        if tab.isLoaded && profileID(for: tab) != oldProfile {
+            tab.unload()
+            if wasSelected { tab.materialize() }
+        }
         observer?.browserStateDidChangeStructure()
         if wasSelected, let s = space(of: tab), s !== currentSpace {
             select(currentSpace.tabs.first)
@@ -370,24 +409,65 @@ final class BrowserState {
         switchToSpace(i)
     }
 
-    func addSpace(name: String, colorHex: String) {
-        spaces.append(Space(name: name, colorHex: colorHex))
+    /// The data store profile a tab belongs to. Favorites always use the shared one.
+    func profileID(for tab: BrowserTab) -> UUID? {
+        tab.isFavorite ? nil : space(of: tab)?.profileID
+    }
+
+    func addSpace(name: String, colorHex: String, searchEngineID: String? = nil, separateProfile: Bool = false) {
+        let s = Space(name: name, colorHex: colorHex)
+        s.searchEngineID = searchEngineID
+        s.profileID = separateProfile ? UUID() : nil
+        spaces.append(s)
         switchToSpace(spaces.count - 1)
         observer?.browserStateDidChangeStructure()
     }
 
-    func updateSpace(_ space: Space, name: String, colorHex: String) {
+    func updateSpace(_ space: Space, name: String, colorHex: String, searchEngineID: String?, separateProfile: Bool) {
         space.name = name
         space.colorHex = colorHex
-        observer?.browserStateDidSwitchSpace(forward: true)
+        space.searchEngineID = searchEngineID
+        if separateProfile != (space.profileID != nil) {
+            // Switching profile: every tab in the space has to reload in the other data store.
+            let old = space.profileID
+            space.profileID = separateProfile ? UUID() : nil
+            for t in space.pinned + space.tabs where t.isLoaded {
+                t.unload()
+                if t === selectedTab { t.materialize() }
+            }
+            if let old { Self.removeProfileData(old) }
+        }
+        if let i = spaces.firstIndex(where: { $0 === space }), i == currentSpaceIndex {
+            observer?.browserStateDidSwitchSpace(forward: true)
+        }
+        observer?.browserStateDidChangeStructure()
+        if let sel = selectedTab { observer?.browserStateDidSelect(sel, previous: sel) }
+        scheduleSave()
+    }
+
+    func moveSpace(from: Int, to: Int) {
+        guard spaces.indices.contains(from), spaces.indices.contains(to), from != to else { return }
+        let current = currentSpace
+        let s = spaces.remove(at: from)
+        spaces.insert(s, at: to)
+        currentSpaceIndex = spaces.firstIndex(where: { $0 === current }) ?? 0
         observer?.browserStateDidChangeStructure()
         scheduleSave()
+    }
+
+    /// Deletes a profile's cookies and site data once no web view is using it.
+    static func removeProfileData(_ id: UUID) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try? await WKWebsiteDataStore.remove(forIdentifier: id)
+        }
     }
 
     func deleteSpace(_ space: Space) {
         guard spaces.count > 1, let idx = spaces.firstIndex(where: { $0 === space }) else { return }
         for t in space.pinned + space.tabs { t.unload() }
         spaces.remove(at: idx)
+        if let profile = space.profileID { Self.removeProfileData(profile) }
         if currentSpaceIndex >= spaces.count || idx <= currentSpaceIndex {
             currentSpaceIndex = max(0, min(currentSpaceIndex - (idx <= currentSpaceIndex ? 1 : 0), spaces.count - 1))
         }
@@ -408,6 +488,7 @@ final class BrowserState {
         }
         for t in favorites { t.resetToHome() }
         recentlyClosed.removeAll()
+        archived.removeAll()
         HistoryStore.shared.clear()
         observer?.browserStateDidChangeStructure()
         select(nil)
@@ -425,6 +506,44 @@ final class BrowserState {
                 if tab !== self.selectedTab { tab.unload() }
             }
         }
+    }
+
+    /// Closes regular tabs nobody has looked at for a while, keeping them in the archive.
+    /// Tabs playing media or using the camera/microphone are left alone.
+    func archive(olderThan seconds: TimeInterval) {
+        let cutoff = Date().addingTimeInterval(-seconds)
+        let candidates = spaces.flatMap { s in s.tabs.map { (s, $0) } }
+            .filter { $0.1 !== selectedTab && $0.1.lastActive < cutoff }
+        guard !candidates.isEmpty else { return }
+        Task {
+            var changed = false
+            for (space, tab) in candidates {
+                if await tab.isBusy() { continue }
+                guard tab !== self.selectedTab, let i = space.tabs.firstIndex(where: { $0 === tab }) else { continue }
+                if let url = tab.url {
+                    self.archived.insert(ArchivedTab(url: url, title: tab.displayTitle, spaceID: space.id, date: Date()), at: 0)
+                }
+                space.tabs.remove(at: i)
+                tab.unload()
+                changed = true
+            }
+            guard changed else { return }
+            if self.archived.count > 300 { self.archived.removeLast(self.archived.count - 300) }
+            self.observer?.browserStateDidChangeStructure()
+            self.scheduleSave()
+        }
+    }
+
+    func restoreArchived(at index: Int) {
+        guard archived.indices.contains(index) else { return }
+        let a = archived.remove(at: index)
+        let space = spaces.first(where: { $0.id == a.spaceID }) ?? currentSpace
+        openTab(url: a.url, in: space)
+    }
+
+    func clearArchive() {
+        archived.removeAll()
+        scheduleSave()
     }
 
     // MARK: Change fan-out

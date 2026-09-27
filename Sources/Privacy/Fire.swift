@@ -21,9 +21,13 @@ enum Fire {
     static func burn(overlayHost: NSView?) {
         if let host = overlayHost { FireAnimationView.play(in: host) }
         BrowserState.shared.burnTabs()
-        let store = WKWebsiteDataStore.default()
+        // Every profile: the main one plus each space's separate one.
+        let stores = [WKWebsiteDataStore.default()] +
+            BrowserState.shared.spaces.compactMap(\.profileID).map { WebViewFactory.dataStore(for: $0) }
         Task {
-            await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+            for store in stores {
+                await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+            }
         }
         URLCache.shared.removeAllCachedResponses()
     }

@@ -72,12 +72,14 @@ final class AutoconsentHandler: NSObject, WKScriptMessageHandlerWithReply {
                                        "selfTestResult", "autoconsentDone", "autoconsentError", "report", "cmpDetected"]
     private var recentlyHandled: [String: Date] = [:]
 
-    func install(into ucc: WKUserContentController) {
+    lazy var userScript: WKUserScript? = {
         guard let url = Bundle.main.url(forResource: "autoconsent-bundle", withExtension: "js"),
-              let source = try? String(contentsOf: url, encoding: .utf8) else { return }
-        let script = WKUserScript(source: source, injectionTime: .atDocumentStart,
-                                  forMainFrameOnly: false, in: .defaultClient)
-        ucc.addUserScript(script)
+              let source = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return WKUserScript(source: source, injectionTime: .atDocumentStart,
+                            forMainFrameOnly: false, in: .defaultClient)
+    }()
+
+    func installHandlers(into ucc: WKUserContentController) {
         for name in Self.messageNames {
             ucc.addScriptMessageHandler(self, contentWorld: .defaultClient, name: name)
         }
@@ -111,12 +113,13 @@ final class AutoconsentHandler: NSObject, WKScriptMessageHandlerWithReply {
 
     private func initResponse(_ message: WKScriptMessage, _ body: [String: Any]) -> [String: Any] {
         let config = PrivacyConfigStore.shared
-        guard Settings.blockCookiePopups, config.enabled,
+        guard config.enabled,
               let url = URL(string: body["url"] as? String ?? ""),
               let scheme = url.scheme, scheme == "http" || scheme == "https",
               let host = url.host() else { return Self.ok }
 
         let topHost = message.webView?.url?.host() ?? host
+        if !SiteSettings.cookiePopups(for: topHost) { return Self.ok }
         if config.isExcepted(host: topHost) { return Self.ok }
 
         // If we just handled a popup on this site and the page reloaded, don't loop.

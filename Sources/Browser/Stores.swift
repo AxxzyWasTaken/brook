@@ -180,8 +180,32 @@ final class DownloadManager: NSObject, WKDownloadDelegate {
     }
 
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String) async -> URL? {
-        let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
         let name = suggestedFilename.isEmpty ? "Download" : suggestedFilename
+        if Settings.askDownloadLocation {
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = name
+            panel.directoryURL = Settings.downloadFolder
+            panel.canCreateDirectories = true
+            let response: NSApplication.ModalResponse
+            if let window = NSApp.mainWindow { response = await panel.beginSheetModal(for: window) } else { response = panel.runModal() }
+            guard response == .OK, let chosen = panel.url else {
+                items.removeAll { $0.download === download }
+                notify()
+                return nil
+            }
+            // The save panel already asked about replacing an existing file.
+            try? FileManager.default.removeItem(at: chosen)
+            if let item = item(for: download) {
+                item.filename = chosen.lastPathComponent
+                item.destination = chosen
+            }
+            notify()
+            return chosen
+        }
+        var folder = Settings.downloadFolder
+        if (try? folder.checkResourceIsReachable()) != true {
+            folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        }
         let base = (name as NSString).deletingPathExtension
         let ext = (name as NSString).pathExtension
         var candidate = folder.appendingPathComponent(name)

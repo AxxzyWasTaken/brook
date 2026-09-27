@@ -349,10 +349,13 @@ final class ChromeWebStoreBridge: NSObject, WKScriptMessageHandler {
     static let shared = ChromeWebStoreBridge()
     private let world = WKContentWorld.world(name: "BrookStore")
 
-    func install(into ucc: WKUserContentController) {
+    lazy var userScript: WKUserScript? = {
         guard let url = Bundle.main.url(forResource: "chrome-web-store", withExtension: "js"),
-              let source = try? String(contentsOf: url, encoding: .utf8) else { return }
-        ucc.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: world))
+              let source = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: world)
+    }()
+
+    func installHandlers(into ucc: WKUserContentController) {
         ucc.add(self, contentWorld: world, name: "brookInstallExtension")
     }
 
