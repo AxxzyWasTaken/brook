@@ -83,10 +83,13 @@ static void *kTabKVOContext = &kTabKVOContext;
     if (!isPopup && _url) {
         NSURL *url = _url;
         __weak BrookWebView *weakWV = wv;
-        [ExtensionManager.shared whenLoaded:^{
-            BrookWebView *w = weakWV;
-            // Skip if the tab was unloaded or has already been sent somewhere else meanwhile.
-            if (w && !w.URL && !w.isLoading) [w loadRequest:[NSURLRequest requestWithURL:url]];
+        // Restored tabs wait for the blocklist and for extensions' blocking rules.
+        [ContentBlocker.shared whenReady:^{
+            [ExtensionManager.shared whenLoaded:^{
+                BrookWebView *w = weakWV;
+                // Skip if the tab was unloaded or has already been sent somewhere else meanwhile.
+                if (w && !w.URL && !w.isLoading) [w loadRequest:[NSURLRequest requestWithURL:url]];
+            }];
         }];
     }
     [ExtensionManager.shared tabDidOpen:self];

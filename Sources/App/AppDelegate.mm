@@ -26,6 +26,7 @@
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     [PrivacyConfigStore.shared load];
     (void)WebViewFactory.userContentController;   // compile content scripts once, up front
+    [ContentBlocker.shared load];
     [self.state load];
     _windowController = [BrowserWindowController new];
     [_windowController start];

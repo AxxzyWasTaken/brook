@@ -60,7 +60,7 @@ static NSUserDefaults *D(void) { return NSUserDefaults.standardUserDefaults; }
              @"showAddressBar", @"showFavorites", @"showBottomBar", @"favoritesColumns",
              @"newTabPosition", @"newTabPage", @"newTabURL", @"pinnedClose", @"archiveHours", @"hibernateMinutes",
              @"externalLinksSpace", @"downloadFolder", @"askDownloadLocation",
-             @"defaultZoom", @"javascriptEnabled", @"autoplay", @"blockCookiePopups",
+             @"defaultZoom", @"javascriptEnabled", @"autoplay", @"blockCookiePopups", @"blockAds",
              @"defaultSearchEngine", @"searchEngines", @"siteSettings", @"boosts"];
 }
 
@@ -190,6 +190,9 @@ static double clampD(double v, double lo, double hi) { return MIN(hi, MAX(lo, v)
 
 + (BOOL)blockCookiePopups { return flag(@"blockCookiePopups", YES); }
 + (void)setBlockCookiePopups:(BOOL)v { [self store:@(v) key:@"blockCookiePopups"]; }
+
++ (BOOL)blockAds { return flag(@"blockAds", YES); }
++ (void)setBlockAds:(BOOL)v { [self store:@(v) key:@"blockAds"]; }
 
 // Search
 

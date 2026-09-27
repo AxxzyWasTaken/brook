@@ -57,6 +57,9 @@ button in the address pill: paste a Chrome Web Store link, or browse the store a
 (e.g. blocking `webRequest`) won't work.
 
 ## Credits
+- Ad and tracker blocking uses [AdGuard's filter lists](https://github.com/AdguardTeam/AdguardFilters)
+  (Base and Tracking Protection), converted at build time by AdGuard's
+  [SafariConverterLib](https://github.com/AdguardTeam/SafariConverterLib) (`scripts/blocklist.sh`).
 - Cookie-popup handling uses DuckDuckGo's [autoconsent](https://github.com/duckduckgo/autoconsent)
   (MPL-2.0, see `Resources/autoconsent-LICENSE.txt`) and rules from DuckDuckGo's public privacy config.
 - Extension and autoconsent integration modelled on

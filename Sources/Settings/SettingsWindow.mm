@@ -517,6 +517,8 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
                                              onChange:^(NSInteger i) { Settings.autoplay = (AutoplayPolicy)i; }]];
     [f row:@"Cookie popups" view:[Controls check:@"Decline cookie popups automatically" on:Settings.blockCookiePopups
                                         onChange:^(BOOL on) { Settings.blockCookiePopups = on; }]];
+    [f row:@"Ads" view:[Controls check:@"Block ads and trackers" on:Settings.blockAds
+                              onChange:^(BOOL on) { Settings.blockAds = on; }]];
 
     [f separator];
     EditableList *l = [[EditableList alloc] initWithColumns:{{@"site", @"Website", 160}, {@"zoom", @"Zoom", 84}, {@"js", @"JavaScript", 92},

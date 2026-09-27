@@ -25,6 +25,9 @@ jobs:
           sudo xcode-select -s "$XC"
           xcodebuild -version
 
+      - name: Blocklists
+        run: scripts/blocklist.sh
+
       - name: Generate project
         run: |
           brew install xcodegen

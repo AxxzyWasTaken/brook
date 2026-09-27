@@ -74,6 +74,7 @@ FOUNDATION_EXPORT NSInteger AutoplayPolicyFromRaw(NSString *raw);
 @property (class) BOOL javascriptEnabled;
 @property (class) AutoplayPolicy autoplay;
 @property (class) BOOL blockCookiePopups;
+@property (class) BOOL blockAds;             // default YES
 
 // Search
 @property (class, copy) NSString *defaultSearchEngine;

@@ -26,6 +26,7 @@ NS_ASSUME_NONNULL_END
 #import "Stores.h"
 #import "WebViewFactory.h"
 #import "Autoconsent.h"
+#import "ContentBlocker.h"
 #import "Fire.h"
 #import "ExtensionManager.h"
 #import "Controls.h"
