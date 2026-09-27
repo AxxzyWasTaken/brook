@@ -112,6 +112,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
             let delta = self.onRight ? -dx : dx
             self.sidebarWidth = min(420, max(190, self.sidebarWidth + delta))
             self.sidebarWidthConstraint.constant = self.sidebarWidth
+            // On the right the sidebar's left edge (and the traffic lights in it) moves with the width.
+            if self.onRight { self.root.layoutSubtreeIfNeeded(); self.alignNavRow() }
         }
         handle.onEnd = { [weak self] in
             guard let self else { return }
@@ -249,9 +251,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
     /// before we first move them. AppKit resets them on titlebar relayout, so we re-derive from here.
     private var lightDefaults: [NSWindow.ButtonType: (x: CGFloat, fromTop: CGFloat)] = [:]
 
-    /// Moves the traffic lights so they sit inside the sidebar's (or page's) top-left corner however
-    /// big the window margin and corner radius are. Never closer to the window corner than macOS's
-    /// own position, which keeps them clear of the rounded window corner at small margins.
+    /// Left edge of the sidebar at rest, in window coordinates. The traffic lights live in its
+    /// top-left corner on either side, like Arc, so the page never has to make room for them.
+    private var sidebarRestingMinX: CGFloat {
+        onRight ? root.bounds.width - inset - sidebarWidth : inset
+    }
+
+    /// Moves the traffic lights into the sidebar's top-left corner however big the window margin
+    /// and corner radius are. Never closer to the corner than macOS's own position, which keeps
+    /// them clear of the rounded window corner at small margins.
     private func placeTrafficLights() {
         guard let window, !window.styleMask.contains(.fullScreen) else { return }
         let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
@@ -263,12 +271,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
             }
         }
         guard let close = lightDefaults[.closeButton] else { return }
-        // The panel whose corner the lights sit in: the sidebar on the left; with the sidebar on
-        // the right the page starts below the lights, so only the margin matters.
-        let r: CGFloat = onRight ? 0 : sidebarGlass.cornerRadius
+        let r = sidebarGlass.cornerRadius
         let padX = max(close.x - 8, r * 0.55)
         let padTop = max(close.fromTop - 8, r * 0.55)
-        let dx = max(0, inset + padX - close.x)
+        // Only the left side keeps macOS's position as a floor; on the right it just follows the sidebar.
+        let dx = onRight ? sidebarRestingMinX + padX - close.x : max(0, inset + padX - close.x)
         let height = buttons[0].frame.height
         // Stay inside the titlebar, or the buttons get clipped and stop taking clicks.
         let dy = min(max(0, inset + padTop - close.fromTop), bar.bounds.height - close.fromTop - height - 2)
@@ -290,18 +297,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
             contentTop.constant = inset
             return
         }
-        // Measure against where the sidebar rests (inset from the top-left), not its current
-        // frame: while it slides in, the frame is still off-screen and would push the row away.
+        // Measure against where the sidebar rests, not its current frame: while it slides in,
+        // the frame is still off-screen and would push the row away.
         let zoomRect = zoomSuper.convert(zoom.frame, to: nil)
         let sidebarTop = root.bounds.height - inset
         let top = sidebarTop - zoomRect.midY - 14
-        let leading = zoomRect.maxX - inset + 8
+        let leading = zoomRect.maxX - sidebarRestingMinX + 8
         sidebar.navRowTop.constant = max(4, top)
-        sidebar.navRowLeading.constant = onRight ? 8 : max(8, leading)
-        // With the sidebar on the right the traffic lights sit over the page's corner,
-        // so the page starts just below them.
-        let lightsVisible = !zoom.isHidden && onRight && !sidebarHidden
-        contentTop.constant = lightsVisible ? max(inset, root.bounds.height - zoomRect.minY + 10) : inset
+        sidebar.navRowLeading.constant = max(8, leading)
+        // The lights always sit inside the sidebar, so the page never makes room for them.
+        contentTop.constant = inset
     }
 
     // MARK: Showing
@@ -368,8 +373,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
 
     private func applySidebarVisibility(animated: Bool) {
         let hidden = sidebarHidden && !peeking
-        // On the right, a peeking sidebar is far from the traffic lights, so they stay hidden.
-        let lightsHidden = sidebarHidden && (!peeking || onRight)
+        // The traffic lights ride in the sidebar's corner, so they come and go with it.
+        let lightsHidden = sidebarHidden && !peeking
         let lights: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
         for b in lights { window?.standardWindowButton(b)?.isHidden = lightsHidden }
         contentToSidebar.isActive = !sidebarHidden
