@@ -1,18 +1,18 @@
-# Drift
+# Brook
 
 A fast, native macOS 26 browser: AppKit + WebKit, an Arc-style sidebar with Liquid Glass,
 DuckDuckGo's cookie-popup auto-reject and Fire button, and Chrome extension support.
 
 ## Get the app
-Every push to `main` is built by GitHub Actions on a Mac. Download `Drift.zip` from the
-**latest** release (or the run's artifact), unzip, move `Drift.app` to Applications, then run once:
+Every push to `main` is built by GitHub Actions on a Mac. Download `Brook.zip` from the
+**latest** release (or the run's artifact), unzip, move `Brook.app` to Applications, then run once:
 
-    xattr -dr com.apple.quarantine /Applications/Drift.app
+    xattr -dr com.apple.quarantine /Applications/Brook.app
 
 (The build is signed ad-hoc, not notarized, so macOS needs that the first time.)
 
 ## Build locally
-    brew install xcodegen && xcodegen generate && open Drift.xcodeproj
+    brew install xcodegen && xcodegen generate && open Brook.xcodeproj
 
 ## Shortcuts
 | | |
@@ -30,7 +30,7 @@ Every push to `main` is built by GitHub Actions on a Mac. Download `Drift.zip` f
 ## Extensions
 Uses WebKit's `WKWebExtension` API (as DuckDuckGo's browser does). Install from the puzzle
 button in the address pill: paste a Chrome Web Store link, or browse the store and click
-**Add to Drift**. Manifest V3 extensions work best; APIs Safari doesn't support
+**Add to Brook**. Manifest V3 extensions work best; APIs Safari doesn't support
 (e.g. blocking `webRequest`) won't work.
 
 ## Credits

@@ -3,7 +3,7 @@ import WebKit
 
 @MainActor
 enum WebViewFactory {
-    /// Makes sites treat Drift like Safari (same engine), so nothing serves a degraded page.
+    /// Makes sites treat Brook like Safari (same engine), so nothing serves a degraded page.
     static let userAgentSuffix = "Version/26.0 Safari/605.1.15"
 
     /// One shared content controller: scripts are compiled once and reused by every tab.
@@ -28,7 +28,7 @@ enum WebViewFactory {
     }
 }
 
-final class DriftWebView: WKWebView {
+final class BrookWebView: WKWebView {
     weak var tab: BrowserTab?
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {

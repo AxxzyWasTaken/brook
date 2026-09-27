@@ -95,7 +95,7 @@ final class AutoconsentHandler: NSObject, WKScriptMessageHandlerWithReply {
             return await evaluate(message, body)
         case "autoconsentDone":
             if message.frameInfo.isMainFrame,
-               let tab = (message.webView as? DriftWebView)?.tab {
+               let tab = (message.webView as? BrookWebView)?.tab {
                 tab.consentCMP = body["cmp"] as? String ?? "cookie popup"
                 tab.state?.tabDidChange(tab, .consent)
                 let cosmetic = body["isCosmetic"] as? Bool ?? false

@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
-    /// Links opened from other apps when Drift is the default browser.
+    /// Links opened from other apps when Brook is the default browser.
     func application(_ application: NSApplication, open urls: [URL]) {
         guard windowController != nil else { pendingURLs += urls; return }
         for url in urls { state.openTab(url: url, select: true) }
@@ -199,18 +199,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let hibernateItem = NSMenuItem(title: "Unload Background Tabs", action: nil, keyEquivalent: "")
         hibernateItem.submenu = hibernate
-        _ = submenu("Drift", [
-            item("About Drift", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
+        _ = submenu("Brook", [
+            item("About Brook", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
             .separator(),
             engineItem,
             hibernateItem,
             item("Set as Default Browser", #selector(setAsDefaultBrowser(_:))),
             .separator(),
-            item("Hide Drift", #selector(NSApplication.hide(_:)), "h"),
+            item("Hide Brook", #selector(NSApplication.hide(_:)), "h"),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
             item("Show All", #selector(NSApplication.unhideAllApplications(_:))),
             .separator(),
-            item("Quit Drift", #selector(NSApplication.terminate(_:)), "q")
+            item("Quit Brook", #selector(NSApplication.terminate(_:)), "q")
         ])
 
         _ = submenu("File", [
@@ -295,7 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("Zoom", #selector(NSWindow.performZoom(_:))),
             .separator(),
-            item("Drift", #selector(showMainWindow(_:)), "1", [.command, .option])
+            item("Brook", #selector(showMainWindow(_:)), "1", [.command, .option])
         ])
         NSApp.windowsMenu = windowMenu.submenu
         return main

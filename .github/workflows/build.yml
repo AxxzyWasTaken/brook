@@ -33,11 +33,11 @@ jobs:
       - name: Build
         run: |
           set -o pipefail
-          xcodebuild -project Drift.xcodeproj -scheme Drift -configuration Release \
+          xcodebuild -project Brook.xcodeproj -scheme Brook -configuration Release \
             -derivedDataPath build -destination 'generic/platform=macOS' \
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
             build 2>&1 | tee build.log | grep -E "error:|warning: .*(nearly matches|never used|deprecated)|\*\* BUILD" || true
-          test -d build/Build/Products/Release/Drift.app
+          test -d build/Build/Products/Release/Brook.app
 
       - name: Error summary
         if: failure()
@@ -46,18 +46,18 @@ jobs:
       - name: Package
         run: |
           cd build/Build/Products/Release
-          ditto -c -k --sequesterRsrc --keepParent Drift.app Drift.zip
-          mv Drift.zip $GITHUB_WORKSPACE/Drift.zip
+          ditto -c -k --sequesterRsrc --keepParent Brook.app Brook.zip
+          mv Brook.zip $GITHUB_WORKSPACE/Brook.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Drift
-          path: Drift.zip
+          name: Brook
+          path: Brook.zip
 
       - name: Publish latest build
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest -y --cleanup-tag || true
-          gh release create latest Drift.zip --prerelease --title "Drift (latest build)" \
-            --notes "Built from ${GITHUB_SHA::7}. Unzip, move Drift.app to Applications, then run: xattr -dr com.apple.quarantine /Applications/Drift.app"
+          gh release create latest Brook.zip --prerelease --title "Brook (latest build)" \
+            --notes "Built from ${GITHUB_SHA::7}. Unzip, move Brook.app to Applications, then run: xattr -dr com.apple.quarantine /Applications/Brook.app"

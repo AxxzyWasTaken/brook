@@ -68,7 +68,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
         window.delegate = self
         buildLayout()
         window.center()
-        window.setFrameAutosaveName("DriftMainWindow")
+        window.setFrameAutosaveName("BrookMainWindow")
         state.observer = self
     }
 
@@ -205,7 +205,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
         if let wv = tab?.webView, !commandBar.isVisible, !(window?.firstResponder is NSTextView) {
             window?.makeFirstResponder(wv)
         }
-        window?.title = tab?.displayTitle ?? "Drift"
+        window?.title = tab?.displayTitle ?? "Brook"
     }
 
     func browserStateTabDidChange(_ tab: BrowserTab, change: TabChange) {
@@ -380,7 +380,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
         guard let window else { return }
         let alert = NSAlert()
         alert.messageText = "Add a Chrome extension"
-        alert.informativeText = "Paste a Chrome Web Store link or extension ID. Tip: on the Chrome Web Store, Drift adds an “Add to Drift” button to each extension page."
+        alert.informativeText = "Paste a Chrome Web Store link or extension ID. Tip: on the Chrome Web Store, Brook adds an “Add to Brook” button to each extension page."
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         field.placeholderString = "https://chromewebstore.google.com/detail/…"
         alert.accessoryView = field

@@ -1,6 +1,6 @@
 (() => {
   if (location.hostname !== 'chromewebstore.google.com') return;
-  const BUTTON_ID = 'drift-add-extension';
+  const BUTTON_ID = 'brook-add-extension';
 
   const extensionId = () => {
     const m = location.pathname.match(/\/detail\/(?:[^/]+\/)?([a-p]{32})/);
@@ -14,7 +14,7 @@
     if (button) return;
     button = document.createElement('button');
     button.id = BUTTON_ID;
-    button.textContent = 'Add to Drift';
+    button.textContent = 'Add to Brook';
     Object.assign(button.style, {
       position: 'fixed', right: '24px', bottom: '24px', zIndex: '2147483647',
       padding: '12px 22px', borderRadius: '999px', border: '1px solid rgba(255,255,255,.35)',
@@ -24,7 +24,7 @@
     });
     button.addEventListener('click', () => {
       const current = extensionId();
-      if (current) window.webkit.messageHandlers.driftInstallExtension.postMessage(current);
+      if (current) window.webkit.messageHandlers.brookInstallExtension.postMessage(current);
     });
     document.documentElement.appendChild(button);
   };

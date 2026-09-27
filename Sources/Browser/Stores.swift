@@ -156,7 +156,7 @@ final class DownloadItem: NSObject {
 @MainActor
 final class DownloadManager: NSObject, WKDownloadDelegate {
     static let shared = DownloadManager()
-    static let didChange = Notification.Name("DriftDownloadsDidChange")
+    static let didChange = Notification.Name("BrookDownloadsDidChange")
 
     private(set) var items: [DownloadItem] = []
 

@@ -25,7 +25,7 @@ final class BrowserTab: NSObject {
     var isFavorite = false
     var favicon: NSImage?
     var lastActive = Date()
-    private(set) var webView: DriftWebView?
+    private(set) var webView: BrookWebView?
     private(set) var isLoading = false
     private(set) var progress: Double = 0
     private(set) var loadError: String?
@@ -62,13 +62,13 @@ final class BrowserTab: NSObject {
     // MARK: Lifecycle
 
     @discardableResult
-    func materialize() -> DriftWebView {
+    func materialize() -> BrookWebView {
         if let webView { return webView }
         let config = pendingConfiguration ?? WebViewFactory.makeConfiguration()
         let isPopup = pendingConfiguration != nil
         pendingConfiguration = nil
 
-        let wv = DriftWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: config)
+        let wv = BrookWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: config)
         wv.tab = self
         wv.navigationDelegate = self
         wv.uiDelegate = self

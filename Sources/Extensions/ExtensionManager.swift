@@ -29,7 +29,7 @@ enum ExtensionInstallError: LocalizedError {
 @MainActor
 final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     static let shared = ExtensionManager()
-    static let didChange = Notification.Name("DriftExtensionsDidChange")
+    static let didChange = Notification.Name("BrookExtensionsDidChange")
 
     let controller: WKWebExtensionController
     weak var window: BrowserWindowController?
@@ -66,7 +66,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                 let ext = try await WKWebExtension(resourceBaseURL: folder.appendingPathComponent(r.folder, isDirectory: true))
                 try controller.load(makeContext(ext, id: r.id))
             } catch {
-                NSLog("Drift: failed to load extension \(r.name): \(error)")
+                NSLog("Brook: failed to load extension \(r.name): \(error)")
             }
             await Task.yield()
         }
@@ -342,18 +342,18 @@ enum CRX {
     }
 }
 
-// MARK: - "Add to Drift" button on the Chrome Web Store
+// MARK: - "Add to Brook" button on the Chrome Web Store
 
 @MainActor
 final class ChromeWebStoreBridge: NSObject, WKScriptMessageHandler {
     static let shared = ChromeWebStoreBridge()
-    private let world = WKContentWorld.world(name: "DriftStore")
+    private let world = WKContentWorld.world(name: "BrookStore")
 
     func install(into ucc: WKUserContentController) {
         guard let url = Bundle.main.url(forResource: "chrome-web-store", withExtension: "js"),
               let source = try? String(contentsOf: url, encoding: .utf8) else { return }
         ucc.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: world))
-        ucc.add(self, contentWorld: world, name: "driftInstallExtension")
+        ucc.add(self, contentWorld: world, name: "brookInstallExtension")
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
