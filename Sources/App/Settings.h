@@ -51,7 +51,7 @@ FOUNDATION_EXPORT NSInteger AutoplayPolicyFromRaw(NSString *raw);
 @property (class) SidebarPosition sidebarPosition;
 @property (class) CGFloat pageMargin;          // 0…20, default 8
 @property (class) CGFloat cornerRadius;        // 0…24, default 12
-@property (class) CGFloat tintStrength;        // 0…1.5, default 1
+@property (class) CGFloat tintStrength;        // 0…1.5, default 1 (stored as "spaceTint")
 @property (class) TabDensity tabDensity;
 @property (class) CGFloat tabFontSize;         // 11…17, default 13
 @property (class) BOOL showAddressBar;

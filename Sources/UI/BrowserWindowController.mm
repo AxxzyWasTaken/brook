@@ -492,7 +492,7 @@ static const CGFloat kFullScreenLightsInset = 10;
         }
     }
     // Only redo the work a key actually affects: Boost edits save on every keystroke.
-    NSSet<NSString *> *appearanceKeys = [NSSet setWithArray:@[@"*", @"theme", @"cornerRadius", @"tintStrength"]];
+    NSSet<NSString *> *appearanceKeys = [NSSet setWithArray:@[@"*", @"theme", @"cornerRadius", @"spaceTint"]];
     NSSet<NSString *> *sidebarKeys = [NSSet setWithArray:@[@"*", @"showAddressBar", @"showFavorites", @"showBottomBar",
                                                            @"favoritesColumns", @"tabDensity", @"tabFontSize", @"topTabsShrink"]];
     if ([appearanceKeys containsObject:key]) [self applyAppearanceSettings];
@@ -682,9 +682,9 @@ static const CGFloat kFullScreenLightsInset = 10;
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
         ctx.duration = 0.3;
         ctx.allowsImplicitAnimation = YES;
-        tint.layer.backgroundColor = [color colorWithAlphaComponent:0.22 * Settings.tintStrength].CGColor;
+        tint.layer.backgroundColor = [color colorWithAlphaComponent:0.33 * Settings.tintStrength].CGColor;
     }];
-    _sidebarGlass.tintColor = [color colorWithAlphaComponent:0.1 * Settings.tintStrength];
+    _sidebarGlass.tintColor = [color colorWithAlphaComponent:0.15 * Settings.tintStrength];
     _topGlass.tintColor = _sidebarGlass.tintColor;
     _content.accentColor = color;
 }

@@ -58,7 +58,7 @@ NSInteger AutoplayPolicyFromRaw(NSString *raw) {
 static NSUserDefaults *D(void) { return NSUserDefaults.standardUserDefaults; }
 
 + (NSArray<NSString *> *)exportedKeys {
-    return @[@"theme", @"tabLayout", @"sidebarPosition", @"pageMargin", @"cornerRadius", @"tintStrength", @"tabDensity", @"tabFontSize",
+    return @[@"theme", @"tabLayout", @"sidebarPosition", @"pageMargin", @"cornerRadius", @"spaceTint", @"tabDensity", @"tabFontSize",
              @"showAddressBar", @"showFavorites", @"showBottomBar", @"favoritesColumns", @"topTabsShrink",
              @"newTabPosition", @"newTabPage", @"newTabURL", @"pinnedClose", @"archiveHours", @"hibernateMinutes",
              @"externalLinksSpace", @"downloadFolder", @"askDownloadLocation",
@@ -121,8 +121,18 @@ static double clampD(double v, double lo, double hi) { return MIN(hi, MAX(lo, v)
 + (CGFloat)cornerRadius { return clampD(number(@"cornerRadius", 12), 0, 24); }
 + (void)setCornerRadius:(CGFloat)v { [self store:@(v) key:@"cornerRadius"]; }
 
-+ (CGFloat)tintStrength { return clampD(number(@"tintStrength", 1), 0, 1.5); }
-+ (void)setTintStrength:(CGFloat)v { [self store:@(v) key:@"tintStrength"]; }
+// "tintStrength" was the same setting on a weaker scale: its 150% is 100% now.
+static NSString *const kLegacyTintKey = @"tintStrength";
+static const double kLegacyTintScale = 1.5;
+
++ (CGFloat)tintStrength {
+    double legacy = number(kLegacyTintKey, kLegacyTintScale) / kLegacyTintScale;
+    return clampD(number(@"spaceTint", legacy), 0, 1.5);
+}
++ (void)setTintStrength:(CGFloat)v {
+    [D() removeObjectForKey:kLegacyTintKey];
+    [self store:@(v) key:@"spaceTint"];
+}
 
 + (TabDensity)tabDensity { return (TabDensity)choice(@"tabDensity", kDensityRaw, TabDensityComfortable); }
 + (void)setTabDensity:(TabDensity)v { [self store:BrookPick(kDensityRaw, v) key:@"tabDensity"]; }
@@ -253,6 +263,11 @@ static double clampD(double v, double lo, double hi) { return MIN(hi, MAX(lo, v)
         id v = obj[key];
         if (v && v != NSNull.null) [D() setObject:v forKey:key]; else [D() removeObjectForKey:key];
     }
+    id legacyTint = obj[kLegacyTintKey];
+    if (!obj[@"spaceTint"] && [legacyTint isKindOfClass:NSNumber.class]) {
+        [D() setObject:@([legacyTint doubleValue] / kLegacyTintScale) forKey:@"spaceTint"];
+    }
+    [D() removeObjectForKey:kLegacyTintKey];
     [self notify:@"*"];
     return YES;
 }
