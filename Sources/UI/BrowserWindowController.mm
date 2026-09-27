@@ -12,7 +12,7 @@
 - (BOOL)canBecomeMainWindow { return YES; }
 @end
 
-/// Transparent strip at the window's left edge that reveals the hidden sidebar on hover.
+/// Transparent strip at the window's sidebar edge that reveals the hidden sidebar on hover.
 @interface EdgeHotZone : NSView
 @property (copy) void (^onEnter)(void);
 @end
@@ -24,9 +24,11 @@
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
     if (_tracking) [self removeTrackingArea:_tracking];
+    // Moved as well as Entered: the pointer may already be resting in the strip when the sidebar hides.
     NSTrackingArea *t = [[NSTrackingArea alloc]
         initWithRect:NSZeroRect
-             options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect
+             options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveInKeyWindow |
+                     NSTrackingInVisibleRect
                owner:self
             userInfo:nil];
     [self addTrackingArea:t];
@@ -37,7 +39,132 @@
     if (self.onEnter) self.onEnter();
 }
 
+- (void)mouseMoved:(NSEvent *)event {
+    if (self.onEnter) self.onEnter();
+}
+
 - (NSView *)hitTest:(NSPoint)point { return nil; }
+
+@end
+
+/// Traffic lights drawn in the sidebar's corner while in full screen. macOS moves the real ones
+/// into its own title bar at the screen's top-left, shown only on hover, which is nowhere near a
+/// sidebar on the right.
+@interface FullScreenLights : NSView
+@end
+
+@implementation FullScreenLights {
+    NSTrackingArea *_tracking;
+    BOOL _hovering;
+    NSInteger _pressed;
+}
+
+- (instancetype)initWithFrame:(NSRect)frame {
+    if ((self = [super initWithFrame:frame])) _pressed = -1;
+    return self;
+}
+
+static const CGFloat kLightSize = 14, kLightSlot = 16, kLightStep = 23;
+
+- (NSSize)intrinsicContentSize { return NSMakeSize(kLightStep * 2 + kLightSlot, kLightSlot); }
+- (BOOL)mouseDownCanMoveWindow { return NO; }
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+
+- (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    if (!self.window) return;
+    for (NSNotificationName n in @[NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification]) {
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyChanged:) name:n object:self.window];
+    }
+}
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+- (void)keyChanged:(NSNotification *)note { self.needsDisplay = YES; }
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (_tracking) [self removeTrackingArea:_tracking];
+    _tracking = [[NSTrackingArea alloc]
+        initWithRect:NSZeroRect
+             options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect
+               owner:self
+            userInfo:nil];
+    [self addTrackingArea:_tracking];
+}
+
+- (void)mouseEntered:(NSEvent *)event { _hovering = YES; self.needsDisplay = YES; }
+- (void)mouseExited:(NSEvent *)event { _hovering = NO; self.needsDisplay = YES; }
+
+/// 0 close, 1 minimize (disabled in full screen), 2 leave full screen; -1 for none.
+- (NSInteger)lightAt:(NSPoint)p {
+    for (NSInteger i = 0; i < 3; i++) {
+        NSRect slot = NSMakeRect(i * kLightStep, 0, kLightSlot, kLightSlot);
+        if (NSPointInRect(p, NSInsetRect(slot, -3, -3))) return i;
+    }
+    return -1;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    _pressed = [self lightAt:[self convertPoint:event.locationInWindow fromView:nil]];
+    self.needsDisplay = YES;
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    NSInteger hit = [self lightAt:[self convertPoint:event.locationInWindow fromView:nil]];
+    NSInteger pressed = _pressed;
+    _pressed = -1;
+    self.needsDisplay = YES;
+    if (hit != pressed) return;
+    if (hit == 0) [self.window performClose:nil];
+    if (hit == 2) [self.window toggleFullScreen:nil];
+}
+
+- (void)drawRect:(NSRect)dirtyRect {
+    BOOL active = self.window.isKeyWindow || _hovering;
+    NSColor *fills[3] = {
+        [NSColor colorWithSRGBRed:1.0 green:0.373 blue:0.341 alpha:1],   // #FF5F57
+        [NSColor colorWithSRGBRed:0.996 green:0.737 blue:0.180 alpha:1], // #FEBC2E
+        [NSColor colorWithSRGBRed:0.157 green:0.784 blue:0.251 alpha:1], // #28C840
+    };
+    NSColor *idle = [NSColor.labelColor colorWithAlphaComponent:0.18];
+    CGFloat inset = (kLightSlot - kLightSize) / 2;
+    for (NSInteger i = 0; i < 3; i++) {
+        NSRect r = NSMakeRect(i * kLightStep + inset, inset, kLightSize, kLightSize);
+        BOOL enabled = i != 1;
+        NSColor *fill = active && enabled ? fills[i] : idle;
+        if (i == _pressed) fill = [fill blendedColorWithFraction:0.25 ofColor:NSColor.blackColor] ?: fill;
+        [fill setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:r] fill];
+        if (!_hovering || !enabled) continue;
+        // Glyphs on hover, like the real buttons: × to close, inward arrows to leave full screen.
+        [[NSColor colorWithWhite:0 alpha:0.55] set];
+        NSPoint c = NSMakePoint(NSMidX(r), NSMidY(r));
+        if (i == 0) {
+            NSBezierPath *x = [NSBezierPath bezierPath];
+            x.lineWidth = 1.3;
+            x.lineCapStyle = NSLineCapStyleRound;
+            CGFloat d = 3.2;
+            [x moveToPoint:NSMakePoint(c.x - d, c.y - d)];
+            [x lineToPoint:NSMakePoint(c.x + d, c.y + d)];
+            [x moveToPoint:NSMakePoint(c.x - d, c.y + d)];
+            [x lineToPoint:NSMakePoint(c.x + d, c.y - d)];
+            [x stroke];
+        } else {
+            NSBezierPath *a = [NSBezierPath bezierPath];
+            CGFloat g = 0.8, s = 4.2;
+            [a moveToPoint:NSMakePoint(c.x - g, c.y + g)];
+            [a lineToPoint:NSMakePoint(c.x - g - s, c.y + g)];
+            [a lineToPoint:NSMakePoint(c.x - g, c.y + g + s)];
+            [a closePath];
+            [a moveToPoint:NSMakePoint(c.x + g, c.y - g)];
+            [a lineToPoint:NSMakePoint(c.x + g + s, c.y - g)];
+            [a lineToPoint:NSMakePoint(c.x + g, c.y - g - s)];
+            [a closePath];
+            [a fill];
+        }
+    }
+}
 
 @end
 
@@ -85,6 +212,7 @@ struct LightDefault {
     NSGlassEffectView *_sidebarGlass;
     ResizeHandle *_handle;
     EdgeHotZone *_hotZone;
+    FullScreenLights *_fullScreenLights;
     CommandBarController *_commandBar;
 
     CGFloat _sidebarWidth;
@@ -136,6 +264,7 @@ struct LightDefault {
         _content = [ContentAreaView new];
         _handle = [ResizeHandle new];
         _hotZone = [EdgeHotZone new];
+        _fullScreenLights = [FullScreenLights new];
         _sidebarWidth = Settings.sidebarWidth;
         _positional = @[];
         _sidebarHidden = Settings.sidebarHidden;
@@ -160,6 +289,11 @@ struct LightDefault {
 }
 
 // MARK: Layout
+
+/// Width of the strip at the window edge that reveals a hidden sidebar.
+static const CGFloat kHotZoneWidth = 24;
+/// Distance from the sidebar's leading edge to the full-screen traffic lights (matches the real ones).
+static const CGFloat kFullScreenLightsInset = 10;
 
 - (void)buildLayout {
     _root.material = NSVisualEffectMaterialUnderWindowBackground;
@@ -209,6 +343,11 @@ struct LightDefault {
     };
     [_root addSubview:_hotZone];
 
+    // Rides in the sidebar so it slides with it, in the same corner as the real lights.
+    _fullScreenLights.translatesAutoresizingMaskIntoConstraints = NO;
+    _fullScreenLights.hidden = YES;
+    [_sidebar addSubview:_fullScreenLights];
+
     _sidebarWidthConstraint = [_sidebarGlass.widthAnchor constraintEqualToConstant:_sidebarWidth];
     [NSLayoutConstraint activateConstraints:@[
         _sidebarWidthConstraint,
@@ -216,7 +355,10 @@ struct LightDefault {
         [_handle.bottomAnchor constraintEqualToAnchor:_sidebarGlass.bottomAnchor],
         [_hotZone.topAnchor constraintEqualToAnchor:_root.topAnchor],
         [_hotZone.bottomAnchor constraintEqualToAnchor:_root.bottomAnchor],
-        [_hotZone.widthAnchor constraintEqualToConstant:10],
+        // Wide enough to find without aiming; it only reacts while the sidebar is hidden.
+        [_hotZone.widthAnchor constraintEqualToConstant:kHotZoneWidth],
+        [_fullScreenLights.leadingAnchor constraintEqualToAnchor:_sidebar.leadingAnchor constant:kFullScreenLightsInset],
+        [_fullScreenLights.centerYAnchor constraintEqualToAnchor:_sidebar.navRow.centerYAnchor],
     ]];
     [self rebuildPositionalConstraints];
     [self applyAppearanceSettings];
@@ -324,11 +466,18 @@ struct LightDefault {
 // macOS draws it as its own opaque strip above the content, so drop it there.
 - (void)windowWillEnterFullScreen:(NSNotification *)notification { self.window.toolbar.visible = NO; }
 - (void)windowDidFailToEnterFullScreen:(NSWindow *)window { window.toolbar.visible = YES; }
-- (void)windowWillExitFullScreen:(NSNotification *)notification { self.window.toolbar.visible = YES; }
-- (void)windowDidEnterFullScreen:(NSNotification *)notification { [self alignNavRow]; }
+- (void)windowWillExitFullScreen:(NSNotification *)notification {
+    self.window.toolbar.visible = YES;
+    _fullScreenLights.hidden = YES;
+}
+- (void)windowDidEnterFullScreen:(NSNotification *)notification {
+    _fullScreenLights.hidden = NO;
+    [self alignNavRow];
+}
 - (void)windowDidExitFullScreen:(NSNotification *)notification {
     // AppKit re-applies the toolbar state it saved on entry after willExit, so set it again.
     self.window.toolbar.visible = YES;
+    _fullScreenLights.hidden = YES;
     [self.window.contentView layoutSubtreeIfNeeded];
     // AppKit also un-hides the traffic lights on exit; re-apply ours (hidden with the sidebar).
     [self applySidebarVisibilityAnimated:NO];
@@ -400,7 +549,10 @@ struct LightDefault {
     NSView *zoomSuper = zoom.superview;
     if (!zoom || !zoomSuper || (window.styleMask & NSWindowStyleMaskFullScreen)) {
         _sidebar.navRowTop.constant = 8;
-        _sidebar.navRowLeading.constant = 8;
+        // In full screen our own lights sit at the start of the row; leave room for them.
+        _sidebar.navRowLeading.constant = _fullScreenLights.isHidden
+            ? 8
+            : kFullScreenLightsInset + _fullScreenLights.intrinsicContentSize.width + 8;
         _contentTop.constant = _inset;
         return;
     }
