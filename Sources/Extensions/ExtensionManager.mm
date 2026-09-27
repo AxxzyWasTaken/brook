@@ -117,10 +117,21 @@ struct ExtensionRecord {
 
 /// Runs Chrome/Safari-style web extensions using WebKit's WKWebExtension API
 /// (the same approach DuckDuckGo's browser uses).
+/// Content blockers compile their rules and hand them to web views a moment after their
+/// extension loads, and WebKit doesn't say when. -finishLoading watches for it by requesting
+/// a tracker every blocker list covers, from a hidden web view, until the request is blocked.
+static NSString *const kBlockProbeURL = @"https://www.google-analytics.com/collect?v=1&t=pageview";
+static const NSTimeInterval kBlockProbeInterval = 0.1;
+/// Stop waiting after this long (say, a blocker that doesn't list the probe, or no network).
+static const NSTimeInterval kBlockProbeTimeout = 2;
+
 @implementation ExtensionManager {
     std::vector<ExtensionRecord> _records;
     NSURL *_recordsURL;
     NSURL *_folder;
+    BOOL _loaded;
+    NSMutableArray<dispatch_block_t> *_waitingForLoad;
+    WKWebView *_blockProbe;
 }
 
 + (ExtensionManager *)shared {
@@ -175,13 +186,24 @@ struct ExtensionRecord {
         }
         if (ok) _records = std::move(decoded);
     }
+    if (!_records.empty()) [self makeBlockProbe];
     [self loadRecordAt:0 of:std::make_shared<std::vector<ExtensionRecord>>(_records)];
+}
+
+/// A hidden page for -probeBlockingSince:. Made before any extension loads, like the restored
+/// tabs: web views that already exist get content blocker rules a good second later than new ones.
+- (void)makeBlockProbe {
+    WKWebViewConfiguration *config = [WKWebViewConfiguration new];
+    config.websiteDataStore = WKWebsiteDataStore.nonPersistentDataStore;
+    config.webExtensionController = _controller;
+    _blockProbe = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 10, 10) configuration:config];
+    [_blockProbe loadHTMLString:@"" baseURL:[NSURL URLWithString:@"https://brook.invalid/"]];
 }
 
 /// Loads records one at a time, yielding to the main queue between each.
 - (void)loadRecordAt:(size_t)index of:(std::shared_ptr<std::vector<ExtensionRecord>>)records {
     if (index >= records->size()) {
-        [self notify];
+        [self finishLoading];
         return;
     }
     ExtensionRecord r = (*records)[index];
@@ -203,6 +225,65 @@ struct ExtensionRecord {
             });
         });
     }];
+}
+
+- (void)finishLoading {
+    [self notify];
+    // Asked of the extension, not the context: the context only reports rules once they're compiled.
+    BOOL blocks = NO;
+    for (WKWebExtensionContext *c in _controller.extensionContexts) {
+        NSSet<WKWebExtensionPermission> *permissions = c.webExtension.requestedPermissions;
+        blocks |= [permissions containsObject:WKWebExtensionPermissionDeclarativeNetRequest] ||
+                  [permissions containsObject:WKWebExtensionPermissionDeclarativeNetRequestWithHostAccess];
+    }
+    if (!blocks) {
+        [self markLoaded];
+        return;
+    }
+    [self probeBlockingSince:CACurrentMediaTime()];
+}
+
+/// Blocked requests fail at once without touching the network; anything slower got through.
+- (void)probeBlockingSince:(CFTimeInterval)start {
+    NSString *js = @"const t = performance.now();"
+                    "return await new Promise(done => {"
+                    "  const img = new Image();"
+                    "  img.onload = () => done(false);"
+                    "  img.onerror = () => done(performance.now() - t < 30);"
+                    "  img.src = url + '&z=' + Math.random();"
+                    "});";
+    __weak ExtensionManager *weakSelf = self;
+    [_blockProbe callAsyncJavaScript:js arguments:@{@"url": kBlockProbeURL} inFrame:nil inContentWorld:WKContentWorld.defaultClientWorld
+                   completionHandler:^(id result, NSError *error) {
+        ExtensionManager *self_ = weakSelf;
+        if (!self_ || self_->_loaded) return;
+        // `error` is expected while the probe page is still loading; just try again.
+        if ([result isEqual:@YES] || CACurrentMediaTime() - start > kBlockProbeTimeout) {
+            [self_ markLoaded];
+            return;
+        }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kBlockProbeInterval * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            [weakSelf probeBlockingSince:start];
+        });
+    }];
+}
+
+- (void)markLoaded {
+    _loaded = YES;
+    _blockProbe = nil;
+    NSArray<dispatch_block_t> *waiting = _waitingForLoad;
+    _waitingForLoad = nil;
+    for (dispatch_block_t block in waiting) block();
+}
+
+- (void)whenLoaded:(dispatch_block_t)block {
+    if (_loaded) {
+        block();
+        return;
+    }
+    if (!_waitingForLoad) _waitingForLoad = [NSMutableArray array];
+    [_waitingForLoad addObject:[block copy]];
 }
 
 - (WKWebExtensionContext *)makeContext:(WKWebExtension *)ext id:(NSString *)identifier {

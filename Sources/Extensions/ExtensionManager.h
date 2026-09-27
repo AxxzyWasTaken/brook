@@ -38,6 +38,9 @@ FOUNDATION_EXPORT NSNotificationName const ExtensionManagerDidChangeNotification
 
 /// Loads every installed extension (async; posts ExtensionManagerDidChangeNotification when done).
 - (void)loadAll;
+/// Runs `block` on the main queue once installed extensions have loaded (straight away if they
+/// already have). Pages loaded before then would skip content blockers such as uBlock Origin Lite.
+- (void)whenLoaded:(dispatch_block_t)block;
 
 /// Accepts a Chrome Web Store URL or a bare 32-letter extension ID. Completion runs on the main
 /// queue; error is nil on success (also when the extension is already installed).

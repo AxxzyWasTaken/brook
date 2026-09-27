@@ -224,6 +224,7 @@ struct LightDefault {
     NSLayoutConstraint *_contentTop;
     NSArray<NSLayoutConstraint *> *_positional;
     BOOL _peeking;
+    BOOL _trafficLightsPlacementQueued;
     id _peekMonitor;
     /// Bumped on every sidebar show/hide so a stale fade can't undo a newer one.
     NSUInteger _lightsGeneration;
@@ -300,6 +301,7 @@ static const CGFloat kFullScreenLightsInset = 10;
     _root.blendingMode = NSVisualEffectBlendingModeBehindWindow;
     _root.state = NSVisualEffectStateFollowsWindowActiveState;
     self.window.contentView = _root;
+    [self keepTrafficLightsPlaced];
 
     _tint.wantsLayer = YES;
     _tint.translatesAutoresizingMaskIntoConstraints = NO;
@@ -536,6 +538,33 @@ static const CGFloat kFullScreenLightsInset = 10;
         NSPoint origin = NSMakePoint(d.x + dx, bar.bounds.size.height - d.fromTop - dy - b.frame.size.height);
         if (!NSEqualPoints(b.frame.origin, origin)) [b setFrameOrigin:origin];
     }
+}
+
+/// AppKit puts the traffic lights back at the window's top-left whenever it re-tiles the title
+/// bar: showing or fading them, retitling the window, resizing. Put them back in the sidebar
+/// each time, or they're left stranded away from a right-hand sidebar.
+- (void)keepTrafficLightsPlaced {
+    NSButton *close = [self.window standardWindowButton:NSWindowCloseButton];
+    if (!close) return;
+    close.postsFrameChangedNotifications = YES;
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(trafficLightsMoved:)
+                                               name:NSViewFrameDidChangeNotification
+                                             object:close];
+}
+
+- (void)trafficLightsMoved:(NSNotification *)notification {
+    // AppKit ignores moves made while it's still positioning them, so wait a turn. Coalesced:
+    // one retile moves all three buttons, and placing them posts this again.
+    if (_trafficLightsPlacementQueued) return;
+    _trafficLightsPlacementQueued = YES;
+    __weak BrowserWindowController *weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BrowserWindowController *self_ = weakSelf;
+        if (!self_) return;
+        [self_ placeTrafficLights];
+        self_->_trafficLightsPlacementQueued = NO;
+    });
 }
 
 /// Lines the back/forward buttons up with the traffic lights, whatever size macOS makes them.
