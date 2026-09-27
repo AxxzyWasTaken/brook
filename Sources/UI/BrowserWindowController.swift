@@ -201,6 +201,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
                                         "favoritesColumns", "tabDensity", "tabFontSize"]
         if appearanceKeys.contains(key) { applyAppearanceSettings() }
         if sidebarKeys.contains(key) { sidebar.applySettings() }
+        // Traffic lights (and the nav row beside them) follow the margin and corner radius.
+        if ["*", "sidebarPosition", "pageMargin", "cornerRadius"].contains(key) {
+            root.layoutSubtreeIfNeeded()
+            alignNavRow()
+        }
         if ["*", "defaultZoom", "siteSettings"].contains(key) {
             for tab in state.allTabs {
                 guard let wv = tab.webView else { continue }
@@ -230,9 +235,44 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
         ExtensionManager.shared.controller.didFocusWindow(self)
     }
 
+    /// Where macOS put each traffic light (x, and distance from the top of the titlebar), captured
+    /// before we first move them. AppKit resets them on titlebar relayout, so we re-derive from here.
+    private var lightDefaults: [NSWindow.ButtonType: (x: CGFloat, fromTop: CGFloat)] = [:]
+
+    /// Moves the traffic lights so they sit inside the sidebar's (or page's) top-left corner however
+    /// big the window margin and corner radius are. Never closer to the window corner than macOS's
+    /// own position, which keeps them clear of the rounded window corner at small margins.
+    private func placeTrafficLights() {
+        guard let window, !window.styleMask.contains(.fullScreen) else { return }
+        let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+        let buttons = types.compactMap { window.standardWindowButton($0) }
+        guard buttons.count == 3, let bar = buttons[0].superview else { return }
+        if lightDefaults.isEmpty {
+            for (t, b) in zip(types, buttons) {
+                lightDefaults[t] = (b.frame.minX, bar.bounds.height - b.frame.maxY)
+            }
+        }
+        guard let close = lightDefaults[.closeButton] else { return }
+        // The panel whose corner the lights sit in: the sidebar on the left; with the sidebar on
+        // the right the page starts below the lights, so only the margin matters.
+        let r: CGFloat = onRight ? 0 : sidebarGlass.cornerRadius
+        let padX = max(close.x - 8, r * 0.55)
+        let padTop = max(close.fromTop - 8, r * 0.55)
+        let dx = max(0, inset + padX - close.x)
+        let height = buttons[0].frame.height
+        // Stay inside the titlebar, or the buttons get clipped and stop taking clicks.
+        let dy = min(max(0, inset + padTop - close.fromTop), bar.bounds.height - close.fromTop - height - 2)
+        for (t, b) in zip(types, buttons) {
+            guard let d = lightDefaults[t] else { continue }
+            let origin = NSPoint(x: d.x + dx, y: bar.bounds.height - d.fromTop - dy - b.frame.height)
+            if b.frame.origin != origin { b.setFrameOrigin(origin) }
+        }
+    }
+
     /// Lines the back/forward buttons up with the traffic lights, whatever size macOS makes them.
     func alignNavRow() {
         guard let window else { return }
+        placeTrafficLights()
         guard let zoom = window.standardWindowButton(.zoomButton), !zoom.isHidden,
               let zoomSuper = zoom.superview, !window.styleMask.contains(.fullScreen) else {
             sidebar.navRowTop.constant = 8
