@@ -1,0 +1,52 @@
+name: Drift
+options:
+  bundleIdPrefix: app.drift
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    DEAD_CODE_STRIPPING: YES
+targets:
+  Drift:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+      - path: Resources
+    info:
+      path: Support/Info.plist
+      properties:
+        CFBundleName: Drift
+        CFBundleDisplayName: Drift
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        CFBundleIconName: AppIcon
+        LSMinimumSystemVersion: "26.0"
+        LSApplicationCategoryType: public.app-category.productivity
+        NSPrincipalClass: NSApplication
+        NSHighResolutionCapable: true
+        NSSupportsAutomaticTermination: false
+        NSCameraUsageDescription: Websites you allow can use your camera.
+        NSMicrophoneUsageDescription: Websites you allow can use your microphone.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoadsInWebContent: true
+        CFBundleURLTypes:
+          - CFBundleURLName: Web site URL
+            CFBundleURLSchemes: [http, https]
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: HTML document
+            CFBundleTypeRole: Viewer
+            LSItemContentTypes: [public.html, public.xhtml]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.drift.browser
+        PRODUCT_NAME: Drift
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        COMBINE_HIDPI_IMAGES: YES

@@ -1,0 +1,63 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode*.app | grep -v beta | sort -V | tail -1)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild -project Drift.xcodeproj -scheme Drift -configuration Release \
+            -derivedDataPath build -destination 'generic/platform=macOS' \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+            build 2>&1 | tee build.log | grep -E "error:|warning: .*(nearly matches|never used|deprecated)|\*\* BUILD" || true
+          test -d build/Build/Products/Release/Drift.app
+
+      - name: Error summary
+        if: failure()
+        run: grep -E "error:" build.log | sort -u | head -150 || true
+
+      - name: Package
+        run: |
+          cd build/Build/Products/Release
+          ditto -c -k --sequesterRsrc --keepParent Drift.app Drift.zip
+          mv Drift.zip $GITHUB_WORKSPACE/Drift.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Drift
+          path: Drift.zip
+
+      - name: Publish latest build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest -y --cleanup-tag || true
+          gh release create latest Drift.zip --prerelease --title "Drift (latest build)" \
+            --notes "Built from ${GITHUB_SHA::7}. Unzip, move Drift.app to Applications, then run: xattr -dr com.apple.quarantine /Applications/Drift.app"
