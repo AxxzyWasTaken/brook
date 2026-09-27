@@ -8,14 +8,15 @@ NSNotificationName const BrookSettingsDidChangeNotification = @"BrookSettingsDid
 // Each enum's raw values, in case order. These are what's stored in defaults.
 static NSArray<NSString *> *const kThemeRaw = @[@"system", @"light", @"dark"];
 static NSArray<NSString *> *const kSidebarRaw = @[@"left", @"right"];
+static NSArray<NSString *> *const kTabLayoutRaw = @[@"sidebar", @"top"];
 static NSArray<NSString *> *const kDensityRaw = @[@"compact", @"comfortable", @"roomy"];
 static NSArray<NSString *> *const kNewTabPositionRaw = @[@"top", @"bottom", @"nextToCurrent"];
 static NSArray<NSString *> *const kNewTabPageRaw = @[@"commandBar", @"blank", @"custom"];
 static NSArray<NSString *> *const kPinnedCloseRaw = @[@"resetToHome", @"unloadOnly", @"unpin"];
 static NSArray<NSString *> *const kAutoplayRaw = @[@"allow", @"blockAudio", @"blockAll"];
 
-const NSInteger ThemeModeCount = 3, SidebarPositionCount = 2, TabDensityCount = 3, NewTabPositionCount = 3,
-    NewTabPageCount = 3, PinnedCloseBehaviorCount = 3, AutoplayPolicyCount = 3;
+const NSInteger ThemeModeCount = 3, SidebarPositionCount = 2, TabLayoutCount = 2, TabDensityCount = 3,
+    NewTabPositionCount = 3, NewTabPageCount = 3, PinnedCloseBehaviorCount = 3, AutoplayPolicyCount = 3;
 
 static NSString *BrookPick(NSArray<NSString *> *list, NSInteger i) {
     return (i >= 0 && i < (NSInteger)list.count) ? list[(NSUInteger)i] : list.firstObject;
@@ -23,6 +24,7 @@ static NSString *BrookPick(NSArray<NSString *> *list, NSInteger i) {
 
 NSString *ThemeModeTitle(ThemeMode v) { return BrookPick(@[@"System", @"Light", @"Dark"], v); }
 NSString *SidebarPositionTitle(SidebarPosition v) { return BrookPick(@[@"Left", @"Right"], v); }
+NSString *TabLayoutTitle(TabLayout v) { return BrookPick(@[@"Sidebar", @"Top"], v); }
 NSString *TabDensityTitle(TabDensity v) { return BrookPick(@[@"Compact", @"Comfortable", @"Roomy"], v); }
 CGFloat TabDensityRowHeight(TabDensity v) {
     switch (v) {
@@ -56,8 +58,8 @@ NSInteger AutoplayPolicyFromRaw(NSString *raw) {
 static NSUserDefaults *D(void) { return NSUserDefaults.standardUserDefaults; }
 
 + (NSArray<NSString *> *)exportedKeys {
-    return @[@"theme", @"sidebarPosition", @"pageMargin", @"cornerRadius", @"tintStrength", @"tabDensity", @"tabFontSize",
-             @"showAddressBar", @"showFavorites", @"showBottomBar", @"favoritesColumns",
+    return @[@"theme", @"tabLayout", @"sidebarPosition", @"pageMargin", @"cornerRadius", @"tintStrength", @"tabDensity", @"tabFontSize",
+             @"showAddressBar", @"showFavorites", @"showBottomBar", @"favoritesColumns", @"topTabsShrink",
              @"newTabPosition", @"newTabPage", @"newTabURL", @"pinnedClose", @"archiveHours", @"hibernateMinutes",
              @"externalLinksSpace", @"downloadFolder", @"askDownloadLocation",
              @"defaultZoom", @"javascriptEnabled", @"autoplay", @"blockCookiePopups", @"blockAds",
@@ -107,6 +109,9 @@ static double clampD(double v, double lo, double hi) { return MIN(hi, MAX(lo, v)
 + (ThemeMode)theme { return (ThemeMode)choice(@"theme", kThemeRaw, ThemeModeSystem); }
 + (void)setTheme:(ThemeMode)v { [self store:BrookPick(kThemeRaw, v) key:@"theme"]; }
 
++ (TabLayout)tabLayout { return (TabLayout)choice(@"tabLayout", kTabLayoutRaw, TabLayoutSidebar); }
++ (void)setTabLayout:(TabLayout)v { [self store:BrookPick(kTabLayoutRaw, v) key:@"tabLayout"]; }
+
 + (SidebarPosition)sidebarPosition { return (SidebarPosition)choice(@"sidebarPosition", kSidebarRaw, SidebarPositionLeft); }
 + (void)setSidebarPosition:(SidebarPosition)v { [self store:BrookPick(kSidebarRaw, v) key:@"sidebarPosition"]; }
 
@@ -136,6 +141,9 @@ static double clampD(double v, double lo, double hi) { return MIN(hi, MAX(lo, v)
 
 + (NSInteger)favoritesColumns { return (NSInteger)clampD(number(@"favoritesColumns", 4), 2, 6); }
 + (void)setFavoritesColumns:(NSInteger)v { [self store:@(v) key:@"favoritesColumns"]; }
+
++ (BOOL)topTabsShrink { return flag(@"topTabsShrink", NO); }
++ (void)setTopTabsShrink:(BOOL)v { [self store:@(v) key:@"topTabsShrink"]; }
 
 // Tabs
 

@@ -182,6 +182,7 @@
         return tab.webView ? tab.webView.canGoForward : NO;
     } else if (action == @selector(toggleSidebarMenu:)) {
         menuItem.title = _windowController.sidebarHidden == YES ? @"Show Sidebar" : @"Hide Sidebar";
+        return _windowController.tabsOnTop != YES;
     } else if (action == @selector(selectSpaceN:)) {
         menuItem.state = menuItem.tag == self.state.currentSpaceIndex ? NSControlStateValueOn : NSControlStateValueOff;
         return menuItem.tag < (NSInteger)self.state.spaces.count;

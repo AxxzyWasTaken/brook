@@ -29,6 +29,9 @@ struct Row {
 
 @implementation SidebarView {
     // Top
+    NSView *_titleRow;
+    NSLayoutConstraint *_titleRowTop;
+    NSLayoutConstraint *_titleRowLeading;
     IconButton *_toggleButton;
     IconButton *_backButton;
     IconButton *_forwardButton;
@@ -57,9 +60,14 @@ struct Row {
 
 - (BrowserState *)state { return BrowserState.shared; }
 
+- (NSView *)titleRow { return _titleRow; }
+- (CGFloat)titleRowHeight { return 28; }
+- (NSLayoutConstraint *)titleRowTop { return _titleRowTop; }
+- (NSLayoutConstraint *)titleRowLeading { return _titleRowLeading; }
+
 - (instancetype)initWithFrame:(NSRect)frameRect {
     if ((self = [super initWithFrame:frameRect])) {
-        _navRow = [NSView new];
+        _titleRow = [NSView new];
         _urlPill = [URLPillView new];
         _favoritesGrid = [FavoritesGridView new];
         _bottomBar = [NSView new];
@@ -109,13 +117,13 @@ struct Row {
     __weak SidebarView *weakSelf = self;
 
     // Nav row
-    _navRow.translatesAutoresizingMaskIntoConstraints = NO;
-    [self addSubview:_navRow];
+    _titleRow.translatesAutoresizingMaskIntoConstraints = NO;
+    [self addSubview:_titleRow];
     NSStackView *navStack = [NSStackView stackViewWithViews:@[_backButton, _forwardButton, _reloadButton]];
     navStack.spacing = 2;
     navStack.translatesAutoresizingMaskIntoConstraints = NO;
-    [_navRow addSubview:_toggleButton];
-    [_navRow addSubview:navStack];
+    [_titleRow addSubview:_toggleButton];
+    [_titleRow addSubview:navStack];
 
     _urlPill.translatesAutoresizingMaskIntoConstraints = NO;
     _urlPill.onClick = ^{ [weakSelf.browser showCommandBarEditing:YES]; };
@@ -135,7 +143,7 @@ struct Row {
         [strongSelf.state move:tab to:TabLocation::favorites() index:index];
     };
     _favoritesGrid.menuProvider = ^NSMenu *(BrowserTab *tab) {
-        return [weakSelf menuForTab:tab] ?: [NSMenu new];
+        return [weakSelf.browser menuForTab:tab] ?: [NSMenu new];
     };
     [self addSubview:_favoritesGrid];
 
@@ -191,12 +199,12 @@ struct Row {
     _downloadsButton.hidden = YES;
 
     [NSLayoutConstraint activateConstraints:@[
-        [_navRow.heightAnchor constraintEqualToConstant:28],
-        [_navRow.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8],
-        [_toggleButton.leadingAnchor constraintEqualToAnchor:_navRow.leadingAnchor],
-        [_toggleButton.centerYAnchor constraintEqualToAnchor:_navRow.centerYAnchor],
-        [navStack.trailingAnchor constraintEqualToAnchor:_navRow.trailingAnchor],
-        [navStack.centerYAnchor constraintEqualToAnchor:_navRow.centerYAnchor],
+        [_titleRow.heightAnchor constraintEqualToConstant:self.titleRowHeight],
+        [_titleRow.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8],
+        [_toggleButton.leadingAnchor constraintEqualToAnchor:_titleRow.leadingAnchor],
+        [_toggleButton.centerYAnchor constraintEqualToAnchor:_titleRow.centerYAnchor],
+        [navStack.trailingAnchor constraintEqualToAnchor:_titleRow.trailingAnchor],
+        [navStack.centerYAnchor constraintEqualToAnchor:_titleRow.centerYAnchor],
 
         [_urlPill.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10],
         [_urlPill.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10],
@@ -221,13 +229,13 @@ struct Row {
         [_addSpaceButton.trailingAnchor constraintEqualToAnchor:bottom.trailingAnchor],
         [_addSpaceButton.centerYAnchor constraintEqualToAnchor:bottom.centerYAnchor],
     ]];
-    _navRowTop = [_navRow.topAnchor constraintEqualToAnchor:self.topAnchor constant:8];
-    _navRowLeading = [_navRow.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:78];
+    _titleRowTop = [_titleRow.topAnchor constraintEqualToAnchor:self.topAnchor constant:8];
+    _titleRowLeading = [_titleRow.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:78];
     _favoritesTop = [_favoritesGrid.topAnchor constraintEqualToAnchor:_urlPill.bottomAnchor constant:12];
-    _pillTop = [_urlPill.topAnchor constraintEqualToAnchor:_navRow.bottomAnchor constant:10];
+    _pillTop = [_urlPill.topAnchor constraintEqualToAnchor:_titleRow.bottomAnchor constant:10];
     _pillHeight = [_urlPill.heightAnchor constraintEqualToConstant:0];
     _bottomHeight = [bottom.heightAnchor constraintEqualToConstant:28];
-    [NSLayoutConstraint activateConstraints:@[_navRowTop, _navRowLeading, _favoritesTop, _pillTop, _bottomHeight]];
+    [NSLayoutConstraint activateConstraints:@[_titleRowTop, _titleRowLeading, _favoritesTop, _pillTop, _bottomHeight]];
     [self applySettings];
 }
 
@@ -306,7 +314,7 @@ struct Row {
         SpaceDot *dot = [[SpaceDot alloc] initWithSpace:space];
         dot.isCurrent = i == state.currentSpaceIndex;
         dot.onClick = ^{ [weakSelf.state switchToSpace:i]; };
-        dot.menu = [self spaceMenuFor:space];
+        dot.menu = [self.browser menuForSpace:space];
         [_spaceStack addArrangedSubview:dot];
     }
 }
@@ -487,81 +495,10 @@ struct Row {
     if (row < 0 || row >= (NSInteger)_rows.size()) return;
     BrowserTab *tab = _rows[row].tab();
     if (!tab) return;
-    for (NSMenuItem *item in [[self menuForTab:tab].itemArray copy]) {
+    for (NSMenuItem *item in [[self.browser menuForTab:tab].itemArray copy]) {
         [item.menu removeItem:item];
         [menu addItem:item];
     }
-}
-
-- (NSMenu *)menuForTab:(BrowserTab *)tab {
-    BrowserState *state = self.state;
-    __weak SidebarView *weakSelf = self;
-    NSMenu *m = [NSMenu new];
-    [m addItem:[[ClosureMenuItem alloc] initWithTitle:tab.isPinned ? @"Unpin Tab" : @"Pin Tab" handler:^{
-        [weakSelf.state togglePin:tab];
-    }]];
-    [m addItem:[[ClosureMenuItem alloc] initWithTitle:tab.isFavorite ? @"Remove from Favorites" : @"Add to Favorites"
-                                              handler:^{ [weakSelf.state toggleFavorite:tab]; }]];
-    [m addItem:[NSMenuItem separatorItem]];
-    [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Copy Link" handler:^{
-        NSURL *url = tab.url;
-        if (!url) return;
-        [NSPasteboard.generalPasteboard clearContents];
-        [NSPasteboard.generalPasteboard setString:url.absoluteString forType:NSPasteboardTypeString];
-    }]];
-    [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Duplicate" handler:^{ [weakSelf.state duplicate:tab]; }]];
-    if (tab.isLoaded && tab != state.selectedTab) {
-        [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Unload to Save Memory" handler:^{ [tab unload]; }]];
-    }
-    if (state.spaces.count > 1) {
-        NSMenuItem *moveItem = [[NSMenuItem alloc] initWithTitle:@"Move to Space" action:nil keyEquivalent:@""];
-        NSMenu *sub = [NSMenu new];
-        Space *tabSpace = [state spaceOf:tab];
-        for (Space *space in state.spaces) {
-            if (space == tabSpace) continue;
-            [sub addItem:[[ClosureMenuItem alloc] initWithTitle:space.name handler:^{
-                [weakSelf.state move:tab to:TabLocation::tabsIn(space) index:0];
-            }]];
-        }
-        moveItem.submenu = sub;
-        [m addItem:moveItem];
-    }
-    [m addItem:[NSMenuItem separatorItem]];
-    if (tab.isPinned || tab.isFavorite) {
-        [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Remove" handler:^{ [weakSelf.state remove:tab]; }]];
-    } else {
-        [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Close Tab" handler:^{ [weakSelf.state close:tab]; }]];
-    }
-    return m;
-}
-
-- (NSMenu *)spaceMenuFor:(Space *)space {
-    BrowserState *state = self.state;
-    __weak SidebarView *weakSelf = self;
-    NSMenu *m = [NSMenu new];
-    [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Edit Space…" handler:^{
-        [weakSelf.browser promptEditSpace:space];
-    }]];
-    NSUInteger found = [state.spaces indexOfObjectIdenticalTo:space];
-    if (found != NSNotFound) {
-        NSInteger i = (NSInteger)found;
-        if (i > 0) {
-            [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Move Left" handler:^{
-                [weakSelf.state moveSpaceFrom:i to:i - 1];
-            }]];
-        }
-        if (i < (NSInteger)state.spaces.count - 1) {
-            [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Move Right" handler:^{
-                [weakSelf.state moveSpaceFrom:i to:i + 1];
-            }]];
-        }
-    }
-    if (state.spaces.count > 1) {
-        [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Delete Space" handler:^{
-            [weakSelf.browser confirmDeleteSpace:space];
-        }]];
-    }
-    return m;
 }
 
 @end

@@ -2,12 +2,13 @@
 #import <WebKit/WebKit.h>
 // Other-directory headers come in via Brook.h (import order there).
 #import "SidebarView.h"
+#import "TopBar.h"
 #import "ContentAreaView.h"
 
 // BrowserWindow, EdgeHotZone, ResizeHandle, DownloadsViewController and ClosureButtonTarget
 // stay private to BrowserWindowController.mm.
 
-/// The main browser window: sidebar + content card, and the app's commands.
+/// The main browser window: sidebar (or top bar) + content card, and the app's commands.
 @interface BrowserWindowController : NSWindowController <NSWindowDelegate, BrowserStateObserver>
 
 /// Builds the window and becomes BrowserState.shared's observer.
@@ -18,10 +19,12 @@
 @property (readonly) SidebarView *sidebar;
 @property (readonly) ContentAreaView *content;
 @property (readonly) BOOL sidebarHidden;
+/// Settings → Appearance → Tab layout is Top: the top bar shows instead of the sidebar.
+@property (readonly) BOOL tabsOnTop;
 
 /// Shows the window and the current tab (call once after BrowserState is loaded).
 - (void)start;
-/// Lines the back/forward buttons up with the traffic lights, whatever size macOS makes them.
+/// Lines the row beside the traffic lights up with them, whatever size macOS makes them.
 - (void)alignNavRow;
 
 // Sidebar
@@ -51,6 +54,11 @@
 - (void)presentExtensionPopup:(WKWebExtensionAction *)action;
 - (void)promptChromeWebStore;
 - (void)promptInstallFile;
+
+// Context menus, shared by the sidebar and the top bar
+- (NSMenu *)menuForTab:(BrowserTab *)tab;
+/// Edit, move and delete one space.
+- (NSMenu *)menuForSpace:(Space *)space;
 
 // Spaces
 - (void)promptNewSpace;

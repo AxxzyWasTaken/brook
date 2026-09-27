@@ -13,7 +13,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @class BrowserTab, BrowserState, Space, ArchivedTab, BrookWebView;
-@class BrowserWindowController, SidebarView, ContentAreaView, CommandBarController;
+@class BrowserWindowController, SidebarView, TopBarView, ContentAreaView, CommandBarController;
 @class HistoryEntry, SearchEngine;
 
 NS_ASSUME_NONNULL_END
@@ -33,6 +33,7 @@ NS_ASSUME_NONNULL_END
 #import "SidebarCells.h"
 #import "SidebarParts.h"
 #import "SidebarView.h"
+#import "TopBar.h"
 #import "CommandBar.h"
 #import "ContentAreaView.h"
 #import "SiteInfo.h"

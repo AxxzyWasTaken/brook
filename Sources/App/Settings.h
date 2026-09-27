@@ -7,6 +7,8 @@ FOUNDATION_EXPORT NSNotificationName const BrookSettingsDidChangeNotification;
 
 typedef NS_ENUM(NSInteger, ThemeMode) { ThemeModeSystem, ThemeModeLight, ThemeModeDark };
 typedef NS_ENUM(NSInteger, SidebarPosition) { SidebarPositionLeft, SidebarPositionRight };
+/// Where the tabs live: a sidebar (Arc-style) or a strip along the top of the window.
+typedef NS_ENUM(NSInteger, TabLayout) { TabLayoutSidebar, TabLayoutTop };
 typedef NS_ENUM(NSInteger, TabDensity) { TabDensityCompact, TabDensityComfortable, TabDensityRoomy };
 typedef NS_ENUM(NSInteger, NewTabPosition) { NewTabPositionTop, NewTabPositionBottom, NewTabPositionNextToCurrent };
 typedef NS_ENUM(NSInteger, NewTabPage) { NewTabPageCommandBar, NewTabPageBlank, NewTabPageCustom };
@@ -17,10 +19,11 @@ typedef NS_ENUM(NSInteger, AutoplayPolicy) { AutoplayPolicyAllow, AutoplayPolicy
 
 /// Raw values ("system", "left", "nextToCurrent", "blockAudio", …) and display titles.
 /// Every enum's cases run 0..<count, so `for (NSInteger i = 0; i < count; i++)` lists them all.
-FOUNDATION_EXPORT const NSInteger ThemeModeCount, SidebarPositionCount, TabDensityCount, NewTabPositionCount,
-    NewTabPageCount, PinnedCloseBehaviorCount, AutoplayPolicyCount;
+FOUNDATION_EXPORT const NSInteger ThemeModeCount, SidebarPositionCount, TabLayoutCount, TabDensityCount,
+    NewTabPositionCount, NewTabPageCount, PinnedCloseBehaviorCount, AutoplayPolicyCount;
 FOUNDATION_EXPORT NSString *ThemeModeTitle(ThemeMode v);
 FOUNDATION_EXPORT NSString *SidebarPositionTitle(SidebarPosition v);
+FOUNDATION_EXPORT NSString *TabLayoutTitle(TabLayout v);
 FOUNDATION_EXPORT NSString *TabDensityTitle(TabDensity v);
 FOUNDATION_EXPORT CGFloat TabDensityRowHeight(TabDensity v);
 FOUNDATION_EXPORT NSString *NewTabPositionTitle(NewTabPosition v);
@@ -44,6 +47,7 @@ FOUNDATION_EXPORT NSInteger AutoplayPolicyFromRaw(NSString *raw);
 
 // Appearance
 @property (class) ThemeMode theme;
+@property (class) TabLayout tabLayout;
 @property (class) SidebarPosition sidebarPosition;
 @property (class) CGFloat pageMargin;          // 0…20, default 8
 @property (class) CGFloat cornerRadius;        // 0…24, default 12
@@ -54,6 +58,8 @@ FOUNDATION_EXPORT NSInteger AutoplayPolicyFromRaw(NSString *raw);
 @property (class) BOOL showFavorites;
 @property (class) BOOL showBottomBar;
 @property (class) NSInteger favoritesColumns;  // 2…6, default 4
+/// Top tabs squeeze down to icons to fit, instead of keeping readable titles and scrolling.
+@property (class) BOOL topTabsShrink;          // default NO
 
 // Tabs
 @property (class) NewTabPosition newTabPosition;

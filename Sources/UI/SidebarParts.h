@@ -3,7 +3,7 @@
 
 @class BrowserTab, Space;
 
-/// The address pill at the top of the sidebar.
+/// The address pill at the top of the sidebar or in the top bar's toolbar row.
 @interface URLPillView : HoverControl
 @property (readonly) IconButton *siteButton;
 @property (readonly) IconButton *extensionsButton;
@@ -29,4 +29,24 @@
 - (instancetype)initWithSpace:(Space *)space;
 @property (readonly) Space *space;
 @property (nonatomic) BOOL isCurrent;
+@end
+
+/// What the window controller needs from whichever tab UI is showing: the sidebar or the top bar.
+@protocol BrowserChrome <NSObject>
+@property (readonly) URLPillView *urlPill;
+/// The row the traffic lights sit beside, its height, and the constraints the window controller
+/// adjusts to line it up with them (distance from the top, and room left for the lights).
+@property (readonly) NSView *titleRow;
+@property (readonly) CGFloat titleRowHeight;
+@property (readonly) NSLayoutConstraint *titleRowTop;
+@property (readonly) NSLayoutConstraint *titleRowLeading;
+/// Re-reads the appearance settings that affect it.
+- (void)applySettings;
+- (void)reloadAll;
+/// Reloads with the tabs sliding in from the right (forward) or left.
+- (void)reloadAllWithSpaceTransition:(BOOL)forward;
+- (void)updateSelection;
+- (void)tabChanged:(BrowserTab *)tab change:(TabChange)change;
+/// Back/forward/reload state and the address pill.
+- (void)updateChrome;
 @end

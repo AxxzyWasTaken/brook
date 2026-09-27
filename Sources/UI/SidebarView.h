@@ -4,29 +4,10 @@
 
 @class BrowserWindowController;
 
-/// The sidebar: nav row, address pill, favorites, the tab list and the spaces bar.
-@interface SidebarView : NSView
+/// The sidebar: nav row (its titleRow), address pill, favorites, the tab list and the spaces bar.
+@interface SidebarView : NSView <BrowserChrome>
 @property (weak) BrowserWindowController *browser;
-
-// Top
-@property (readonly) NSView *navRow;
-/// Adjusted by the window controller to line the nav row up with the traffic lights.
-@property (readonly) NSLayoutConstraint *navRowTop;
-@property (readonly) NSLayoutConstraint *navRowLeading;
 @property (readonly) URLPillView *urlPill;
-
-/// Re-reads the appearance settings that affect the sidebar.
-- (void)applySettings;
-/// Reloads without a transition.
-- (void)reloadAll;
-/// Slides the tab list in from the right (forward) or left.
-- (void)reloadAllWithSpaceTransition:(BOOL)forward;
-- (void)updateSelection;
-- (void)tabChanged:(BrowserTab *)tab change:(TabChange)change;
-/// Back/forward/reload state and the address pill.
-- (void)updateChrome;
-/// Context menu for a tab (also used by the favorites grid).
-- (NSMenu *)menuForTab:(BrowserTab *)tab;
 @end
 
 /// NSMenuItem that runs a block.
