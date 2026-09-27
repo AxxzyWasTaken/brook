@@ -37,7 +37,7 @@ jobs:
             -derivedDataPath build -destination 'generic/platform=macOS' \
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
             build 2>&1 | tee build.log | grep -E "error:|warning: .*(nearly matches|never used|deprecated)|\*\* BUILD" || true
-          test -d build/Build/Products/Release/Brook.app
+          test -x build/Build/Products/Release/Brook.app/Contents/MacOS/Brook
 
       - name: Error summary
         if: failure()
