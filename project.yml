@@ -6,8 +6,10 @@ options:
   createIntermediateGroups: true
 settings:
   base:
-    SWIFT_VERSION: "5.0"
     MACOSX_DEPLOYMENT_TARGET: "26.0"
+    CLANG_CXX_LANGUAGE_STANDARD: c++23
+    CLANG_ENABLE_OBJC_ARC: YES
+    CLANG_ENABLE_MODULES: YES
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     DEAD_CODE_STRIPPING: YES
 targets:
@@ -17,6 +19,12 @@ targets:
     sources:
       - path: Sources
       - path: Resources
+    dependencies:
+      - sdk: AppKit.framework
+      - sdk: WebKit.framework
+      - sdk: QuartzCore.framework
+      - sdk: CoreGraphics.framework
+      - sdk: UniformTypeIdentifiers.framework
     info:
       path: Support/Info.plist
       properties:

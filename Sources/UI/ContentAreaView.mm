@@ -1,0 +1,493 @@
+#import "Brook.h"
+
+// MARK: - Empty state
+
+@interface EmptyStateView : NSView
+@property (nonatomic, strong) NSColor *accent;
+@property (nonatomic, copy) NSString *spaceName;
+@end
+
+@implementation EmptyStateView {
+    NSTextField *_title;
+    NSTextField *_hint;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    if ((self = [super initWithFrame:frameRect])) {
+        _title = [NSTextField labelWithString:@""];
+        _hint = [NSTextField labelWithString:@"Press ⌘T to search or open a site"];
+        _accent = NSColor.controlAccentColor;
+        _spaceName = @"";
+        _title.font = [NSFont systemFontOfSize:28 weight:NSFontWeightSemibold];
+        _title.textColor = NSColor.labelColor;
+        _hint.font = [NSFont systemFontOfSize:14];
+        _hint.textColor = NSColor.secondaryLabelColor;
+        NSStackView *stack = [NSStackView stackViewWithViews:@[_title, _hint]];
+        stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+        stack.spacing = 8;
+        stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:stack];
+        [NSLayoutConstraint activateConstraints:@[
+            [stack.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
+            [stack.centerYAnchor constraintEqualToAnchor:self.centerYAnchor constant:-30]
+        ]];
+    }
+    return self;
+}
+
+- (void)setAccent:(NSColor *)accent {
+    _accent = accent;
+    self.needsLayout = YES;
+}
+
+- (void)setSpaceName:(NSString *)spaceName {
+    _spaceName = [spaceName copy];
+    _title.stringValue = _spaceName;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    id wc = self.window.windowController;
+    if ([wc isKindOfClass:BrowserWindowController.class]) {
+        [(BrowserWindowController *)wc showCommandBarEditing:NO];
+    }
+}
+
+@end
+
+// MARK: - Load error
+
+@interface ErrorView : NSView
+- (void)configureWithMessage:(NSString *)message url:(NSURL *)url onRetry:(void (^)(void))onRetry;
+@end
+
+@implementation ErrorView {
+    NSTextField *_title;
+    NSTextField *_detail;
+    NSButton *_retry;
+    void (^_onRetry)(void);
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    if ((self = [super initWithFrame:frameRect])) {
+        _title = [NSTextField labelWithString:@"This page couldn’t load"];
+        _detail = [NSTextField wrappingLabelWithString:@""];
+        _retry = [NSButton buttonWithTitle:@"Try Again" target:nil action:nil];
+        self.wantsLayer = YES;
+        _title.font = [NSFont systemFontOfSize:22 weight:NSFontWeightSemibold];
+        _detail.font = [NSFont systemFontOfSize:13];
+        _detail.textColor = NSColor.secondaryLabelColor;
+        _detail.alignment = NSTextAlignmentCenter;
+        _detail.preferredMaxLayoutWidth = 420;
+        _retry.bezelStyle = NSBezelStyleGlass;
+        _retry.controlSize = NSControlSizeLarge;
+        _retry.target = self;
+        _retry.action = @selector(retryTapped);
+        NSImageView *icon = [NSImageView imageViewWithImage:
+            [NSImage brook_symbol:@"wifi.exclamationmark" size:34 weight:NSFontWeightRegular] ?: [[NSImage alloc] init]];
+        icon.contentTintColor = NSColor.tertiaryLabelColor;
+        NSStackView *stack = [NSStackView stackViewWithViews:@[icon, _title, _detail, _retry]];
+        stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+        stack.spacing = 10;
+        [stack setCustomSpacing:18 afterView:_detail];
+        stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:stack];
+        [NSLayoutConstraint activateConstraints:@[
+            [stack.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
+            [stack.centerYAnchor constraintEqualToAnchor:self.centerYAnchor constant:-30],
+            [stack.widthAnchor constraintLessThanOrEqualToConstant:440]
+        ]];
+    }
+    return self;
+}
+
+- (void)layout {
+    [super layout];
+    self.layer.backgroundColor = [self brook_cg:NSColor.textBackgroundColor];
+}
+
+- (void)configureWithMessage:(NSString *)message url:(NSURL *)url onRetry:(void (^)(void))onRetry {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSString *s in @[[URLParser display:url] ?: @"", message ?: @""]) {
+        if (s.length > 0) [parts addObject:s];
+    }
+    _detail.stringValue = [parts componentsJoinedByString:@"\n"];
+    _onRetry = [onRetry copy];
+}
+
+- (void)retryTapped {
+    if (_onRetry) _onRetry();
+}
+
+@end
+
+// MARK: - Find in page
+
+@implementation FindBar {
+    NSGlassEffectView *_glass;
+    NSSearchField *_field;
+    NSTextField *_status;
+    IconButton *_prev;
+    IconButton *_next;
+    IconButton *_done;
+
+    /// Safari-style "3 of 12". WebKit's find API reports only found/not found, so the total is
+    /// counted once per query in an isolated JS world and the index is tracked here.
+    NSInteger _total;
+    NSInteger _index;
+    NSString *_countedQuery;
+    dispatch_block_t _countWork;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    if ((self = [super initWithFrame:frameRect])) {
+        _glass = [[NSGlassEffectView alloc] init];
+        _field = [[NSSearchField alloc] init];
+        _status = [NSTextField labelWithString:@""];
+        _countedQuery = @"";
+        __weak FindBar *weakSelf = self;
+        _prev = [[IconButton alloc] initWithSymbol:@"chevron.up" size:11 tooltip:@"Previous (⇧⌘G)" dimension:24
+                                           onClick:^{ [weakSelf searchForward:NO]; }];
+        _next = [[IconButton alloc] initWithSymbol:@"chevron.down" size:11 tooltip:@"Next (⌘G)" dimension:24
+                                           onClick:^{ [weakSelf searchForward:YES]; }];
+        _done = [[IconButton alloc] initWithSymbol:@"xmark" size:11 tooltip:@"Done (esc)" dimension:24
+                                           onClick:^{ [weakSelf close]; }];
+
+        _glass.cornerRadius = 18;
+        _glass.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:_glass];
+        [_glass brook_pinEdgesTo:self];
+
+        _field.placeholderString = @"Find on page";
+        _field.delegate = self;
+        _field.focusRingType = NSFocusRingTypeNone;
+        _field.sendsSearchStringImmediately = YES;
+        _field.target = self;
+        _field.action = @selector(fieldChanged);
+        _status.font = [NSFont monospacedDigitSystemFontOfSize:11 weight:NSFontWeightMedium];
+        _status.textColor = NSColor.secondaryLabelColor;
+        _status.alignment = NSTextAlignmentRight;
+        [_status setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+        NSStackView *stack = [NSStackView stackViewWithViews:@[_field, _status, _prev, _next, _done]];
+        stack.spacing = 4;
+        [stack setCustomSpacing:8 afterView:_status];
+        stack.edgeInsets = NSEdgeInsetsMake(4, 8, 4, 6);
+        [_field.widthAnchor constraintEqualToConstant:200].active = YES;
+        _glass.contentView = stack;
+        [stack brook_pinEdgesTo:self];
+        [self.heightAnchor constraintEqualToConstant:36].active = YES;
+    }
+    return self;
+}
+
+- (void)focus {
+    [self.window makeFirstResponder:_field];
+    [_field.currentEditor selectAll:nil];
+}
+
+- (void)close {
+    self.hidden = YES;
+    WKWebView *webView = self.webView;
+    [webView evaluateJavaScript:@"window.getSelection().removeAllRanges()" inFrame:nil
+                 inContentWorld:WKContentWorld.defaultClientWorld completionHandler:nil];
+    if (webView) [self.window makeFirstResponder:webView];
+}
+
+/// The page changed underneath (navigation or tab switch): recount on the next search.
+- (void)invalidateCount {
+    _countedQuery = @"";
+}
+
+- (void)fieldChanged {
+    [self searchForward:YES];
+}
+
+- (void)searchForward:(BOOL)forward {
+    NSString *query = _field.stringValue;
+    WKWebView *webView = self.webView;
+    if (!webView || query.length == 0) {
+        _total = 0; _index = 0; [self showStatus];
+        return;
+    }
+    BOOL fresh = ![query isEqualToString:_countedQuery];
+    WKFindConfiguration *config = [[WKFindConfiguration alloc] init];
+    config.backwards = !forward;
+    config.wraps = YES;
+    config.caseSensitive = NO;
+    __weak FindBar *weakSelf = self;
+    [webView findString:query withConfiguration:config completionHandler:^(WKFindResult *result) {
+        FindBar *self = weakSelf;
+        if (!self || ![self->_field.stringValue isEqualToString:query]) return;
+        if (!result.matchFound) {
+            self->_total = 0; self->_index = 0; self->_countedQuery = query;
+            [self showStatus];
+            return;
+        }
+        if (fresh) {
+            self->_index = 1;
+            [self scheduleCount:query];
+        } else if (self->_total > 0) {
+            NSInteger total = self->_total, index = self->_index;
+            self->_index = forward ? index % total + 1 : (index + total - 2) % total + 1;
+        }
+        [self showStatus];
+    }];
+}
+
+/// Counting walks the page text, so wait for typing to pause.
+- (void)scheduleCount:(NSString *)query {
+    if (_countWork) dispatch_block_cancel(_countWork);
+    __weak FindBar *weakSelf = self;
+    dispatch_block_t work = dispatch_block_create((dispatch_block_flags_t)0, ^{
+        FindBar *self = weakSelf;
+        WKWebView *webView = self.webView;
+        if (!self || !webView || ![self->_field.stringValue isEqualToString:query]) return;
+        NSString *js =
+            @"const q = needle.toLocaleLowerCase(), t = (document.body ? document.body.innerText : '').toLocaleLowerCase();\n"
+            @"let n = 0, i = 0;\n"
+            @"while (n < 10000 && (i = t.indexOf(q, i)) !== -1) { n++; i += q.length; }\n"
+            @"return n;";
+        [webView callAsyncJavaScript:js arguments:@{@"needle": query} inFrame:nil
+                      inContentWorld:WKContentWorld.defaultClientWorld
+                   completionHandler:^(id result, NSError *error) {
+            FindBar *self = weakSelf;
+            if (!self || ![self->_field.stringValue isEqualToString:query]) return;
+            NSInteger n = (!error && [result isKindOfClass:NSNumber.class]) ? [(NSNumber *)result integerValue] : 0;
+            self->_countedQuery = query;
+            // innerText can miss text WebKit still finds (e.g. in form fields); never show "2 of 1".
+            self->_total = std::max(n, self->_index);
+            [self showStatus];
+        }];
+    });
+    _countWork = work;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), work);
+}
+
+- (void)showStatus {
+    NSString *text = _field.stringValue;
+    if (text.length == 0) {
+        _status.stringValue = @"";
+    } else if (_total == 0 && [_countedQuery isEqualToString:text]) {
+        _status.stringValue = @"No matches";
+    } else if (_total == 0) {
+        _status.stringValue = @"";
+    } else {
+        _status.stringValue = [NSString stringWithFormat:@"%ld of %ld", (long)_index, (long)_total];
+    }
+    _status.textColor = [_status.stringValue isEqualToString:@"No matches"] ? NSColor.systemRedColor
+                                                                           : NSColor.secondaryLabelColor;
+    _prev.enabled = _total != 0 || ![_countedQuery isEqualToString:text];
+    _next.enabled = _prev.enabled;
+}
+
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)selector {
+    if (selector == @selector(insertNewline:)) {
+        BOOL shift = NSApp.currentEvent ? (NSApp.currentEvent.modifierFlags & NSEventModifierFlagShift) != 0 : NO;
+        [self searchForward:!shift];
+        return YES;
+    }
+    if (selector == @selector(cancelOperation:)) {
+        [self close];
+        return YES;
+    }
+    return NO;
+}
+
+@end
+
+// MARK: - Content area
+
+@implementation ContentAreaView {
+    NSView *_clip;
+    CALayer *_progress;
+    EmptyStateView *_empty;
+    ErrorView *_errorView;
+    __weak BrowserTab *_tab;
+    float _shadowStrength;
+    double _lastProgress;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    if ((self = [super initWithFrame:frameRect])) {
+        _clip = [[NSView alloc] init];
+        _progress = [CALayer layer];
+        _empty = [[EmptyStateView alloc] initWithFrame:NSZeroRect];
+        _errorView = [[ErrorView alloc] initWithFrame:NSZeroRect];
+        _findBar = [[FindBar alloc] initWithFrame:NSZeroRect];
+        _toast = [[ToastView alloc] initWithFrame:NSZeroRect];
+        _accentColor = NSColor.controlAccentColor;
+        _cornerRadius = 12;
+        _shadowStrength = 0.14f;
+        _lastProgress = 0;
+
+        self.wantsLayer = YES;
+        self.layer.masksToBounds = NO;
+        self.layer.shadowColor = NSColor.blackColor.CGColor;
+        self.layer.shadowOpacity = 0.14f;
+        self.layer.shadowRadius = 6;
+        self.layer.shadowOffset = CGSizeMake(0, -1);
+
+        _clip.wantsLayer = YES;
+        _clip.layer.cornerRadius = 12;
+        _clip.layer.cornerCurve = kCACornerCurveContinuous;
+        _clip.layer.masksToBounds = YES;
+        _clip.layer.borderWidth = 0.5;
+        [self addSubview:_clip];
+        [_clip brook_pinEdgesTo:self];
+
+        _empty.translatesAutoresizingMaskIntoConstraints = NO;
+        [_clip addSubview:_empty];
+        [_empty brook_pinEdgesTo:_clip];
+
+        _errorView.hidden = YES;
+        [_clip addSubview:_errorView];
+        [_errorView brook_pinEdgesTo:_clip];
+
+        _progress.backgroundColor = _accentColor.CGColor;
+        _progress.opacity = 0;
+        _progress.anchorPoint = CGPointZero;
+        // Web views are added as subviews later; their layers would otherwise cover the bar.
+        _progress.zPosition = 100;
+        [_clip.layer addSublayer:_progress];
+
+        _findBar.hidden = YES;
+        _findBar.translatesAutoresizingMaskIntoConstraints = NO;
+        [_clip addSubview:_findBar];
+        _toast.translatesAutoresizingMaskIntoConstraints = NO;
+        [_clip addSubview:_toast];
+        [NSLayoutConstraint activateConstraints:@[
+            [_findBar.topAnchor constraintEqualToAnchor:_clip.topAnchor constant:10],
+            [_findBar.trailingAnchor constraintEqualToAnchor:_clip.trailingAnchor constant:-12],
+            [_toast.centerXAnchor constraintEqualToAnchor:_clip.centerXAnchor],
+            [_toast.bottomAnchor constraintEqualToAnchor:_clip.bottomAnchor constant:-18]
+        ]];
+        [self updateColors];
+    }
+    return self;
+}
+
+- (void)setAccentColor:(NSColor *)accentColor {
+    _accentColor = accentColor;
+    _progress.backgroundColor = accentColor.CGColor;
+    _empty.accent = accentColor;
+}
+
+- (void)setCornerRadius:(CGFloat)cornerRadius {
+    _cornerRadius = cornerRadius;
+    _clip.layer.cornerRadius = cornerRadius;
+    // Edge-to-edge (no rounding) drops the card border and shadow too.
+    _clip.layer.borderWidth = cornerRadius == 0 ? 0 : 0.5;
+    self.layer.shadowOpacity = cornerRadius == 0 ? 0 : _shadowStrength;
+    self.needsLayout = YES;
+}
+
+- (void)layout {
+    [super layout];
+    NSRect b = self.bounds;
+    CGFloat r = std::min({_cornerRadius, b.size.width / 2, b.size.height / 2});
+    CGPathRef path = CGPathCreateWithRoundedRect(b, r, r, NULL);
+    self.layer.shadowPath = path;
+    CGPathRelease(path);
+    [self updateProgressFrameAnimated:NO];
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    [self updateColors];
+}
+
+- (void)updateColors {
+    _clip.layer.backgroundColor = [self brook_cg:NSColor.textBackgroundColor];
+    _clip.layer.borderColor = [self brook_cg:[NSColor brook_dynamicLight:[NSColor colorWithWhite:0 alpha:0.08]
+                                                                     dark:[NSColor colorWithWhite:1 alpha:0.1]]];
+    _shadowStrength = BrookIsDark(self.effectiveAppearance) ? 0.35f : 0.14f;
+    self.layer.shadowOpacity = _cornerRadius == 0 ? 0 : _shadowStrength;
+}
+
+// MARK: Showing tabs
+
+- (void)showTab:(BrowserTab *)tab spaceName:(NSString *)spaceName {
+    _tab = tab;
+    WKWebView *current = _webView;
+    if (current && current != tab.webView) [current removeFromSuperview];
+    _empty.spaceName = spaceName;
+    if (!tab) {
+        _webView = nil;
+        _empty.hidden = NO;
+        _errorView.hidden = YES;
+        _progress.opacity = 0;
+        _findBar.hidden = YES;
+        return;
+    }
+    _empty.hidden = YES;
+    BrookWebView *wv = [tab materialize];
+    if (wv.superview != _clip) {
+        wv.frame = _clip.bounds;
+        wv.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        [_clip addSubview:wv positioned:NSWindowBelow relativeTo:_errorView];
+    }
+    _webView = wv;
+    [self updateError];
+    [self updateProgress];
+    if (!_findBar.hidden) {
+        _findBar.webView = wv;
+        [_findBar invalidateCount];
+        [_findBar searchForward:YES];
+    }
+}
+
+- (void)tabChanged:(BrowserTab *)tab change:(TabChange)change {
+    if (tab != _tab) return;
+    if ((change & TabChangeProgress) || (change & TabChangeLoading)) [self updateProgress];
+    if (change & TabChangeError) [self updateError];
+    if (change & TabChangeURL) [_findBar invalidateCount];
+    if ((change & TabChangeLoaded) && tab.webView != _webView) [self showTab:tab spaceName:_empty.spaceName];
+}
+
+- (void)updateError {
+    BrowserTab *tab = _tab;
+    NSString *message = tab.loadError;
+    if (!tab || !message) { _errorView.hidden = YES; return; }
+    __weak BrowserTab *weakTab = tab;
+    [_errorView configureWithMessage:message url:tab.url onRetry:^{ [weakTab reload]; }];
+    _errorView.hidden = NO;
+}
+
+- (void)updateProgress {
+    BrowserTab *tab = _tab;
+    if (!tab) return;
+    double p = tab.isLoading ? std::max(0.08, tab.progress) : 1;
+    if (tab.isLoading) {
+        _progress.opacity = 1;
+        if (p < _lastProgress) _lastProgress = 0;
+        _lastProgress = p;
+        [self updateProgressFrameAnimated:YES];
+    } else if (_lastProgress > 0) {
+        _lastProgress = 1;
+        [self updateProgressFrameAnimated:YES];
+        [CATransaction begin];
+        [CATransaction setAnimationDuration:0.4];
+        _progress.opacity = 0;
+        [CATransaction commit];
+        _lastProgress = 0;
+    }
+}
+
+- (void)updateProgressFrameAnimated:(BOOL)animated {
+    [CATransaction begin];
+    [CATransaction setDisableActions:!animated];
+    [CATransaction setAnimationDuration:0.2];
+    CGFloat h = 2.5;
+    NSRect cb = _clip.bounds;
+    _progress.frame = CGRectMake(0, cb.size.height - h, cb.size.width * (CGFloat)_lastProgress, h);
+    [CATransaction commit];
+}
+
+// MARK: Find
+
+- (void)showFind {
+    _findBar.webView = _webView;
+    _findBar.hidden = NO;
+    [_findBar focus];
+}
+
+@end

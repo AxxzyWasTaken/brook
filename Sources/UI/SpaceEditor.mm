@@ -1,0 +1,229 @@
+#import "Brook.h"
+
+// NSColor.hexString lives in Utilities.mm as -[NSColor brook_hexString].
+
+/// Round colour swatch used in the space editor.
+@interface SwatchButton : HoverControl
+@property (readonly, copy) NSString *hex;
+@property (nonatomic) BOOL isChosen;
+- (instancetype)initWithHex:(NSString *)hex name:(NSString *)name;
+@end
+
+@implementation SwatchButton
+
+- (instancetype)initWithHex:(NSString *)hex name:(NSString *)name {
+    if ((self = [super initWithFrame:NSMakeRect(0, 0, 22, 22)])) {
+        _hex = [hex copy];
+        self.toolTip = name;
+        self.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.widthAnchor constraintEqualToConstant:22].active = YES;
+        [self.heightAnchor constraintEqualToConstant:22].active = YES;
+    }
+    return self;
+}
+
+- (void)setIsChosen:(BOOL)isChosen {
+    _isChosen = isChosen;
+    self.needsDisplay = YES;
+}
+
+- (void)updateLayer {
+    CALayer *layer = self.layer;
+    if (!layer) return;
+    layer.cornerRadius = 11;
+    layer.backgroundColor = ([NSColor brook_colorWithHex:_hex] ?: NSColor.grayColor).CGColor;
+    layer.borderWidth = _isChosen ? 2.5 : (self.isHovering ? 1.5 : 0);
+    layer.borderColor = [self brook_cg:_isChosen ? NSColor.labelColor : NSColor.tertiaryLabelColor];
+    layer.opacity = self.isPressed ? 0.7f : 1;
+}
+
+@end
+
+/// "Any colour" swatch: a conic rainbow ring; filled with the custom colour once one is picked.
+@interface RainbowSwatch : HoverControl
+@property (nonatomic, strong) NSColor *chosenColor;
+@end
+
+@implementation RainbowSwatch {
+    CAGradientLayer *_ring;
+    CALayer *_dot;
+}
+
+- (instancetype)init {
+    if ((self = [super initWithFrame:NSMakeRect(0, 0, 22, 22)])) {
+        _ring = [CAGradientLayer layer];
+        _dot = [CALayer layer];
+        self.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.widthAnchor constraintEqualToConstant:22].active = YES;
+        [self.heightAnchor constraintEqualToConstant:22].active = YES;
+        _ring.type = kCAGradientLayerConic;
+        _ring.startPoint = CGPointMake(0.5, 0.5);
+        _ring.endPoint = CGPointMake(0.5, 0);
+        NSMutableArray *colors = [NSMutableArray array];
+        for (NSColor *c in @[NSColor.systemRedColor, NSColor.systemOrangeColor, NSColor.systemYellowColor,
+                             NSColor.systemGreenColor, NSColor.systemTealColor, NSColor.systemBlueColor,
+                             NSColor.systemPurpleColor, NSColor.systemPinkColor, NSColor.systemRedColor]) {
+            [colors addObject:(__bridge id)c.CGColor];
+        }
+        _ring.colors = colors;
+        _ring.cornerRadius = 11;
+        _ring.frame = self.bounds;
+        [self.layer addSublayer:_ring];
+        _dot.frame = NSInsetRect(self.bounds, 5, 5);
+        _dot.cornerRadius = 6;
+        [self.layer addSublayer:_dot];
+    }
+    return self;
+}
+
+- (void)setChosenColor:(NSColor *)chosenColor {
+    _chosenColor = chosenColor;
+    self.needsDisplay = YES;
+}
+
+- (void)updateLayer {
+    CALayer *layer = self.layer;
+    if (!layer) return;
+    layer.cornerRadius = 11;
+    layer.borderWidth = _chosenColor ? 2.5 : (self.isHovering ? 1.5 : 0);
+    layer.borderColor = [self brook_cg:_chosenColor ? NSColor.labelColor : NSColor.tertiaryLabelColor];
+    layer.opacity = self.isPressed ? 0.7f : 1;
+    [CATransaction begin]; [CATransaction setDisableActions:YES];
+    _dot.backgroundColor = (_chosenColor ?: NSColor.windowBackgroundColor).CGColor;
+    [CATransaction commit];
+}
+
+@end
+
+/// Accessory view for the New/Edit Space sheet.
+@implementation SpaceEditorView {
+    NSMutableArray<SwatchButton *> *_swatches;
+    RainbowSwatch *_custom;
+    BOOL _colorPanelAttached;
+    NSPopUpButton *_engine;
+    NSButton *_profile;
+    NSString *_colorHex;
+}
+
+- (instancetype)initWithDraft:(SpaceDraft)draft {
+    if ((self = [super initWithFrame:NSMakeRect(0, 0, 300, 170)])) {
+        _nameField = [[NSTextField alloc] init];
+        _swatches = [NSMutableArray array];
+        _custom = [[RainbowSwatch alloc] init];
+        _engine = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        _profile = [NSButton checkboxWithTitle:@"Use a separate profile" target:nil action:nil];
+        _colorHex = [draft.colorHex copy] ?: @"";
+
+        _nameField.placeholderString = @"Name";
+        _nameField.stringValue = draft.name ?: @"";
+
+        __weak SpaceEditorView *weakSelf = self;
+        NSStackView *swatchRow = [[NSStackView alloc] init];
+        swatchRow.spacing = 6;
+        for (NSArray<NSString *> *c in Palette.spaceColors) {
+            NSString *name = c[0], *hex = c[1];
+            SwatchButton *b = [[SwatchButton alloc] initWithHex:hex name:name];
+            b.onClick = ^{ [weakSelf choose:hex]; };
+            [_swatches addObject:b];
+            [swatchRow addArrangedSubview:b];
+        }
+        // A round rainbow swatch after the presets opens the system colour panel for any colour.
+        _custom.onClick = ^{ [weakSelf openColorPanel]; };
+        _custom.toolTip = @"Custom colour…";
+        NSView *spacer = [[NSView alloc] init];
+        [spacer.widthAnchor constraintEqualToConstant:4].active = YES;
+        [swatchRow addArrangedSubview:spacer];
+        [swatchRow addArrangedSubview:_custom];
+
+        [_engine addItemWithTitle:[NSString stringWithFormat:@"Default (%@)", SearchEngines.defaultEngine.name]];
+        _engine.lastItem.representedObject = nil;
+        NSArray<SearchEngine *> *engines = SearchEngines.all;
+        for (SearchEngine *e in engines) {
+            [_engine addItemWithTitle:e.name];
+            _engine.lastItem.representedObject = e.identifier;
+        }
+        if (NSString *engineID = draft.searchEngineID) {
+            NSUInteger i = [engines indexOfObjectPassingTest:^BOOL(SearchEngine *e, NSUInteger, BOOL *) {
+                return [e.identifier isEqualToString:engineID];
+            }];
+            if (i != NSNotFound) [_engine selectItemAtIndex:(NSInteger)i + 1];
+        }
+
+        _profile.state = draft.separateProfile ? NSControlStateValueOn : NSControlStateValueOff;
+        NSTextField *profileNote = [NSTextField wrappingLabelWithString:
+            @"Keeps this space’s cookies, logins and site data apart from your other spaces. Favorites always use your main profile."];
+        profileNote.font = [NSFont systemFontOfSize:11];
+        profileNote.textColor = NSColor.secondaryLabelColor;
+        profileNote.preferredMaxLayoutWidth = 280;
+
+        NSTextField *engineLabel = [NSTextField labelWithString:@"Search with"];
+        NSStackView *engineRow = [NSStackView stackViewWithViews:@[engineLabel, _engine]];
+        engineRow.spacing = 8;
+
+        NSStackView *stack = [NSStackView stackViewWithViews:@[_nameField, swatchRow, engineRow, _profile, profileNote]];
+        stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+        stack.alignment = NSLayoutAttributeLeading;
+        stack.spacing = 10;
+        [stack setCustomSpacing:4 afterView:_profile];
+        stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:stack];
+        [NSLayoutConstraint activateConstraints:@[
+            [stack.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+            [stack.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+            [stack.topAnchor constraintEqualToAnchor:self.topAnchor],
+            [_nameField.widthAnchor constraintEqualToConstant:300],
+            [profileNote.widthAnchor constraintEqualToConstant:290]
+        ]];
+        [self choose:_colorHex];
+        [self layoutSubtreeIfNeeded];
+        [self setFrameSize:NSMakeSize(300, stack.fittingSize.height)];
+    }
+    return self;
+}
+
+- (void)choose:(NSString *)hex {
+    _colorHex = [hex copy];
+    BOOL preset = NO;
+    for (SwatchButton *s in _swatches) {
+        s.isChosen = [s.hex caseInsensitiveCompare:hex] == NSOrderedSame;
+        preset = preset || s.isChosen;
+    }
+    _custom.chosenColor = preset ? nil : [NSColor brook_colorWithHex:hex];
+}
+
+- (void)openColorPanel {
+    NSColorPanel *panel = NSColorPanel.sharedColorPanel;
+    panel.showsAlpha = NO;
+    panel.color = [NSColor brook_colorWithHex:_colorHex] ?: NSColor.systemPurpleColor;
+    [panel setTarget:self];
+    [panel setAction:@selector(colorPanelChanged:)];
+    _colorPanelAttached = YES;
+    [panel orderFront:nil];
+}
+
+- (void)colorPanelChanged:(NSColorPanel *)panel {
+    [self choose:panel.color.brook_hexString];
+}
+
+- (void)viewWillMoveToWindow:(NSWindow *)newWindow {
+    // Detach from the shared panel when the sheet closes so it doesn't message a dead view.
+    if (!newWindow && _colorPanelAttached) {
+        _colorPanelAttached = NO;
+        [NSColorPanel.sharedColorPanel setTarget:nil];
+        [NSColorPanel.sharedColorPanel setAction:nil];
+        [NSColorPanel.sharedColorPanel orderOut:nil];
+    }
+    [super viewWillMoveToWindow:newWindow];
+}
+
+- (SpaceDraft)draft {
+    id rep = _engine.selectedItem.representedObject;
+    SpaceDraft d;
+    d.name = BrookTrim(_nameField.stringValue);
+    d.colorHex = _colorHex;
+    d.searchEngineID = [rep isKindOfClass:NSString.class] ? rep : nil;
+    d.separateProfile = _profile.state == NSControlStateValueOn;
+    return d;
+}
+
+@end
