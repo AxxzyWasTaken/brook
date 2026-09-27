@@ -1,7 +1,7 @@
 import AppKit
 
 extension NSPasteboard.PasteboardType {
-    static let driftTab = NSPasteboard.PasteboardType("app.drift.tab")
+    static let brookTab = NSPasteboard.PasteboardType("app.brook.tab")
 }
 
 /// A lightweight clickable view with hover and press states, drawn with a single layer.

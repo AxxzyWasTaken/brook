@@ -97,7 +97,7 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
         table.delegate = self
         table.target = self
         table.action = #selector(rowClicked)
-        table.registerForDraggedTypes([.driftTab, .URL])
+        table.registerForDraggedTypes([.brookTab, .URL])
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.draggingDestinationFeedbackStyle = .gap
         table.onMiddleClick = { [weak self] row in
@@ -292,7 +292,7 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         guard let tab = rows[row].tab else { return nil }
         let item = NSPasteboardItem()
-        item.setString(tab.id.uuidString, forType: .driftTab)
+        item.setString(tab.id.uuidString, forType: .brookTab)
         if let url = tab.url { item.setString(url.absoluteString, forType: .URL) }
         return item
     }
@@ -300,7 +300,7 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
                    proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
         if dropOperation == .on { tableView.setDropRow(row, dropOperation: .above) }
-        return info.draggingPasteboard.string(forType: .driftTab) != nil ? .move : .copy
+        return info.draggingPasteboard.string(forType: .brookTab) != nil ? .move : .copy
     }
 
     func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
@@ -317,7 +317,7 @@ final class SidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSM
             destination = .tabs(s); index = max(0, row - firstTabRow)
         }
 
-        if let idString = info.draggingPasteboard.string(forType: .driftTab),
+        if let idString = info.draggingPasteboard.string(forType: .brookTab),
            let id = UUID(uuidString: idString),
            let tab = state.allTabs.first(where: { $0.id == id }) {
             state.move(tab, to: destination, index: index)

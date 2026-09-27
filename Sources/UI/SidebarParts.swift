@@ -109,7 +109,7 @@ final class FavoriteTile: HoverControl, NSDraggingSource {
         dragStart = nil
         isPressed = false
         let item = NSPasteboardItem()
-        item.setString(tab.id.uuidString, forType: .driftTab)
+        item.setString(tab.id.uuidString, forType: .brookTab)
         if let url = tab.url { item.setString(url.absoluteString, forType: .URL) }
         let dragItem = NSDraggingItem(pasteboardWriter: item)
         let favicon = icon.image
@@ -140,7 +140,7 @@ final class FavoritesGridView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         heightConstraint = heightAnchor.constraint(equalToConstant: 0)
         heightConstraint.isActive = true
-        registerForDraggedTypes([.driftTab])
+        registerForDraggedTypes([.brookTab])
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -190,7 +190,7 @@ final class FavoritesGridView: NSView {
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { .move }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let s = sender.draggingPasteboard.string(forType: .driftTab), let id = UUID(uuidString: s) else { return false }
+        guard let s = sender.draggingPasteboard.string(forType: .brookTab), let id = UUID(uuidString: s) else { return false }
         let p = convert(sender.draggingLocation, from: nil)
         var index = tiles.count
         if !tiles.isEmpty {
