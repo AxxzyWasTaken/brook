@@ -34,6 +34,10 @@
 @property (class, readonly) NSColor *rowSelected;
 @property (class, readonly) NSColor *rowHover;
 @property (class, readonly) NSColor *pill;
+/// A recessed surface on tinted glass (the top bar's tab track and address field): darkens in both
+/// appearances, so light text keeps its contrast over a strong space colour in dark mode.
+@property (class, readonly) NSColor *well;
+@property (class, readonly) NSColor *wellHover;
 @property (class, readonly) NSColor *tile;
 @property (class, readonly) NSColor *divider;
 @end

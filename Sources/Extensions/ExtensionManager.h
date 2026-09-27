@@ -38,6 +38,8 @@ FOUNDATION_EXPORT NSNotificationName const ExtensionManagerActionDidChangeNotifi
 /// Loaded contexts, in install order.
 @property (readonly) NSArray<WKWebExtensionContext *> *contexts;
 - (WKWebExtensionContext *)contextForID:(NSString *)identifier;
+/// The loaded extension installed from the Chrome Web Store with this ID, or nil.
+- (WKWebExtensionContext *)contextForChromeWebStoreID:(NSString *)chromeWebStoreID;
 
 /// Loads every installed extension (async; posts ExtensionManagerDidChangeNotification when done).
 - (void)loadAll;
@@ -70,7 +72,10 @@ FOUNDATION_EXPORT NSNotificationName const ExtensionManagerActionDidChangeNotifi
 
 // MARK: - "Add to Brook" button on the Chrome Web Store
 
-@interface ChromeWebStoreBridge : NSObject <WKScriptMessageHandler>
+/// Backs the store page's "Add to Brook" / "Remove from Brook" button (chrome-web-store.js).
+/// The page posts {action: status|install|remove, id} to "brookStore" and gets back
+/// "installed" or "not-installed".
+@interface ChromeWebStoreBridge : NSObject <WKScriptMessageHandlerWithReply>
 @property (class, readonly) ChromeWebStoreBridge *shared;
 /// chrome-web-store.js from the app bundle (lazy; nil if missing), in the "BrookStore" world.
 @property (readonly) WKUserScript *userScript;

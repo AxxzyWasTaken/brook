@@ -8,14 +8,14 @@ NSNotificationName const BrookSettingsDidChangeNotification = @"BrookSettingsDid
 // Each enum's raw values, in case order. These are what's stored in defaults.
 static NSArray<NSString *> *const kThemeRaw = @[@"system", @"light", @"dark"];
 static NSArray<NSString *> *const kSidebarRaw = @[@"left", @"right"];
-static NSArray<NSString *> *const kTabLayoutRaw = @[@"sidebar", @"top"];
+static NSArray<NSString *> *const kTabLayoutRaw = @[@"sidebar", @"top", @"compact"];
 static NSArray<NSString *> *const kDensityRaw = @[@"compact", @"comfortable", @"roomy"];
 static NSArray<NSString *> *const kNewTabPositionRaw = @[@"top", @"bottom", @"nextToCurrent"];
 static NSArray<NSString *> *const kNewTabPageRaw = @[@"commandBar", @"blank", @"custom"];
 static NSArray<NSString *> *const kPinnedCloseRaw = @[@"resetToHome", @"unloadOnly", @"unpin"];
 static NSArray<NSString *> *const kAutoplayRaw = @[@"allow", @"blockAudio", @"blockAll"];
 
-const NSInteger ThemeModeCount = 3, SidebarPositionCount = 2, TabLayoutCount = 2, TabDensityCount = 3,
+const NSInteger ThemeModeCount = 3, SidebarPositionCount = 2, TabLayoutCount = 3, TabDensityCount = 3,
     NewTabPositionCount = 3, NewTabPageCount = 3, PinnedCloseBehaviorCount = 3, AutoplayPolicyCount = 3;
 
 static NSString *BrookPick(NSArray<NSString *> *list, NSInteger i) {
@@ -24,7 +24,7 @@ static NSString *BrookPick(NSArray<NSString *> *list, NSInteger i) {
 
 NSString *ThemeModeTitle(ThemeMode v) { return BrookPick(@[@"System", @"Light", @"Dark"], v); }
 NSString *SidebarPositionTitle(SidebarPosition v) { return BrookPick(@[@"Left", @"Right"], v); }
-NSString *TabLayoutTitle(TabLayout v) { return BrookPick(@[@"Sidebar", @"Top"], v); }
+NSString *TabLayoutTitle(TabLayout v) { return BrookPick(@[@"Sidebar", @"Top", @"Compact"], v); }
 NSString *TabDensityTitle(TabDensity v) { return BrookPick(@[@"Compact", @"Comfortable", @"Roomy"], v); }
 CGFloat TabDensityRowHeight(TabDensity v) {
     switch (v) {

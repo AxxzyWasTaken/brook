@@ -24,7 +24,7 @@
         self.toolTip = @"Search or enter address (⌘L)";
 
         _label.font = [NSFont systemFontOfSize:13 weight:NSFontWeightRegular];
-        _label.textColor = NSColor.secondaryLabelColor;
+        _label.textColor = NSColor.labelColor;
         _label.lineBreakMode = NSLineBreakByTruncatingTail;
         [_label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                          forOrientation:NSLayoutConstraintOrientationHorizontal];

@@ -12,4 +12,11 @@
 @property (nonatomic, weak) BrowserWindowController *browser;
 @property (readonly) URLPillView *urlPill;
 @property (readonly) ExtensionsBar *extensionsBar;
+/// One row (Settings → Appearance → Tabs → Compact): no address pill; clicking the selected tab
+/// edits its address in place.
+@property (nonatomic) BOOL compact;
+/// Compact: turns the selected tab into the address field. NO if it can't (then use the command bar).
+- (BOOL)beginEditingAddress;
+/// Where the site info popover points: the pill's site button, or (compact) the selected tab.
+@property (readonly) NSView *siteInfoAnchor;
 @end

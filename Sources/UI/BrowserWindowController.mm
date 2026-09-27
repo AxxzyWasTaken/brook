@@ -280,7 +280,7 @@ struct LightDefault {
         _lightsGeneration = 0;
         _inset = Settings.pageMargin;
         _onRight = Settings.sidebarPosition == SidebarPositionRight;
-        _tabsOnTop = Settings.tabLayout == TabLayoutTop;
+        _tabsOnTop = Settings.tabLayout != TabLayoutSidebar;
         _chrome = _sidebar;
 
         window.delegate = self;
@@ -377,13 +377,17 @@ static const CGFloat kFullScreenLightsInset = 10;
 
 /// Shows the sidebar or the top bar, following Settings → Appearance → Tab layout.
 - (void)applyTabLayout {
-    BOOL top = Settings.tabLayout == TabLayoutTop;
+    TabLayout layout = Settings.tabLayout;
+    BOOL top = layout != TabLayoutSidebar;
+    _topBar.compact = layout == TabLayoutCompact;
     if (top == _tabsOnTop && _positional.count) return;   // built, and nothing changed
+    if (!top) [_commandBar dismiss];
     if (_peeking) [self endPeek];
     _tabsOnTop = top;
     if (top && !_topBar) {
         _topBar = [TopBarView new];
         _topBar.browser = self;
+        _topBar.compact = layout == TabLayoutCompact;
         _topGlass = [NSGlassEffectView new];
         _topGlass.translatesAutoresizingMaskIntoConstraints = NO;
         _topGlass.contentView = _topBar;
@@ -839,6 +843,8 @@ static const CGFloat kFullScreenLightsInset = 10;
 // MARK: Commands
 
 - (void)showCommandBarEditing:(BOOL)editing {
+    // Compact tabs edit the address in the selected tab itself (⌘L and clicks on the tab).
+    if (editing && _tabsOnTop && _topBar.compact && [_topBar beginEditingAddress]) return;
     [self.commandBar showEditingCurrent:editing && _state.selectedTab != nil];
 }
 
@@ -955,8 +961,8 @@ static const CGFloat kFullScreenLightsInset = 10;
     popover.behavior = NSPopoverBehaviorTransient;
     popover.contentViewController = [[SiteInfoViewController alloc] initWithHost:host
                                                                           secure:[url.scheme isEqualToString:@"https"]];
-    if (self.urlPillVisible) {
-        NSView *anchor = _chrome.urlPill.siteButton;
+    NSView *anchor = _tabsOnTop ? _topBar.siteInfoAnchor : _chrome.urlPill.siteButton;
+    if (self.urlPillVisible && anchor) {
         [popover showRelativeToRect:anchor.bounds ofView:anchor preferredEdge:self.pillPopoverEdge];
     } else {
         [popover showRelativeToRect:NSMakeRect(NSMidX(_content.bounds), NSMaxY(_content.bounds) - 4, 1, 1)

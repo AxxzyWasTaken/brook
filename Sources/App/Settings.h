@@ -7,8 +7,9 @@ FOUNDATION_EXPORT NSNotificationName const BrookSettingsDidChangeNotification;
 
 typedef NS_ENUM(NSInteger, ThemeMode) { ThemeModeSystem, ThemeModeLight, ThemeModeDark };
 typedef NS_ENUM(NSInteger, SidebarPosition) { SidebarPositionLeft, SidebarPositionRight };
-/// Where the tabs live: a sidebar (Arc-style) or a strip along the top of the window.
-typedef NS_ENUM(NSInteger, TabLayout) { TabLayoutSidebar, TabLayoutTop };
+/// Where the tabs live: a sidebar (Arc-style), a strip along the top of the window under the
+/// toolbar, or (compact, like Safari's) one row where the selected tab doubles as the address field.
+typedef NS_ENUM(NSInteger, TabLayout) { TabLayoutSidebar, TabLayoutTop, TabLayoutCompact };
 typedef NS_ENUM(NSInteger, TabDensity) { TabDensityCompact, TabDensityComfortable, TabDensityRoomy };
 typedef NS_ENUM(NSInteger, NewTabPosition) { NewTabPositionTop, NewTabPositionBottom, NewTabPositionNextToCurrent };
 typedef NS_ENUM(NSInteger, NewTabPage) { NewTabPageCommandBar, NewTabPageBlank, NewTabPageCustom };

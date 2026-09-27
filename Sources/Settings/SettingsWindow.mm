@@ -225,7 +225,7 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
     [f row:@"Tabs" view:[Controls segmentedWithTitles:EnumTitles(TabLayoutCount, ^(NSInteger i) { return TabLayoutTitle((TabLayout)i); })
                                         selectedIndex:Settings.tabLayout
                                              onChange:^(NSInteger i) { Settings.tabLayout = (TabLayout)i; }]];
-    [f note:@"Top puts the address bar and tabs above the page, with favorites beside the address bar."];
+    [f note:@"Top puts the address bar and tabs above the page, with favorites beside the address bar. Compact fits it all in one row: click the selected tab to see and edit its address."];
     [f row:@"Many top tabs" view:[Controls check:@"Shrink to fit instead of scrolling" on:Settings.topTabsShrink
                                          onChange:^(BOOL on) { Settings.topTabsShrink = on; }]];
     [f note:@"Off keeps every title readable and scrolls the tab bar sideways. On squeezes tabs down to just their icons."];

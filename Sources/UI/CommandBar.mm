@@ -33,7 +33,7 @@ NSInteger CharacterCount(NSString *s) {
 } // namespace
 
 @implementation KeyPanel
-- (BOOL)canBecomeKeyWindow { return YES; }
+- (BOOL)canBecomeKeyWindow { return !self.refusesKey; }
 - (BOOL)canBecomeMainWindow { return NO; }
 @end
 
@@ -139,7 +139,17 @@ NSInteger CharacterCount(NSString *s) {
     KeyPanel *_panel;
     NSGlassEffectView *_glass;
     NSTextField *_field;
+    NSImageView *_searchIcon;
     NSBox *_separator;
+    NSLayoutConstraint *_scrollBelowField;
+    NSLayoutConstraint *_scrollAtTop;
+    /// Where the typing happens: our own field, or the tab's while attached.
+    NSTextField *_input;
+    NSTextField *_attachedField;
+    __weak NSView *_anchor;
+    __weak NSView *_bar;
+    NSString *_initialText;   // the address as it was when editing began
+    void (^_onEnd)(void);
     NSScrollView *_scroll;
     NSTableView *_table;
     std::vector<Suggestion> _suggestions;
@@ -152,7 +162,8 @@ NSInteger CharacterCount(NSString *s) {
     CGFloat _rowHeight;
 }
 
-- (BOOL)isVisible { return _panel.isVisible; }
+- (BOOL)isVisible { return _panel.isVisible || _attachedField != nil; }
+- (BOOL)isAttached { return _attachedField != nil; }
 
 - (instancetype)initWithBrowser:(BrowserWindowController *)browser {
     if ((self = [super init])) {
@@ -196,6 +207,8 @@ NSInteger CharacterCount(NSString *s) {
         [content brook_pinEdgesTo:root];
 
         NSImageView *searchIcon = [NSImageView imageViewWithImage:[NSImage brook_symbol:@"magnifyingglass" size:17] ?: [NSImage new]];
+        _searchIcon = searchIcon;
+        _input = _field;
         searchIcon.contentTintColor = NSColor.secondaryLabelColor;
         searchIcon.translatesAutoresizingMaskIntoConstraints = NO;
 
@@ -242,11 +255,13 @@ NSInteger CharacterCount(NSString *s) {
             [_separator.topAnchor constraintEqualToAnchor:content.topAnchor constant:63],
             [_separator.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:14],
             [_separator.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-14],
-            [_scroll.topAnchor constraintEqualToAnchor:_separator.bottomAnchor constant:6],
             [_scroll.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:8],
             [_scroll.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-8],
             [_scroll.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-8],
         ]];
+        _scrollBelowField = [_scroll.topAnchor constraintEqualToAnchor:_separator.bottomAnchor constant:6];
+        _scrollAtTop = [_scroll.topAnchor constraintEqualToAnchor:content.topAnchor constant:8];
+        _scrollBelowField.active = YES;
         _panel.contentView = root;
     }
     return self;
@@ -257,9 +272,14 @@ NSInteger CharacterCount(NSString *s) {
 - (void)showEditingCurrent:(BOOL)editingCurrent {
     NSWindow *parent = _browser.window;
     if (!parent) return;
+    if (_attachedField) [self dismiss];
+    [self useAttachedLayout:NO];
     _editingCurrent = editingCurrent;
     NSString *current = editingCurrent ? (BrowserState.shared.selectedTab.url.absoluteString ?: @"") : @"";
     _field.stringValue = current;
+    _initialText = current;
+    [self cancelAutocomplete];
+    _phrases = @[];   // the last session's search suggestions don't belong to this one
     [self rebuild];
     if (!_panel.isVisible) {
         [parent addChildWindow:_panel ordered:NSWindowAbove];
@@ -279,6 +299,97 @@ NSInteger CharacterCount(NSString *s) {
     [_field.currentEditor selectAll:nil];
 }
 
+/// Attached, the panel is just the suggestions list: the field it types into lives in the tab.
+- (void)useAttachedLayout:(BOOL)attached {
+    _input = attached ? _attachedField : _field;
+    _panel.refusesKey = attached;
+    _searchIcon.hidden = attached;
+    _field.hidden = attached;
+    _scrollBelowField.active = !attached;
+    _scrollAtTop.active = attached;
+}
+
+- (void)showAttachedToField:(NSTextField *)field alignedWith:(NSView *)anchor below:(NSView *)bar
+                      onEnd:(void (^)(void))onEnd {
+    NSWindow *parent = _browser.window;
+    if (!parent || !field) return;
+    [self dismiss];
+    _attachedField = field;
+    _anchor = anchor;
+    _bar = bar;
+    _initialText = field.stringValue;
+    _phrases = @[];
+    _onEnd = [onEnd copy];
+    _editingCurrent = YES;
+    [self useAttachedLayout:YES];
+    _separator.hidden = YES;
+    field.delegate = self;
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(parentResignedKey:)
+                                               name:NSWindowDidResignKeyNotification object:parent];
+    [parent makeFirstResponder:field];
+    [field.currentEditor selectAll:nil];
+    [self rebuild];
+}
+
+- (void)parentResignedKey:(NSNotification *)note { [self dismiss]; }
+
+/// Drops the list down under the bar, starting at the tab, at least wide enough to read and kept
+/// inside the window.
+- (void)layoutAttached {
+    NSWindow *parent = _browser.window;
+    NSView *anchor = _anchor, *bar = _bar ?: _anchor;
+    if (!parent || !anchor.window) return;
+    NSInteger rows = std::min<NSInteger>((NSInteger)_suggestions.size(), 8);
+    if (rows == 0) {
+        [parent removeChildWindow:_panel];
+        [_panel orderOut:nil];
+        return;
+    }
+    NSRect a = [parent convertRectToScreen:[anchor convertRect:anchor.bounds toView:nil]];
+    NSRect b = [parent convertRectToScreen:[bar convertRect:bar.bounds toView:nil]];
+    NSRect pf = parent.frame;
+    CGFloat w = std::min<CGFloat>(std::max<CGFloat>(560, NSWidth(a)), NSWidth(pf) - 16);
+    CGFloat x = std::clamp<CGFloat>(NSMinX(a), NSMinX(pf) + 8, NSMaxX(pf) - 8 - w);
+    CGFloat h = (CGFloat)rows * _rowHeight + 16;
+    [_panel setFrame:NSMakeRect(x, NSMinY(b) - 6 - h, w, h) display:YES];
+    if (!_panel.isVisible) {
+        [parent addChildWindow:_panel ordered:NSWindowAbove];
+        _panel.alphaValue = 0;
+        [_panel orderFront:nil];
+        KeyPanel *panel = _panel;
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+            ctx.duration = 0.12;
+            panel.animator.alphaValue = 1;
+        }];
+    }
+    [_panel invalidateShadow];
+    __weak KeyPanel *weakPanel = _panel;
+    dispatch_async(dispatch_get_main_queue(), ^{ [weakPanel invalidateShadow]; });
+}
+
+- (void)endAttached {
+    NSTextField *field = _attachedField;
+    void (^onEnd)(void) = _onEnd;
+    _attachedField = nil;
+    _onEnd = nil;
+    _anchor = nil;
+    _bar = nil;
+    [self cancelAutocomplete];
+    [NSNotificationCenter.defaultCenter removeObserver:self name:NSWindowDidResignKeyNotification object:nil];
+    [_panel.parentWindow removeChildWindow:_panel];
+    [_panel orderOut:nil];
+    [self useAttachedLayout:NO];
+    field.delegate = nil;   // leaving the field below must not come back here
+    WKWebView *wv = _browser.content.webView;
+    [_browser.window makeFirstResponder:wv];
+    if (onEnd) onEnd();
+}
+
+- (void)controlTextDidEndEditing:(NSNotification *)note {
+    // Focus left the tab's field (a click on the page, say): stop editing, as Safari does.
+    if (_attachedField && note.object == _attachedField) [self dismiss];
+}
+
 - (void)cancelAutocomplete {
     _acGeneration++;
     [_acDataTask cancel];
@@ -286,6 +397,10 @@ NSInteger CharacterCount(NSString *s) {
 }
 
 - (void)dismiss {
+    if (_attachedField) {
+        [self endAttached];
+        return;
+    }
     if (!_panel.isVisible) return;
     [self cancelAutocomplete];
     [_panel.parentWindow removeChildWindow:_panel];
@@ -323,11 +438,12 @@ NSInteger CharacterCount(NSString *s) {
 }
 
 - (void)rebuild {
-    NSString *text = BrookTrim(_field.stringValue);
+    NSString *text = BrookTrim(_input.stringValue);
     std::vector<Suggestion> list;
     BrowserState *state = BrowserState.shared;
 
-    if (text.length == 0) {
+    // Nothing typed yet (or the current address, untouched): offer recently used tabs.
+    if (text.length == 0 || (_editingCurrent && [text isEqualToString:BrookTrim(_initialText ?: @"")])) {
         BrowserTab *selected = state.selectedTab;
         NSMutableArray<BrowserTab *> *candidates = [NSMutableArray array];
         for (BrowserTab *t in state.visibleTabs) {
@@ -380,13 +496,14 @@ NSInteger CharacterCount(NSString *s) {
     _suggestions = std::move(list);
     [_table reloadData];
     if (!_suggestions.empty()) [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
-    if (_panel.isVisible) [self layoutPanel];
+    if (_attachedField) [self layoutAttached];
+    else if (_panel.isVisible) [self layoutPanel];
 }
 
 /// Search suggestions from DuckDuckGo's autocomplete endpoint.
 - (void)fetchPhrases {
     [self cancelAutocomplete];
-    NSString *text = BrookTrim(_field.stringValue);
+    NSString *text = BrookTrim(_input.stringValue);
     if (!(CharacterCount(text) >= 2 && [URLParser urlFromInput:text] == nil)) {
         _phrases = @[];
         return;
@@ -413,7 +530,7 @@ NSInteger CharacterCount(NSString *s) {
                 for (id item in raw) {
                     if (![item isKindOfClass:NSString.class]) return;
                 }
-                if (![BrookTrim(s->_field.stringValue) isEqualToString:text]) return;
+                if (![BrookTrim(s->_input.stringValue) isEqualToString:text]) return;
                 s->_phrases = raw;
                 NSInteger selected = s->_table.selectedRow;
                 [s rebuild];
@@ -454,7 +571,7 @@ NSInteger CharacterCount(NSString *s) {
 }
 
 - (void)commitRow:(NSInteger)row {
-    NSString *text = BrookTrim(_field.stringValue);
+    NSString *text = BrookTrim(_input.stringValue);
     BrowserState *state = BrowserState.shared;
     NSURL *destination = nil;
     if (row >= 0 && row < (NSInteger)_suggestions.size()) {

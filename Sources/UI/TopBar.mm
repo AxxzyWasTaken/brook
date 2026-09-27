@@ -8,6 +8,11 @@ const CGFloat kTabHeight = kTrackHeight - 2 * kTrackInset;
 const CGFloat kPinnedTabWidth = 40;
 const CGFloat kTabMinWidth = 200;                     // keeps about 16 characters of title readable
 const CGFloat kTabShrunkMinWidth = 36;                // "shrink to fit": down to just the icon
+const CGFloat kEditingMinWidth = 240;                 // compact: the tab fits its address while it's edited,
+const CGFloat kEditingMaxWidth = 560;                 // leaving room to type
+const CGFloat kEditingTextInset = 32;                 // favicon and padding before the address
+const CGFloat kEdgeFade = 24;                         // tabs fade out where the strip cuts them off
+const CGFloat kTitleFade = 18;                        // long titles fade out instead of ending in "…"
 const CGFloat kCloseRoom = 26;                        // kept free on both sides so titles stay centred
 const CGFloat kFavoriteSize = 28;
 const CGFloat kFavoritePad = 3;
@@ -109,6 +114,10 @@ static NSColor *SelectedRimColor(void) {
 @property (nonatomic) CGFloat fontSize;
 @property (copy) void (^onSelect)(BrowserTab *tab);
 @property (copy) void (^onClose)(BrowserTab *tab);
+/// A click on the tab that was already selected (compact: edit its address).
+@property (copy) void (^onEdit)(BrowserTab *tab);
+/// The address field while it's being edited in this tab (compact); it replaces the title.
+@property (nonatomic, strong) NSTextField *editField;
 /// Hover changed; the strip hides the separators beside a hovered tab.
 @property (copy) void (^onHoverChange)(void);
 @property (copy) NSMenu *(^menuProvider)(BrowserTab *tab);
@@ -124,6 +133,7 @@ static NSColor *SelectedRimColor(void) {
     NSProgressIndicator *_spinner;      // made the first time a tab loads without a favicon
     NSPoint _dragStart;
     BOOL _mayDrag;
+    BOOL _wasSelected;
     BOOL _iconOnly;
 }
 
@@ -136,8 +146,9 @@ static NSColor *SelectedRimColor(void) {
         _icon.contentTintColor = NSColor.secondaryLabelColor;
         [self addSubview:_icon];
         _label = [NSTextField labelWithString:@""];
-        _label.lineBreakMode = NSLineBreakByTruncatingTail;
-        _label.textColor = NSColor.secondaryLabelColor;
+        _label.lineBreakMode = NSLineBreakByClipping;   // faded out at the end instead, like Safari
+        _label.textColor = NSColor.labelColor;
+        _label.wantsLayer = YES;
         [self addSubview:_label];
         self.fontSize = 13;
         self.accessibilityElement = YES;
@@ -177,9 +188,42 @@ static NSColor *SelectedRimColor(void) {
     [self refreshTextColor];
 }
 
+- (void)setEditField:(NSTextField *)editField {
+    if (editField == _editField) return;
+    if (_editField.superview == self) [_editField removeFromSuperview];
+    _editField = editField;
+    if (editField) [self addSubview:editField];
+    self.needsLayout = YES;
+    [self updateClose];
+}
+
+/// A title too long for the tab fades out over its last few points.
+- (void)fadeLabel:(BOOL)fade {
+    CALayer *layer = _label.layer;
+    if (!fade) {
+        layer.mask = nil;
+        return;
+    }
+    CAGradientLayer *mask = [layer.mask isKindOfClass:CAGradientLayer.class] ? (CAGradientLayer *)layer.mask : nil;
+    if (!mask) {
+        mask = [CAGradientLayer layer];
+        mask.startPoint = CGPointMake(0, 0.5);
+        mask.endPoint = CGPointMake(1, 0.5);
+        mask.colors = @[(id)NSColor.blackColor.CGColor, (id)NSColor.blackColor.CGColor, (id)NSColor.clearColor.CGColor];
+        layer.mask = mask;
+    }
+    CGFloat w = NSWidth(_label.bounds);
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    mask.frame = _label.bounds;
+    mask.locations = @[@0, @(std::max<CGFloat>(0, 1 - kTitleFade / std::max<CGFloat>(w, 1))), @1];
+    [CATransaction commit];
+}
+
 - (void)refreshTextColor {
     BOOL dim = _tab.isPinned && !_tab.isLoaded;
-    _label.textColor = _selected ? NSColor.labelColor : NSColor.secondaryLabelColor;
+    // Full-strength titles like the sidebar's: dimmed ones wash out over a strong space colour.
+    _label.textColor = dim && !_selected ? NSColor.secondaryLabelColor : NSColor.labelColor;
     // In an icon-only tab the close button takes the icon's place on hover.
     BOOL covered = _iconOnly && !_pinnedStyle && self.isHovering;
     _icon.alphaValue = covered ? 0 : (dim ? 0.6 : 1);
@@ -224,7 +268,7 @@ static NSColor *SelectedRimColor(void) {
 }
 
 - (void)updateClose {
-    BOOL show = !_pinnedStyle && self.isHovering;
+    BOOL show = !_pinnedStyle && self.isHovering && !_editField;
     [self refreshTextColor];
     if (show && !_closeButton) {
         __weak TopTabView *weakSelf = self;
@@ -250,9 +294,16 @@ static NSColor *SelectedRimColor(void) {
     // Too narrow for a readable title (only when tabs shrink to fit): just the icon, which the
     // close button replaces on hover.
     CGFloat room = std::max<CGFloat>(0, size.width - 2 * kCloseRoom - 22);
-    BOOL iconOnly = _pinnedStyle || room < 24;
-    _label.hidden = iconOnly;
-    if (iconOnly) {
+    BOOL editing = _editField != nil;
+    BOOL iconOnly = !editing && (_pinnedStyle || room < 24);
+    _label.hidden = iconOnly || editing;
+    if (editing) {
+        // Favicon at the start, then the address across the rest of the tab.
+        iconRect = NSMakeRect(10, cy - 8, 16, 16);
+        CGFloat h = ceil(_editField.intrinsicContentSize.height);
+        _editField.frame = NSMakeRect(kEditingTextInset, floor(cy - h / 2),
+                                      std::max<CGFloat>(0, size.width - kEditingTextInset - 10), h);
+    } else if (iconOnly) {
         iconRect = NSMakeRect(floor((size.width - 16) / 2), cy - 8, 16, 16);
         [_closeButton setFrameOrigin:NSMakePoint(floor((size.width - 18) / 2), cy - 9)];
     } else {
@@ -261,6 +312,7 @@ static NSColor *SelectedRimColor(void) {
         CGFloat x = floor((size.width - 22 - textWidth) / 2);
         iconRect = NSMakeRect(x, cy - 8, 16, 16);
         _label.frame = NSMakeRect(x + 22, floor(cy - _labelHeight / 2), textWidth, _labelHeight);
+        [self fadeLabel:textWidth < _labelWidth];
         [_closeButton setFrameOrigin:NSMakePoint(5, cy - 9)];
     }
     _icon.frame = iconRect;
@@ -273,6 +325,7 @@ static NSColor *SelectedRimColor(void) {
 - (void)mouseDown:(NSEvent *)event {
     _dragStart = event.locationInWindow;
     _mayDrag = YES;
+    _wasSelected = _selected;
     if (self.onSelect) self.onSelect(_tab);
 }
 
@@ -285,7 +338,11 @@ static NSColor *SelectedRimColor(void) {
     BeginTabDrag(self, event, _tab, image);
 }
 
-- (void)mouseUp:(NSEvent *)event { _mayDrag = NO; }
+- (void)mouseUp:(NSEvent *)event {
+    BOOL clicked = _mayDrag;   // no drag started
+    _mayDrag = NO;
+    if (clicked && _wasSelected && self.onEdit) self.onEdit(_tab);
+}
 
 - (void)otherMouseUp:(NSEvent *)event {
     if (event.buttonNumber == 2 && self.onClose) self.onClose(_tab);
@@ -339,6 +396,12 @@ static NSColor *SelectedRimColor(void) {
 - (void)reloadSpace:(Space *)space selected:(BrowserTab *)selected;
 - (void)updateSelection:(BrowserTab *)selected;
 - (void)refresh:(BrowserTab *)tab;
+/// A click on the selected tab (compact).
+@property (copy) void (^onEdit)(BrowserTab *tab);
+/// Widens `tab` and puts `field` in it in place of the title; returns its view (nil if not shown).
+- (NSView *)beginEditing:(BrowserTab *)tab field:(NSTextField *)field;
+- (void)endEditing;
+- (NSView *)viewForTab:(BrowserTab *)tab;
 @end
 
 @implementation TabStripView {
@@ -350,6 +413,8 @@ static NSColor *SelectedRimColor(void) {
     NSMutableArray<CALayer *> *_separators;
     NSUInteger _pinnedCount;
     __weak BrowserTab *_selected;
+    __weak BrowserTab *_editingTab;
+    CAGradientLayer *_edgeMask;
 }
 
 static const CGFloat kTabGap = 2;
@@ -377,6 +442,13 @@ static const CGFloat kTabGap = 2;
         _scroll.contentView.wantsLayer = YES;
         _scroll.contentView.layer.cornerRadius = 8;
         _scroll.contentView.layer.masksToBounds = YES;
+        _scroll.wantsLayer = YES;
+        _edgeMask = [CAGradientLayer layer];
+        _edgeMask.startPoint = CGPointMake(0, 0.5);
+        _edgeMask.endPoint = CGPointMake(1, 0.5);
+        _scroll.contentView.postsBoundsChangedNotifications = YES;
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(updateEdgeFade)
+                                                   name:NSViewBoundsDidChangeNotification object:_scroll.contentView];
         [self addSubview:_scroll];
         [self registerForDraggedTypes:@[BrookTabPasteboardType, NSPasteboardTypeURL]];
         [self applyColors];
@@ -387,7 +459,7 @@ static const CGFloat kTabGap = 2;
 - (BOOL)mouseDownCanMoveWindow { return YES; }
 
 - (void)applyColors {
-    self.layer.backgroundColor = [self brook_cg:Palette.pill];
+    self.layer.backgroundColor = [self brook_cg:Palette.well];
     CGColorRef divider = [self brook_cg:Palette.divider];
     for (CALayer *l in _separators) l.backgroundColor = divider;
 }
@@ -416,7 +488,43 @@ static const CGFloat kTabGap = 2;
     v.onClose = ^(BrowserTab *t) { [BrowserState.shared close:t]; };
     v.onHoverChange = ^{ [weakSelf updateSeparators]; };
     v.menuProvider = ^NSMenu *(BrowserTab *t) { return [weakSelf.browser menuForTab:t]; };
+    v.onEdit = ^(BrowserTab *t) {
+        TabStripView *self_ = weakSelf;
+        if (self_.onEdit) self_.onEdit(t);
+    };
     return v;
+}
+
+- (NSView *)viewForTab:(BrowserTab *)tab { return tab ? [_byTab objectForKey:tab] : nil; }
+
+- (NSView *)beginEditing:(BrowserTab *)tab field:(NSTextField *)field {
+    TopTabView *v = tab ? [_byTab objectForKey:tab] : nil;
+    if (!v) return nil;
+    if (_editingTab && _editingTab != tab) [_byTab objectForKey:_editingTab].editField = nil;
+    _editingTab = tab;
+    v.editField = field;
+    [self animateLayout];
+    return v;
+}
+
+- (void)endEditing {
+    BrowserTab *tab = _editingTab;
+    if (!tab) return;
+    _editingTab = nil;
+    [_byTab objectForKey:tab].editField = nil;
+    [self animateLayout];
+}
+
+/// Tabs slide to their new widths as the edited one grows or shrinks back.
+- (void)animateLayout {
+    self.needsLayout = YES;
+    if (!self.window) return;
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+        ctx.duration = 0.2;
+        ctx.allowsImplicitAnimation = YES;
+        [self layoutSubtreeIfNeeded];
+    }];
+    [self scrollToSelected];
 }
 
 - (void)reloadSpace:(Space *)space selected:(BrowserTab *)selected {
@@ -480,24 +588,59 @@ static const CGFloat kTabGap = 2;
     auto place = [](NSView *v, NSRect r) {
         if (!NSEqualRects(v.frame, r)) v.frame = r;
     };
+    // The tab whose address is being edited (compact) widens; the others share what's left.
+    TopTabView *editing = _editingTab ? [_byTab objectForKey:_editingTab] : nil;
+    // Wide enough for the address as it was when editing began, plus a little room to type.
+    CGFloat address = editing ? ceil(editing.editField.attributedStringValue.size.width) : 0;
+    CGFloat editWidth = std::min(width, std::clamp<CGFloat>(kEditingTextInset + address + 28, kEditingMinWidth, kEditingMaxWidth));
     CGFloat x = 0;
     for (NSUInteger i = 0; i < pinned; i++) {
-        place(_tabViews[i], NSMakeRect(x, 0, kPinnedTabWidth, height));
-        x += kPinnedTabWidth + kTabGap;
+        CGFloat w = _tabViews[i] == editing ? editWidth : kPinnedTabWidth;
+        place(_tabViews[i], NSMakeRect(x, 0, w, height));
+        x += w + kTabGap;
     }
     if (regular) {
-        CGFloat share = (width - x - (CGFloat)(regular - 1) * kTabGap) / (CGFloat)regular;
+        BOOL editingRegular = editing && !editing.pinnedStyle;
+        CGFloat gaps = (CGFloat)(regular - 1) * kTabGap;
+        CGFloat plain = (width - x - gaps) / (CGFloat)regular;
+        CGFloat edited = editingRegular ? std::max(editWidth, plain) : 0;
+        CGFloat share = editingRegular && regular > 1 ? (width - x - gaps - edited) / (CGFloat)(regular - 1) : plain;
         CGFloat w = std::max(_shrinkToFit ? kTabShrunkMinWidth : kTabMinWidth, share);
         for (NSUInteger i = pinned; i < count; i++) {
+            CGFloat tw = _tabViews[i] == editing ? edited : w;
             // Round each edge, not each width, so the last tab ends flush with the track.
-            CGFloat left = round(x), right = round(x + w);
+            CGFloat left = round(x), right = round(x + tw);
             place(_tabViews[i], NSMakeRect(left, 0, right - left, height));
-            x += w + kTabGap;
+            x += tw + kTabGap;
         }
     }
     CGFloat contentWidth = count ? x - kTabGap : 0;
     place(_document, NSMakeRect(0, 0, std::max(width, contentWidth), height));
     [self updateSeparators];
+    [self updateEdgeFade];
+}
+
+/// Fades the tabs out at an edge only while there are more tabs past it, so a tab cut in half
+/// melts away instead of ending on a hard line. Follows scrolling.
+- (void)updateEdgeFade {
+    NSRect visible = _scroll.contentView.bounds;
+    CGFloat width = NSWidth(visible);
+    BOOL left = NSMinX(visible) > 0.5;
+    BOOL right = NSMaxX(visible) < NSWidth(_document.frame) - 0.5;
+    CALayer *layer = _scroll.layer;
+    if ((!left && !right) || width <= 2 * kEdgeFade) {
+        layer.mask = nil;
+        return;
+    }
+    id opaque = (id)NSColor.blackColor.CGColor, clear = (id)NSColor.clearColor.CGColor;
+    CGFloat f = kEdgeFade / width;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _edgeMask.frame = layer.bounds;
+    _edgeMask.colors = @[left ? clear : opaque, opaque, opaque, right ? clear : opaque];
+    _edgeMask.locations = @[@0, @(f), @(1 - f), @1];
+    layer.mask = _edgeMask;
+    [CATransaction commit];
 }
 
 /// One hairline in each gap, hidden beside the selected or hovered tab where a fill already
@@ -924,6 +1067,10 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     IconButton *_fireButton;
     TabStripView *_strip;
     CGFloat _fontSize;
+    NSArray<NSLayoutConstraint *> *_topLayout;       // two rows: toolbar with the address pill, tabs below
+    NSArray<NSLayoutConstraint *> *_compactLayout;   // one row, the tabs in place of the pill
+    NSLayoutConstraint *_compactFavoritesLead;
+    NSTextField *_addressField;   // compact: shown in the selected tab while editing
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -987,9 +1134,12 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     tools.translatesAutoresizingMaskIntoConstraints = NO;
     _downloadsButton.hidden = YES;
     _urlPill.translatesAutoresizingMaskIntoConstraints = NO;
+    _urlPill.baseColor = Palette.well;   // recessed like the tab track, so the address stays readable
+    _urlPill.hoverColor = Palette.wellHover;
     _urlPill.onClick = ^{ [weakSelf.browser showCommandBarEditing:YES]; };
     _urlPill.siteButton.onClick = ^{ [weakSelf.browser showSiteInfo]; };
     _favorites.translatesAutoresizingMaskIntoConstraints = NO;
+    _strip.onEdit = ^(BrowserTab *tab) { [weakSelf beginEditingAddress]; };
     // Extensions in a glass capsule on the pill's right, mirroring favorites on its left.
     NSView *extensionsHolder = [NSView new];
     _extensionsBar.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1001,7 +1151,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     [extensionsHolder brook_pinEdgesTo:_extensionsGlass];
     for (NSView *v in @[nav, _spaceChip, _favorites, _urlPill, _extensionsGlass, _newTabButton, tools]) [_toolbar addSubview:v];
 
-    // Row 2: the tab track.
+    // Row 2 (or, compact, the middle of row 1): the tab track.
     _strip.translatesAutoresizingMaskIntoConstraints = NO;
     [self addSubview:_strip];
 
@@ -1020,18 +1170,8 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
         [nav.centerYAnchor constraintEqualToAnchor:_toolbar.centerYAnchor],
         [_spaceChip.leadingAnchor constraintEqualToAnchor:nav.trailingAnchor constant:6],
         [_spaceChip.centerYAnchor constraintEqualToAnchor:_toolbar.centerYAnchor],
-
-        // Favorites hug the pill's left; when space runs out the pill leaves the centre first,
-        // then narrows, then favorites spill into their » menu.
-        [_favorites.leadingAnchor constraintGreaterThanOrEqualToAnchor:_spaceChip.trailingAnchor constant:10],
-        [_favorites.trailingAnchor constraintEqualToAnchor:_urlPill.leadingAnchor constant:-8],
         [_favorites.topAnchor constraintEqualToAnchor:_toolbar.topAnchor],
         [_favorites.bottomAnchor constraintEqualToAnchor:_toolbar.bottomAnchor],
-        withPriority([_urlPill.centerXAnchor constraintEqualToAnchor:self.centerXAnchor], 250),
-        withPriority([_urlPill.widthAnchor constraintEqualToConstant:600], 260),
-        [_urlPill.widthAnchor constraintGreaterThanOrEqualToConstant:220],
-        [_urlPill.centerYAnchor constraintEqualToAnchor:_toolbar.centerYAnchor],
-        [_extensionsGlass.leadingAnchor constraintEqualToAnchor:_urlPill.trailingAnchor constant:8],
         [_extensionsGlass.topAnchor constraintEqualToAnchor:_toolbar.topAnchor],
         [_extensionsGlass.bottomAnchor constraintEqualToAnchor:_toolbar.bottomAnchor],
         [_extensionsBar.leadingAnchor constraintEqualToAnchor:extensionsHolder.leadingAnchor constant:kFavoritePad],
@@ -1040,17 +1180,92 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
         [_extensionsBar.bottomAnchor constraintEqualToAnchor:extensionsHolder.bottomAnchor],
         [_newTabButton.leadingAnchor constraintEqualToAnchor:_extensionsGlass.trailingAnchor constant:4],
         [_newTabButton.centerYAnchor constraintEqualToAnchor:_toolbar.centerYAnchor],
-        [tools.leadingAnchor constraintGreaterThanOrEqualToAnchor:_newTabButton.trailingAnchor constant:10],
         [tools.trailingAnchor constraintEqualToAnchor:_toolbar.trailingAnchor],
         [tools.centerYAnchor constraintEqualToAnchor:_toolbar.centerYAnchor],
-
+        [_strip.heightAnchor constraintEqualToConstant:kTrackHeight],
+    ]];
+    _topLayout = @[
+        // Favorites hug the pill's left; when space runs out the pill leaves the centre first,
+        // then narrows, then favorites spill into their » menu.
+        [_favorites.leadingAnchor constraintGreaterThanOrEqualToAnchor:_spaceChip.trailingAnchor constant:10],
+        [_favorites.trailingAnchor constraintEqualToAnchor:_urlPill.leadingAnchor constant:-8],
+        withPriority([_urlPill.centerXAnchor constraintEqualToAnchor:self.centerXAnchor], 250),
+        withPriority([_urlPill.widthAnchor constraintEqualToConstant:600], 260),
+        [_urlPill.widthAnchor constraintGreaterThanOrEqualToConstant:220],
+        [_urlPill.centerYAnchor constraintEqualToAnchor:_toolbar.centerYAnchor],
+        [_extensionsGlass.leadingAnchor constraintEqualToAnchor:_urlPill.trailingAnchor constant:8],
+        [tools.leadingAnchor constraintGreaterThanOrEqualToAnchor:_newTabButton.trailingAnchor constant:10],
         [_strip.topAnchor constraintEqualToAnchor:_toolbar.bottomAnchor constant:6],
         [_strip.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:8],
         [_strip.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8],
-        [_strip.heightAnchor constraintEqualToConstant:kTrackHeight],
         [_strip.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-8],
-    ]];
+    ];
+    // Compact: one row, the tab track taking the address pill's place. Favorites and extensions
+    // give way (into their » and … menus) before the track drops below a few tabs' width.
+    _compactFavoritesLead = [_favorites.leadingAnchor constraintEqualToAnchor:_spaceChip.trailingAnchor constant:8];
+    _compactLayout = @[
+        _compactFavoritesLead,
+        [_strip.leadingAnchor constraintEqualToAnchor:_favorites.trailingAnchor constant:8],
+        [_strip.trailingAnchor constraintEqualToAnchor:_extensionsGlass.leadingAnchor constant:-8],
+        [_strip.centerYAnchor constraintEqualToAnchor:_toolbar.centerYAnchor],
+        withPriority([_strip.widthAnchor constraintGreaterThanOrEqualToConstant:320], 750),
+        [tools.leadingAnchor constraintEqualToAnchor:_newTabButton.trailingAnchor constant:6],
+        [_toolbar.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-8],
+    ];
+    [NSLayoutConstraint activateConstraints:_topLayout];
     [self applySettings];
+}
+
+- (void)setCompact:(BOOL)compact {
+    if (compact == _compact) return;
+    [self endEditingAddress];
+    _compact = compact;
+    [NSLayoutConstraint deactivateConstraints:compact ? _topLayout : _compactLayout];
+    [NSLayoutConstraint activateConstraints:compact ? _compactLayout : _topLayout];
+    _urlPill.hidden = compact;
+    [self reloadFavorites];
+}
+
+// MARK: Compact address editing
+
+/// Compact: the selected tab turns into the address field, with suggestions below it. NO when
+/// the selected tab isn't in the strip (a favorite), so the caller can use the command bar.
+- (BOOL)beginEditingAddress {
+    BrowserTab *tab = BrowserState.shared.selectedTab;
+    if (!_compact || !tab) return NO;
+    if (!_addressField) {
+        NSTextField *f = [NSTextField new];
+        f.bordered = NO;
+        f.drawsBackground = NO;
+        f.focusRingType = NSFocusRingTypeNone;
+        f.font = [NSFont systemFontOfSize:13];
+        f.textColor = NSColor.labelColor;
+        f.placeholderString = @"Search or enter address";
+        f.lineBreakMode = NSLineBreakByTruncatingTail;
+        f.cell.scrollable = YES;
+        f.cell.wraps = NO;
+        _addressField = f;
+    }
+    _addressField.stringValue = tab.url.absoluteString ?: @"";
+    NSView *anchor = [_strip beginEditing:tab field:_addressField];
+    if (!anchor) return NO;
+    __weak TopBarView *weakSelf = self;
+    // The list drops below the whole bar (the glass panel around it), starting at the tab.
+    NSView *bar = self.superview ?: self;
+    [self.browser.commandBar showAttachedToField:_addressField alignedWith:anchor below:bar onEnd:^{
+        TopBarView *self_ = weakSelf;
+        if (self_) [self_->_strip endEditing];
+    }];
+    return YES;
+}
+
+- (void)endEditingAddress {
+    if (self.browser.commandBar.isAttached) [self.browser.commandBar dismiss];
+}
+
+- (NSView *)siteInfoAnchor {
+    if (!_compact) return _urlPill.siteButton;
+    return [_strip viewForTab:BrowserState.shared.selectedTab];
 }
 
 // MARK: BrowserChrome
@@ -1074,6 +1289,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     BrowserState *state = BrowserState.shared;
     BOOL show = Settings.showFavorites && state.favorites.count > 0;
     _favorites.hidden = !show;
+    _compactFavoritesLead.constant = show ? 8 : 0;   // no double gap where favorites would be
     [_favorites reloadFavorites:show ? state.favorites : @[] selected:state.selectedTab];
 }
 
@@ -1099,6 +1315,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
 
 - (void)updateSelection {
     BrowserTab *selected = BrowserState.shared.selectedTab;
+    [self endEditingAddress];   // editing belongs to the tab it started in
     [_strip updateSelection:selected];
     [_favorites updateSelection:selected];
     [self updateChrome];

@@ -5,6 +5,8 @@
 #import "TopBar.h"
 #import "ContentAreaView.h"
 
+@class CommandBarController;
+
 // BrowserWindow, EdgeHotZone, ResizeHandle, DownloadsViewController and ClosureButtonTarget
 // stay private to BrowserWindowController.mm.
 
@@ -19,8 +21,10 @@
 @property (readonly) SidebarView *sidebar;
 @property (readonly) ContentAreaView *content;
 @property (readonly) BOOL sidebarHidden;
-/// Settings → Appearance → Tab layout is Top: the top bar shows instead of the sidebar.
+/// Settings → Appearance → Tab layout is Top or Compact: the top bar shows instead of the sidebar.
 @property (readonly) BOOL tabsOnTop;
+/// The ⌘T / ⌘L bar; compact tabs also use its suggestions list under the tab being edited.
+@property (readonly) CommandBarController *commandBar;
 
 /// Shows the window and the current tab (call once after BrowserState is loaded).
 - (void)start;

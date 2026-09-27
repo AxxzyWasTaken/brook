@@ -257,6 +257,8 @@ static BOOL BrookMatches(NSString *s, NSString *pattern) {
 BROOK_DYNAMIC(rowSelected, 1, 0.78, 1, 0.16)
 BROOK_DYNAMIC(rowHover, 0, 0.05, 1, 0.07)
 BROOK_DYNAMIC(pill, 0, 0.055, 1, 0.08)
+BROOK_DYNAMIC(well, 0, 0.055, 0, 0.22)
+BROOK_DYNAMIC(wellHover, 0, 0.09, 0, 0.3)
 BROOK_DYNAMIC(tile, 1, 0.45, 1, 0.07)
 BROOK_DYNAMIC(divider, 0, 0.1, 1, 0.1)
 

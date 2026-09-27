@@ -175,6 +175,13 @@ static const NSTimeInterval kBlockProbeTimeout = 2;
     return nil;
 }
 
+- (WKWebExtensionContext *)contextForChromeWebStoreID:(NSString *)chromeWebStoreID {
+    for (const auto &r : _records) {
+        if ([r.chromeWebStoreID isEqualToString:chromeWebStoreID]) return [self contextForID:r.identifier];
+    }
+    return nil;
+}
+
 // MARK: Loading
 
 - (void)loadAll {
@@ -325,12 +332,7 @@ static const NSTimeInterval kBlockProbeTimeout = 2;
         completion(ExtensionInstallErrorMake(ExtensionInstallErrorInvalidInput, nil));
         return;
     }
-    for (const auto &r : _records) {
-        if ([r.chromeWebStoreID isEqualToString:identifier]) {
-            if ([self contextForID:r.identifier]) { completion(nil); return; }
-            break;
-        }
-    }
+    if ([self contextForChromeWebStoreID:identifier]) { completion(nil); return; }
     NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:
         @"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=138.0.0.0&acceptformat=crx2,crx3&x=id%%3D%@%%26uc",
         identifier]];
@@ -683,21 +685,41 @@ promptForPermissionMatchPatterns:(NSSet<WKWebExtensionMatchPattern *> *)matchPat
 }
 
 - (void)installHandlersInto:(WKUserContentController *)ucc {
-    [ucc addScriptMessageHandler:self contentWorld:_world name:@"brookInstallExtension"];
+    [ucc addScriptMessageHandlerWithReply:self contentWorld:_world name:@"brookStore"];
 }
 
 - (void)userContentController:(WKUserContentController *)userContentController
-      didReceiveScriptMessage:(WKScriptMessage *)message {
-    if (![BrookHost(message.webView.URL) isEqualToString:@"chromewebstore.google.com"]) return;
-    if (![message.body isKindOfClass:NSString.class]) return;
-    NSString *identifier = message.body;
-    [ExtensionManager.shared installFromChromeWebStore:identifier completion:^(NSError *error) {
-        if (!error) {
-            [ExtensionManager.shared.window showToast:@"Extension added"];
-        } else if (!ExtensionInstallErrorIsCancelled(error)) {
-            [ExtensionManager.shared.window showError:error];
+      didReceiveScriptMessage:(WKScriptMessage *)message
+                 replyHandler:(void (^)(id reply, NSString *errorMessage))replyHandler {
+    NSDictionary *body = [message.body isKindOfClass:NSDictionary.class] ? message.body : nil;
+    NSString *action = [body[@"action"] isKindOfClass:NSString.class] ? body[@"action"] : nil;
+    NSString *identifier = [body[@"id"] isKindOfClass:NSString.class] ? [ExtensionManager chromeIDInInput:body[@"id"]] : nil;
+    if (![BrookHost(message.webView.URL) isEqualToString:@"chromewebstore.google.com"] || !action || !identifier) {
+        replyHandler(nil, @"Bad request");
+        return;
+    }
+    ExtensionManager *manager = ExtensionManager.shared;
+    void (^replyState)(void) = ^{
+        replyHandler([manager contextForChromeWebStoreID:identifier] ? @"installed" : @"not-installed", nil);
+    };
+    if ([action isEqualToString:@"install"]) {
+        [manager installFromChromeWebStore:identifier completion:^(NSError *error) {
+            if (!error) {
+                [manager.window showToast:@"Extension added"];
+            } else if (!ExtensionInstallErrorIsCancelled(error)) {
+                [manager.window showError:error];
+            }
+            replyState();
+        }];
+    } else if ([action isEqualToString:@"remove"]) {
+        if (WKWebExtensionContext *context = [manager contextForChromeWebStoreID:identifier]) {
+            [manager uninstall:context];
+            [manager.window showToast:@"Extension removed"];
         }
-    }];
+        replyState();
+    } else {
+        replyState();
+    }
 }
 
 @end
