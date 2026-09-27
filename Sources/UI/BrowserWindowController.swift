@@ -242,7 +242,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
         // AppKit re-applies the toolbar state it saved on entry after willExit, so set it again.
         window?.toolbar?.isVisible = true
         window?.contentView?.layoutSubtreeIfNeeded()
-        alignNavRow()
+        // AppKit also un-hides the traffic lights on exit; re-apply ours (hidden with the sidebar).
+        applySidebarVisibility(animated: false)
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -292,7 +293,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
     func alignNavRow() {
         guard let window else { return }
         placeTrafficLights()
-        guard let zoom = window.standardWindowButton(.zoomButton), !zoom.isHidden,
+        // Keep the row's spot beside the lights even while the sidebar is hidden, so it doesn't
+        // jump sideways as the sidebar slides away or back.
+        guard let zoom = window.standardWindowButton(.zoomButton),
               let zoomSuper = zoom.superview, !window.styleMask.contains(.fullScreen) else {
             sidebar.navRowTop.constant = 8
             sidebar.navRowLeading.constant = 8
@@ -399,7 +402,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
                 for b in lights { b.isHidden = true; b.alphaValue = 1 }
             }
         } else if animated && wasHidden {
-            for b in lights { b.alphaValue = 0; b.isHidden = false }
+            // Stay fully hidden (not just transparent) for the slide: AppKit redraws the buttons
+            // on hover and key changes, which can flash them in early. Revealed on landing below.
+            for b in lights { b.isHidden = true }
         } else {
             for b in lights { b.isHidden = false; b.alphaValue = 1 }
         }
@@ -423,6 +428,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
         }, completionHandler: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, self.lightsGeneration == generation, !lightsHidden else { return }
+                for b in lights where b.isHidden { b.alphaValue = 0; b.isHidden = false }
                 NSAnimationContext.runAnimationGroup { ctx in
                     ctx.duration = animated ? 0.15 : 0
                     for b in lights { b.animator().alphaValue = 1 }
