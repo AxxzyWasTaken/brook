@@ -297,7 +297,13 @@
     NSView *content = [self makeContent];
     content.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:content];
-    [content brook_pinEdgesTo:self.view];
+    // Pinned top-centre only, never edge to edge: the content's size then can't force the window,
+    // which resizes solely through NSTabViewController's animation to preferredContentSize.
+    // (Edge pinning made switching to a bigger pane snap the window before that animation ran.)
+    [NSLayoutConstraint activateConstraints:@[
+        [content.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [content.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor]
+    ]];
     self.preferredContentSize = content.fittingSize;
 }
 

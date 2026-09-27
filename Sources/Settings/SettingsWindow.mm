@@ -32,6 +32,43 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
 
 // MARK: - Window
 
+/// Resizes the window itself, animated and as soon as a pane is picked, keeping the top edge put.
+/// NSTabViewController's own resize waits for the crossfade to finish and then jumps.
+@interface SettingsTabViewController : NSTabViewController
+@end
+
+@implementation SettingsTabViewController
+
+- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item {
+    [super tabView:tabView didSelectTabViewItem:item];
+    [self fitWindowTo:item.viewController];
+}
+
+- (void)preferredContentSizeDidChangeForViewController:(NSViewController *)vc {
+    if (vc == self.tabView.selectedTabViewItem.viewController) [self fitWindowTo:vc];
+}
+
+- (void)fitWindowTo:(NSViewController *)vc {
+    NSWindow *w = self.view.window;
+    NSSize size = vc.preferredContentSize;
+    if (!w || size.width <= 0 || size.height <= 0) return;
+    NSRect content = [w contentRectForFrameRect:w.frame];
+    NSRect target = [w frameRectForContentRect:NSMakeRect(NSMinX(content), NSMaxY(content) - size.height,
+                                                          size.width, size.height)];
+    if (NSEqualRects(target, w.frame)) return;
+    if (!w.isVisible) {
+        [w setFrame:target display:NO];
+        return;
+    }
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+        ctx.duration = [w animationResizeTime:target];
+        ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+        [w.animator setFrame:target display:YES];
+    }];
+}
+
+@end
+
 /// The ⌘, window: a native toolbar-tabbed preferences window like Safari's.
 @implementation SettingsWindowController
 
@@ -43,7 +80,7 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
 }
 
 - (instancetype)initPrivate {
-    NSTabViewController *tabs = [NSTabViewController new];
+    NSTabViewController *tabs = [SettingsTabViewController new];
     tabs.tabStyle = NSTabViewControllerTabStyleToolbar;
     tabs.transitionOptions = NSViewControllerTransitionCrossfade | NSViewControllerTransitionAllowUserInteraction;
     tabs.canPropagateSelectedChildViewControllerTitle = YES;
@@ -107,13 +144,14 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
 
     NSTextField *customURL = [Controls field:Settings.newTabURL placeholder:@"https://example.com" width:260
                                     onCommit:^(NSString *v) { Settings.newTabURL = v; }];
-    customURL.hidden = Settings.newTabPage != NewTabPageCustom;
+    // Disabled rather than hidden, so picking an option doesn't resize the window.
+    customURL.enabled = Settings.newTabPage == NewTabPageCustom;
     __weak NSTextField *weakURL = customURL;
     NSPopUpButton *page = [Controls popupWithTitles:EnumTitles(NewTabPageCount, ^(NSInteger i) { return NewTabPageTitle((NewTabPage)i); })
                                       selectedIndex:Settings.newTabPage
                                            onChange:^(NSInteger i) {
         Settings.newTabPage = (NewTabPage)i;
-        weakURL.hidden = i != NewTabPageCustom;
+        weakURL.enabled = i == NewTabPageCustom;
     }];
     [f row:@"New tabs show" views:@[page, customURL]];
 
