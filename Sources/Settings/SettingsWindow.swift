@@ -180,7 +180,7 @@ final class TabsPane: RebuildingPane, NSTableViewDataSource, NSTableViewDelegate
         })
         f.note("Closes regular (unpinned) tabs you haven't looked at, like Arc. Tabs playing audio or video are kept. Archived tabs are listed below.")
 
-        let l = EditableList(columns: [("title", "Archived Tab", 300), ("date", "Archived", 110)], height: 150)
+        let l = EditableList(columns: [("title", "Archived Tab", 390), ("date", "Archived", 120)], height: 170)
         l.table.dataSource = self
         l.table.delegate = self
         l.table.doubleAction = #selector(restoreSelected)
@@ -193,7 +193,7 @@ final class TabsPane: RebuildingPane, NSTableViewDataSource, NSTableViewDelegate
                 self?.list?.reload()
             }
         ]
-        l.container.widthAnchor.constraint(equalToConstant: 420).isActive = true
+        l.container.widthAnchor.constraint(equalToConstant: 520).isActive = true
         l.emptyLabel.stringValue = "No archived tabs"
         list = l
         l.reload()
@@ -220,7 +220,21 @@ final class TabsPane: RebuildingPane, NSTableViewDataSource, NSTableViewDelegate
         let label = NSTextField(labelWithString: text)
         label.lineBreakMode = .byTruncatingTail
         label.toolTip = a.url.absoluteString
-        return label
+        if tableColumn?.identifier.rawValue == "date" {
+            label.textColor = .secondaryLabelColor
+            return label
+        }
+        // Title cell: site icon + title, like the sidebar.
+        let icon = NSImageView(image: FaviconStore.shared.cachedIcon(for: a.url.host() ?? "") ?? NSImage.symbol("globe", size: 12) ?? NSImage())
+        icon.contentTintColor = .secondaryLabelColor
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        icon.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 16).isActive = true
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let row = NSStackView(views: [icon, label])
+        row.spacing = 6
+        row.toolTip = a.url.absoluteString
+        return row
     }
 }
 

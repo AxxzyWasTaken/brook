@@ -206,6 +206,8 @@ final class DownloadManager: NSObject, WKDownloadDelegate {
         if (try? folder.checkResourceIsReachable()) != true {
             folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
         }
+        // WebKit fails the download outright if the folder is missing.
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let base = (name as NSString).deletingPathExtension
         let ext = (name as NSString).pathExtension
         var candidate = folder.appendingPathComponent(name)

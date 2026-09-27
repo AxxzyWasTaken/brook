@@ -260,6 +260,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
         applySpaceColors()
         sidebar.reloadAll()
         content.show(state.selectedTab, spaceName: state.currentSpace.name)
+        window?.title = state.selectedTab?.displayTitle ?? "Brook"
         showWindow(nil)
         alignNavRow()
         DispatchQueue.main.async { [weak self] in

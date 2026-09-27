@@ -52,6 +52,8 @@ final class ContentAreaView: NSView {
         progress.backgroundColor = accentColor.cgColor
         progress.opacity = 0
         progress.anchorPoint = .zero
+        // Web views are added as subviews later; their layers would otherwise cover the bar.
+        progress.zPosition = 100
         clip.layer?.addSublayer(progress)
 
         findBar.isHidden = true
@@ -113,13 +115,14 @@ final class ContentAreaView: NSView {
         webView = wv
         updateError()
         updateProgress()
-        if !findBar.isHidden { findBar.webView = wv; findBar.search(forward: true) }
+        if !findBar.isHidden { findBar.webView = wv; findBar.invalidateCount(); findBar.search(forward: true) }
     }
 
     func tabChanged(_ tab: BrowserTab, change: TabChange) {
         guard tab === self.tab else { return }
         if change.contains(.progress) || change.contains(.loading) { updateProgress() }
         if change.contains(.error) { updateError() }
+        if change.contains(.url) { findBar.invalidateCount() }
         if change.contains(.loaded) && tab.webView !== webView { show(tab, spaceName: empty.spaceName) }
     }
 
@@ -261,6 +264,13 @@ final class FindBar: NSView, NSSearchFieldDelegate {
     private lazy var next = IconButton(symbol: "chevron.down", size: 11, tooltip: "Next (⌘G)", dimension: 24) { [weak self] in self?.search(forward: true) }
     private lazy var done = IconButton(symbol: "xmark", size: 11, tooltip: "Done (esc)", dimension: 24) { [weak self] in self?.close() }
 
+    /// Safari-style "3 of 12". WebKit's find API reports only found/not found, so the total is
+    /// counted once per query in an isolated JS world and the index is tracked here.
+    private var total = 0
+    private var index = 0
+    private var countedQuery = ""
+    private var countWork: DispatchWorkItem?
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         glass.cornerRadius = 18
@@ -274,10 +284,13 @@ final class FindBar: NSView, NSSearchFieldDelegate {
         field.sendsSearchStringImmediately = true
         field.target = self
         field.action = #selector(fieldChanged)
-        status.font = .systemFont(ofSize: 11)
-        status.textColor = .systemRed
+        status.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        status.textColor = .secondaryLabelColor
+        status.alignment = .right
+        status.setContentHuggingPriority(.required, for: .horizontal)
         let stack = NSStackView(views: [field, status, prev, next, done])
         stack.spacing = 4
+        stack.setCustomSpacing(8, after: status)
         stack.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 6)
         field.widthAnchor.constraint(equalToConstant: 200).isActive = true
         glass.contentView = stack
@@ -294,21 +307,79 @@ final class FindBar: NSView, NSSearchFieldDelegate {
 
     func close() {
         isHidden = true
-        status.stringValue = ""
+        webView?.evaluateJavaScript("window.getSelection().removeAllRanges()", in: nil, in: .defaultClient)
         if let webView { window?.makeFirstResponder(webView) }
     }
+
+    /// The page changed underneath (navigation or tab switch): recount on the next search.
+    func invalidateCount() { countedQuery = "" }
 
     @objc private func fieldChanged() { search(forward: true) }
 
     func search(forward: Bool) {
-        guard let webView, !field.stringValue.isEmpty else { status.stringValue = ""; return }
+        let query = field.stringValue
+        guard let webView, !query.isEmpty else { total = 0; index = 0; showStatus(); return }
+        let fresh = query != countedQuery
         let config = WKFindConfiguration()
         config.backwards = !forward
         config.wraps = true
         config.caseSensitive = false
-        webView.find(field.stringValue, configuration: config) { [weak self] result in
-            self?.status.stringValue = result.matchFound ? "" : "Not found"
+        webView.find(query, configuration: config) { [weak self] result in
+            guard let self, self.field.stringValue == query else { return }
+            if !result.matchFound {
+                self.total = 0; self.index = 0; self.countedQuery = query
+                self.showStatus()
+                return
+            }
+            if fresh {
+                self.index = 1
+                self.scheduleCount(query)
+            } else if self.total > 0 {
+                self.index = forward ? self.index % self.total + 1 : (self.index + self.total - 2) % self.total + 1
+            }
+            self.showStatus()
         }
+    }
+
+    /// Counting walks the page text, so wait for typing to pause.
+    private func scheduleCount(_ query: String) {
+        countWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, let webView = self.webView, self.field.stringValue == query else { return }
+                let js = """
+                const q = needle.toLocaleLowerCase(), t = (document.body ? document.body.innerText : '').toLocaleLowerCase();
+                let n = 0, i = 0;
+                while (n < 10000 && (i = t.indexOf(q, i)) !== -1) { n++; i += q.length; }
+                return n;
+                """
+                webView.callAsyncJavaScript(js, arguments: ["needle": query], in: nil, in: .defaultClient) { [weak self] result in
+                    guard let self, self.field.stringValue == query else { return }
+                    let n = (try? result.get()) as? Int ?? 0
+                    self.countedQuery = query
+                    // innerText can miss text WebKit still finds (e.g. in form fields); never show "2 of 1".
+                    self.total = max(n, self.index)
+                    self.showStatus()
+                }
+            }
+        }
+        countWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+    }
+
+    private func showStatus() {
+        if field.stringValue.isEmpty {
+            status.stringValue = ""
+        } else if total == 0 && countedQuery == field.stringValue {
+            status.stringValue = "No matches"
+        } else if total == 0 {
+            status.stringValue = ""
+        } else {
+            status.stringValue = "\(index) of \(total)"
+        }
+        status.textColor = status.stringValue == "No matches" ? .systemRed : .secondaryLabelColor
+        prev.isEnabled = total != 0 || countedQuery != field.stringValue
+        next.isEnabled = prev.isEnabled
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
