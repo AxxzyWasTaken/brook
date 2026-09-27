@@ -61,6 +61,7 @@ struct Row {
 - (BrowserState *)state { return BrowserState.shared; }
 
 - (NSView *)titleRow { return _titleRow; }
+- (ExtensionsBar *)extensionsBar { return _urlPill.extensionsBar; }
 - (CGFloat)titleRowHeight { return 28; }
 - (NSLayoutConstraint *)titleRowTop { return _titleRowTop; }
 - (NSLayoutConstraint *)titleRowLeading { return _titleRowLeading; }
@@ -68,7 +69,7 @@ struct Row {
 - (instancetype)initWithFrame:(NSRect)frameRect {
     if ((self = [super initWithFrame:frameRect])) {
         _titleRow = [NSView new];
-        _urlPill = [URLPillView new];
+        _urlPill = [[URLPillView alloc] initWithExtensions:YES];
         _favoritesGrid = [FavoritesGridView new];
         _bottomBar = [NSView new];
         _scrollView = [SidebarScrollView new];
@@ -127,7 +128,6 @@ struct Row {
 
     _urlPill.translatesAutoresizingMaskIntoConstraints = NO;
     _urlPill.onClick = ^{ [weakSelf.browser showCommandBarEditing:YES]; };
-    _urlPill.extensionsButton.onClick = ^{ [weakSelf.browser showExtensionsMenu]; };
     _urlPill.siteButton.onClick = ^{ [weakSelf.browser showSiteInfo]; };
     [self addSubview:_urlPill];
 
@@ -524,6 +524,15 @@ struct Row {
 
 - (void)run {
     if (_handler) _handler();
+}
+
+@end
+
+@implementation NSMenuItem (BrookImage)
+
+- (void)brook_setVisibleImage:(NSImage *)image {
+    self.image = image;
+    if (@available(macOS 27.0, *)) self.preferredImageVisibility = NSMenuItemImageVisibilityVisible;
 }
 
 @end

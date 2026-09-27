@@ -31,6 +31,7 @@ NS_ASSUME_NONNULL_END
 #import "ExtensionManager.h"
 #import "Controls.h"
 #import "SidebarCells.h"
+#import "ExtensionsBar.h"
 #import "SidebarParts.h"
 #import "SidebarView.h"
 #import "TopBar.h"

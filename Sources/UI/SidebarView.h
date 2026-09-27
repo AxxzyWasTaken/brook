@@ -20,6 +20,12 @@
 - (instancetype)initWithTitle:(NSString *)string action:(SEL)selector keyEquivalent:(NSString *)charCode NS_UNAVAILABLE;
 @end
 
+@interface NSMenuItem (BrookImage)
+/// Sets an image that shows even on macOS 27, which hides menu item images unless asked (the
+/// extension, favorite and space icons are content, not decoration).
+- (void)brook_setVisibleImage:(NSImage *)image;
+@end
+
 @interface NSArray <ObjectType> (BrookSafe)
 /// nil when out of range (including negative).
 - (ObjectType)brook_objectAtSafeIndex:(NSInteger)index;

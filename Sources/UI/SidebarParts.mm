@@ -5,16 +5,18 @@
 @implementation URLPillView {
     NSTextField *_label;
     NSImageView *_cookie;
+    NSLayoutConstraint *_cookieWidth;   // 0 while hidden, so it takes no room from the address
 }
 
-- (instancetype)initWithFrame:(NSRect)frameRect {
-    if ((self = [super initWithFrame:frameRect])) {
+- (instancetype)initWithFrame:(NSRect)frameRect { return [self initWithExtensions:NO]; }
+
+- (instancetype)initWithExtensions:(BOOL)withExtensions {
+    if ((self = [super initWithFrame:NSZeroRect])) {
         _siteButton = [[IconButton alloc] initWithSymbol:@"magnifyingglass" size:11 tooltip:@"Site Settings"
                                                dimension:22 onClick:nil];
         _label = [NSTextField labelWithString:@""];
         _cookie = [NSImageView new];
-        _extensionsButton = [[IconButton alloc] initWithSymbol:@"puzzlepiece.extension" size:12 tooltip:@"Extensions"
-                                                     dimension:24 onClick:nil];
+        if (withExtensions) _extensionsBar = [[ExtensionsBar alloc] initWithButtonSize:22];
 
         self.cornerRadius = 10;
         self.baseColor = Palette.pill;
@@ -31,7 +33,8 @@
         _cookie.contentTintColor = NSColor.systemGreenColor;
         _cookie.hidden = YES;
         _cookie.translatesAutoresizingMaskIntoConstraints = NO;
-        for (NSView *v in @[_siteButton, _label, _cookie, _extensionsButton]) [self addSubview:v];
+        _cookieWidth = [_cookie.widthAnchor constraintEqualToConstant:0];
+        for (NSView *v in @[_siteButton, _label, _cookie]) [self addSubview:v];
 
         [NSLayoutConstraint activateConstraints:@[
             [self.heightAnchor constraintEqualToConstant:34],
@@ -41,15 +44,29 @@
             [_label.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             [_cookie.leadingAnchor constraintGreaterThanOrEqualToAnchor:_label.trailingAnchor constant:4],
             [_cookie.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
-            [_cookie.trailingAnchor constraintEqualToAnchor:_extensionsButton.leadingAnchor constant:-4],
-            [_extensionsButton.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-5],
-            [_extensionsButton.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+            _cookieWidth,
         ]];
+        if (ExtensionsBar *bar = _extensionsBar) {
+            // The address keeps most of the pill; extension buttons get what's left (two at the
+            // default sidebar width, more as it widens) and the rest move into "…".
+            bar.translatesAutoresizingMaskIntoConstraints = NO;
+            [self addSubview:bar];
+            [NSLayoutConstraint activateConstraints:@[
+                [_label.widthAnchor constraintGreaterThanOrEqualToConstant:110],
+                [_cookie.trailingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:-2],
+                [bar.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-5],
+                [bar.topAnchor constraintEqualToAnchor:self.topAnchor],
+                [bar.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+            ]];
+        } else {
+            [_cookie.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10].active = YES;
+        }
     }
     return self;
 }
 
 - (void)updateWithTab:(BrowserTab *)tab {
+    _extensionsBar.tab = tab;
     NSURL *url = tab.url;
     if (!tab || !url) {
         [_siteButton setSymbol:@"magnifyingglass" size:11];
@@ -58,7 +75,7 @@
         _siteButton.imageView.alphaValue = 1;
         _siteButton.toolTip = nil;
         _label.stringValue = @"Search or enter address";
-        _cookie.hidden = YES;
+        [self setCookieShown:NO];
         return;
     }
     BOOL secure = [url.scheme isEqualToString:@"https"];
@@ -71,12 +88,13 @@
     _siteButton.toolTip = hasHost ? @"Settings for this website" : nil;
     _label.stringValue = [URLParser display:url];
     NSString *cmp = tab.consentCMP;
-    if (cmp) {
-        _cookie.hidden = NO;
-        _cookie.toolTip = [NSString stringWithFormat:@"Cookie popup declined for you (%@)", cmp];
-    } else {
-        _cookie.hidden = YES;
-    }
+    [self setCookieShown:cmp != nil];
+    if (cmp) _cookie.toolTip = [NSString stringWithFormat:@"Cookie popup declined for you (%@)", cmp];
+}
+
+- (void)setCookieShown:(BOOL)shown {
+    _cookie.hidden = !shown;
+    _cookieWidth.active = !shown;
 }
 
 @end

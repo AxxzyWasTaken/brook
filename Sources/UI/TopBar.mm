@@ -655,7 +655,7 @@ static NSImage *SpaceDotImage(NSColor *color) {
         ClosureMenuItem *item = [[ClosureMenuItem alloc] initWithTitle:space.name key:key
                                                              modifiers:NSEventModifierFlagControl
                                                                handler:^{ [BrowserState.shared switchToSpace:i]; }];
-        item.image = SpaceDotImage(space.color);
+        [item brook_setVisibleImage:SpaceDotImage(space.color)];
         item.state = i == state.currentSpaceIndex ? NSControlStateValueOn : NSControlStateValueOff;
         [m addItem:item];
     }
@@ -861,7 +861,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
                                                                handler:^{ [BrowserState.shared selectTab:tab]; }];
         NSImage *icon = [TabIcon(tab) copy];
         icon.size = NSMakeSize(16, 16);
-        item.image = icon;
+        [item brook_setVisibleImage:icon];
         item.state = tab == _selected ? NSControlStateValueOn : NSControlStateValueOff;
         [menu addItem:item];
     }
@@ -918,6 +918,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     IconButton *_reloadButton;
     SpaceChip *_spaceChip;
     FavoritesCapsule *_favorites;
+    NSGlassEffectView *_extensionsGlass;
     IconButton *_newTabButton;
     IconButton *_downloadsButton;
     IconButton *_fireButton;
@@ -940,7 +941,8 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
         }];
         _spaceChip = [SpaceChip new];
         _favorites = [FavoritesCapsule new];
-        _urlPill = [URLPillView new];
+        _urlPill = [[URLPillView alloc] initWithExtensions:NO];
+        _extensionsBar = [[ExtensionsBar alloc] initWithButtonSize:kFavoriteSize];
         _newTabButton = [[IconButton alloc] initWithSymbol:@"plus" tooltip:@"New Tab (⌘T)" onClick:^{
             [weakSelf.browser newTab];
         }];
@@ -986,10 +988,18 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     _downloadsButton.hidden = YES;
     _urlPill.translatesAutoresizingMaskIntoConstraints = NO;
     _urlPill.onClick = ^{ [weakSelf.browser showCommandBarEditing:YES]; };
-    _urlPill.extensionsButton.onClick = ^{ [weakSelf.browser showExtensionsMenu]; };
     _urlPill.siteButton.onClick = ^{ [weakSelf.browser showSiteInfo]; };
     _favorites.translatesAutoresizingMaskIntoConstraints = NO;
-    for (NSView *v in @[nav, _spaceChip, _favorites, _urlPill, _newTabButton, tools]) [_toolbar addSubview:v];
+    // Extensions in a glass capsule on the pill's right, mirroring favorites on its left.
+    NSView *extensionsHolder = [NSView new];
+    _extensionsBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [extensionsHolder addSubview:_extensionsBar];
+    _extensionsGlass = [NSGlassEffectView new];
+    _extensionsGlass.cornerRadius = kToolbarHeight / 2;
+    _extensionsGlass.contentView = extensionsHolder;
+    _extensionsGlass.translatesAutoresizingMaskIntoConstraints = NO;
+    [extensionsHolder brook_pinEdgesTo:_extensionsGlass];
+    for (NSView *v in @[nav, _spaceChip, _favorites, _urlPill, _extensionsGlass, _newTabButton, tools]) [_toolbar addSubview:v];
 
     // Row 2: the tab track.
     _strip.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1021,7 +1031,14 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
         withPriority([_urlPill.widthAnchor constraintEqualToConstant:600], 260),
         [_urlPill.widthAnchor constraintGreaterThanOrEqualToConstant:220],
         [_urlPill.centerYAnchor constraintEqualToAnchor:_toolbar.centerYAnchor],
-        [_newTabButton.leadingAnchor constraintEqualToAnchor:_urlPill.trailingAnchor constant:4],
+        [_extensionsGlass.leadingAnchor constraintEqualToAnchor:_urlPill.trailingAnchor constant:8],
+        [_extensionsGlass.topAnchor constraintEqualToAnchor:_toolbar.topAnchor],
+        [_extensionsGlass.bottomAnchor constraintEqualToAnchor:_toolbar.bottomAnchor],
+        [_extensionsBar.leadingAnchor constraintEqualToAnchor:extensionsHolder.leadingAnchor constant:kFavoritePad],
+        [_extensionsBar.trailingAnchor constraintEqualToAnchor:extensionsHolder.trailingAnchor constant:-kFavoritePad],
+        [_extensionsBar.topAnchor constraintEqualToAnchor:extensionsHolder.topAnchor],
+        [_extensionsBar.bottomAnchor constraintEqualToAnchor:extensionsHolder.bottomAnchor],
+        [_newTabButton.leadingAnchor constraintEqualToAnchor:_extensionsGlass.trailingAnchor constant:4],
         [_newTabButton.centerYAnchor constraintEqualToAnchor:_toolbar.centerYAnchor],
         [tools.leadingAnchor constraintGreaterThanOrEqualToAnchor:_newTabButton.trailingAnchor constant:10],
         [tools.trailingAnchor constraintEqualToAnchor:_toolbar.trailingAnchor],
@@ -1105,6 +1122,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     [_reloadButton setSymbol:loading ? @"xmark" : @"arrow.clockwise"];
     _reloadButton.toolTip = loading ? @"Stop (⌘.)" : @"Reload (⌘R)";
     [_urlPill updateWithTab:tab];
+    _extensionsBar.tab = tab;
 }
 
 - (void)downloadsChanged {

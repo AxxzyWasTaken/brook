@@ -7,6 +7,7 @@
 
 NSErrorDomain const ExtensionInstallErrorDomain = @"BrookExtensionInstallError";
 NSNotificationName const ExtensionManagerDidChangeNotification = @"BrookExtensionsDidChange";
+NSNotificationName const ExtensionManagerActionDidChangeNotification = @"BrookExtensionActionDidChange";
 
 NSError *ExtensionInstallErrorMake(ExtensionInstallErrorCode code, NSString *reason) {
     NSString *message;
@@ -34,12 +35,13 @@ BOOL ExtensionInstallErrorIsCancelled(NSError *error) {
 
 namespace {
 
-/// One saved extension: {"id", "folder", "name", "chromeWebStoreID"?}.
+/// One saved extension: {"id", "folder", "name", "chromeWebStoreID"?, "hiddenFromToolbar"?}.
 struct ExtensionRecord {
     NSString *identifier;   // JSON key "id"
     NSString *folder;
     NSString *name;
     NSString *chromeWebStoreID;   // nil when not from the store
+    bool hiddenFromToolbar = false;
 
     static std::optional<ExtensionRecord> fromJSON(id obj) {
         if (![obj isKindOfClass:NSDictionary.class]) return std::nullopt;
@@ -49,12 +51,15 @@ struct ExtensionRecord {
             return std::nullopt;
         }
         if (c && c != NSNull.null && ![c isKindOfClass:NSString.class]) return std::nullopt;
-        return ExtensionRecord{i, f, n, [c isKindOfClass:NSString.class] ? c : nil};
+        id h = d[@"hiddenFromToolbar"];
+        return ExtensionRecord{i, f, n, [c isKindOfClass:NSString.class] ? c : nil,
+                               [h isKindOfClass:NSNumber.class] && [h boolValue]};
     }
 
     NSDictionary *json() const {
         NSMutableDictionary *d = [@{@"id": identifier, @"folder": folder, @"name": name} mutableCopy];
         if (chromeWebStoreID) d[@"chromeWebStoreID"] = chromeWebStoreID;
+        if (hiddenFromToolbar) d[@"hiddenFromToolbar"] = @YES;
         return d;
     }
 };
@@ -514,6 +519,24 @@ static const NSTimeInterval kBlockProbeTimeout = 2;
     [self notify];
 }
 
+- (BOOL)isInToolbar:(WKWebExtensionContext *)context {
+    for (const auto &r : _records) {
+        if ([r.identifier isEqualToString:context.uniqueIdentifier]) return !r.hiddenFromToolbar;
+    }
+    return YES;
+}
+
+- (void)setInToolbar:(BOOL)shown forContext:(WKWebExtensionContext *)context {
+    for (auto &r : _records) {
+        if (![r.identifier isEqualToString:context.uniqueIdentifier]) continue;
+        if (r.hiddenFromToolbar == !shown) return;
+        r.hiddenFromToolbar = !shown;
+        [self saveRecords];
+        [self notify];
+        return;
+    }
+}
+
 // MARK: Tab & window events
 
 - (void)windowDidOpen:(BrowserWindowController *)w {
@@ -580,6 +603,12 @@ openOptionsPageForExtensionContext:(WKWebExtensionContext *)extensionContext
     NSURL *url = extensionContext.optionsPageURL;
     if (url) [BrowserState.shared openTabWithURL:url inSpace:nil after:nil select:YES loadNow:NO];
     completionHandler(nil);
+}
+
+- (void)webExtensionController:(WKWebExtensionController *)controller
+               didUpdateAction:(WKWebExtensionAction *)action
+           forExtensionContext:(WKWebExtensionContext *)context {
+    [NSNotificationCenter.defaultCenter postNotificationName:ExtensionManagerActionDidChangeNotification object:context];
 }
 
 - (void)webExtensionController:(WKWebExtensionController *)controller

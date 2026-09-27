@@ -976,62 +976,10 @@ static const CGFloat kFullScreenLightsInset = 10;
 
 // MARK: Extensions
 
-- (void)showExtensionsMenu {
-    NSView *anchor = _chrome.urlPill.extensionsButton;
-    NSMenu *menu = [NSMenu new];
-    ExtensionManager *manager = ExtensionManager.shared;
-    BrowserTab *tab = _state.selectedTab;
-    NSArray<WKWebExtensionContext *> *contexts = manager.contexts;
-    if (contexts.count == 0) {
-        NSMenuItem *empty = [[NSMenuItem alloc] initWithTitle:@"No extensions yet" action:nil keyEquivalent:@""];
-        empty.enabled = NO;
-        [menu addItem:empty];
-    }
-    for (WKWebExtensionContext *ctx in contexts) {
-        WKWebExtensionAction *action = [ctx actionForTab:tab];
-        NSString *title = ctx.webExtension.displayName ?: @"Extension";
-        NSString *badge = action.badgeText;
-        if (badge.length > 0) title = [title stringByAppendingFormat:@"  (%@)", badge];
-        ClosureMenuItem *item = [[ClosureMenuItem alloc] initWithTitle:title handler:^{
-            [ctx performActionForTab:tab];
-        }];
-        NSSize size = NSMakeSize(16, 16);
-        item.image = [action iconForSize:size] ?: [ctx.webExtension iconForSize:size];
-        item.image.size = size;
-        item.enabled = action ? action.isEnabled : YES;
-        [menu addItem:item];
-    }
-    [menu addItem:NSMenuItem.separatorItem];
-    __weak BrowserWindowController *weakSelf = self;
-    [menu addItem:[[ClosureMenuItem alloc] initWithTitle:@"Add from Chrome Web Store…" handler:^{
-        [weakSelf promptChromeWebStore];
-    }]];
-    [menu addItem:[[ClosureMenuItem alloc] initWithTitle:@"Browse Chrome Web Store" handler:^{
-        BrowserWindowController *self_ = weakSelf;
-        if (!self_) return;
-        [self_->_state openTabWithURL:[NSURL URLWithString:@"https://chromewebstore.google.com"] inSpace:nil select:YES];
-    }]];
-    [menu addItem:[[ClosureMenuItem alloc] initWithTitle:@"Install from File or Folder…" handler:^{
-        [weakSelf promptInstallFile];
-    }]];
-    if (contexts.count > 0) {
-        NSMenuItem *remove = [[NSMenuItem alloc] initWithTitle:@"Remove Extension" action:nil keyEquivalent:@""];
-        NSMenu *sub = [NSMenu new];
-        for (WKWebExtensionContext *ctx in contexts) {
-            [sub addItem:[[ClosureMenuItem alloc] initWithTitle:ctx.webExtension.displayName ?: @"Extension" handler:^{
-                [manager uninstall:ctx];
-            }]];
-        }
-        remove.submenu = sub;
-        [menu addItem:remove];
-    }
-    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, anchor.bounds.size.height + 4) inView:anchor];
-}
-
 - (void)presentExtensionPopup:(WKWebExtensionAction *)action {
     NSPopover *popover = action.popupPopover;
     if (!popover) return;
-    NSView *anchor = _chrome.urlPill.extensionsButton;
+    NSView *anchor = [_chrome.extensionsBar anchorForContext:action.webExtensionContext];
     WKWebView *wv = _content.webView;
     if (!self.urlPillVisible && wv) {
         [popover showRelativeToRect:NSMakeRect(20, wv.bounds.size.height - 20, 1, 1) ofView:wv preferredEdge:NSRectEdgeMaxY];

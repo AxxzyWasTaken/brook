@@ -11,4 +11,5 @@
 @interface TopBarView : NSView <BrowserChrome>
 @property (nonatomic, weak) BrowserWindowController *browser;
 @property (readonly) URLPillView *urlPill;
+@property (readonly) ExtensionsBar *extensionsBar;
 @end

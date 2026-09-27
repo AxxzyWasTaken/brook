@@ -50,7 +50,6 @@
 // Site settings, downloads, extensions
 - (void)showSiteInfo;
 - (void)showDownloadsFromView:(NSView *)anchor;
-- (void)showExtensionsMenu;
 - (void)presentExtensionPopup:(WKWebExtensionAction *)action;
 - (void)promptChromeWebStore;
 - (void)promptInstallFile;

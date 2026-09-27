@@ -21,6 +21,9 @@ FOUNDATION_EXPORT BOOL ExtensionInstallErrorIsCancelled(NSError *error);
 
 /// Posted when extensions change ("BrookExtensionsDidChange"), object = the manager.
 FOUNDATION_EXPORT NSNotificationName const ExtensionManagerDidChangeNotification;
+/// Posted when an extension changes its toolbar button (icon, badge, label, enabled), object = its
+/// WKWebExtensionContext.
+FOUNDATION_EXPORT NSNotificationName const ExtensionManagerActionDidChangeNotification;
 
 // MARK: - Manager
 
@@ -51,6 +54,10 @@ FOUNDATION_EXPORT NSNotificationName const ExtensionManagerDidChangeNotification
 - (void)installFromURL:(NSURL *)source chromeWebStoreID:(NSString *)chromeWebStoreID
             completion:(void (^)(NSError *error))completion;
 - (void)uninstall:(WKWebExtensionContext *)context;
+/// Whether the extension's button shows in the toolbar (default YES); hidden ones stay in the
+/// "…" menu. Setting it saves and posts ExtensionManagerDidChangeNotification.
+- (BOOL)isInToolbar:(WKWebExtensionContext *)context;
+- (void)setInToolbar:(BOOL)shown forContext:(WKWebExtensionContext *)context;
 
 // Tab & window events
 - (void)windowDidOpen:(BrowserWindowController *)window;

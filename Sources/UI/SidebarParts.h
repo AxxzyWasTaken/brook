@@ -1,12 +1,16 @@
 #import <AppKit/AppKit.h>
 #import "Controls.h"
 
-@class BrowserTab, Space;
+@class BrowserTab, Space, ExtensionsBar;
 
 /// The address pill at the top of the sidebar or in the top bar's toolbar row.
 @interface URLPillView : HoverControl
+/// With extensions: the extension buttons sit inside the pill's trailing end (the sidebar).
+/// Without: the top bar shows them in their own capsule beside the pill.
+- (instancetype)initWithExtensions:(BOOL)withExtensions;
 @property (readonly) IconButton *siteButton;
-@property (readonly) IconButton *extensionsButton;
+/// nil unless made -initWithExtensions:YES.
+@property (readonly) ExtensionsBar *extensionsBar;
 /// tab may be nil.
 - (void)updateWithTab:(BrowserTab *)tab;
 @end
@@ -34,6 +38,8 @@
 /// What the window controller needs from whichever tab UI is showing: the sidebar or the top bar.
 @protocol BrowserChrome <NSObject>
 @property (readonly) URLPillView *urlPill;
+/// Extension buttons; popups open from them.
+@property (readonly) ExtensionsBar *extensionsBar;
 /// The row the traffic lights sit beside, its height, and the constraints the window controller
 /// adjusts to line it up with them (distance from the top, and room left for the lights).
 @property (readonly) NSView *titleRow;
