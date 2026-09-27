@@ -38,6 +38,7 @@ jobs:
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
             build 2>&1 | tee build.log | grep -E "error:|warning: .*(nearly matches|never used|deprecated)|\*\* BUILD" || true
           test -x build/Build/Products/Release/Brook.app/Contents/MacOS/Brook
+          test "$(lipo -archs build/Build/Products/Release/Brook.app/Contents/MacOS/Brook)" = arm64
 
       - name: Error summary
         if: failure()

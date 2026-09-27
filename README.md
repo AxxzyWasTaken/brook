@@ -2,6 +2,7 @@
 
 A fast, native macOS 26 browser: AppKit + WebKit, an Arc-style sidebar with Liquid Glass,
 DuckDuckGo's cookie-popup auto-reject and Fire button, and Chrome extension support.
+Apple silicon only.
 
 ## Get the app
 Every push to `main` is built by GitHub Actions on a Mac. Download `Brook.zip` from the
