@@ -228,8 +228,18 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Brows
     }
 
     func windowDidResize(_ notification: Notification) { alignNavRow() }
+    // The empty toolbar only exists to size the titlebar for the traffic lights. In full screen
+    // macOS draws it as its own opaque strip above the content, so drop it there.
+    func windowWillEnterFullScreen(_ notification: Notification) { window?.toolbar?.isVisible = false }
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) { window.toolbar?.isVisible = true }
+    func windowWillExitFullScreen(_ notification: Notification) { window?.toolbar?.isVisible = true }
     func windowDidEnterFullScreen(_ notification: Notification) { alignNavRow() }
-    func windowDidExitFullScreen(_ notification: Notification) { alignNavRow() }
+    func windowDidExitFullScreen(_ notification: Notification) {
+        // AppKit re-applies the toolbar state it saved on entry after willExit, so set it again.
+        window?.toolbar?.isVisible = true
+        window?.contentView?.layoutSubtreeIfNeeded()
+        alignNavRow()
+    }
 
     func windowDidBecomeKey(_ notification: Notification) {
         ExtensionManager.shared.controller.didFocusWindow(self)
