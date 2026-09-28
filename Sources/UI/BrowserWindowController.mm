@@ -219,6 +219,7 @@ struct LightDefault {
     CGFloat _dragWidth;
     /// The sidebar's width when the drag began: what it springs back to after the rail.
     CGFloat _dragStartWidth;
+    BOOL _catchingUp;   // just out of the icon rail, the sidebar is still gliding to the pointer
     /// Icon rail: the address field that pops out beside the selected tab.
     NSGlassEffectView *_railAddress;
     NSTextField *_railAddressField;
@@ -321,6 +322,10 @@ static const CGFloat kRailWidth = 72;
 
 /// Dragging the sidebar narrower than this turns it into the icon rail.
 static const CGFloat kSnapToRailWidth = 150;
+/// How long the sidebar takes to slide into or out of the icon rail.
+static const CFTimeInterval kSnapDuration = 0.18;
+/// Each drag step's glide while the sidebar catches up with the pointer after leaving the rail.
+static const CFTimeInterval kCatchUpDuration = 0.08;
 
 /// Width of the strip at the window edge that reveals a hidden sidebar.
 static const CGFloat kHotZoneWidth = 24;
@@ -354,6 +359,7 @@ static const CGFloat kFullScreenLightsInset = 10;
         if (!self_) return;
         self_->_dragWidth = self_.effectiveSidebarWidth;
         self_->_dragStartWidth = self_->_sidebarWidth;
+        self_->_catchingUp = NO;
     };
     _handle.onDrag = ^(CGFloat dx) {
         BrowserWindowController *self_ = weakSelf;
@@ -365,18 +371,17 @@ static const CGFloat kFullScreenLightsInset = 10;
         // travel back past the snap point before it flips again.
         BOOL rail = Settings.sidebarIconsOnly;
         if (rail != (self_->_dragWidth < kSnapToRailWidth)) {
-            // Passing the minimum width on the way in mustn't become the width to return to.
-            if (!rail) {
-                self_->_sidebarWidth = self_->_dragStartWidth;
-                self_->_sidebarWidthConstraint.constant = self_->_sidebarWidth;
-            }
-            Settings.sidebarIconsOnly = !rail;
+            // Passing the minimum width on the way in mustn't become the width to return to. Only
+            // remembered: the snap slides on from the width showing, not from this one.
+            if (!rail) self_->_sidebarWidth = self_->_dragStartWidth;
+            self_->_catchingUp = rail;
+            Settings.sidebarIconsOnly = !rail;   // slides to the new width (settingsChanged:)
             self_->_dragWidth = self_.effectiveSidebarWidth;
             return;
         }
         if (rail) return;
         self_->_sidebarWidth = std::min<CGFloat>(420, std::max<CGFloat>(190, self_->_dragWidth));
-        self_->_sidebarWidthConstraint.constant = self_->_sidebarWidth;
+        [self_ setSidebarWidthFollowingSnap:self_->_sidebarWidth];
         // On the right the sidebar's left edge (and the traffic lights in it) moves with the width.
         if (self_->_onRight) {
             [self_->_root layoutSubtreeIfNeeded];
@@ -386,6 +391,7 @@ static const CGFloat kFullScreenLightsInset = 10;
     _handle.onEnd = ^{
         BrowserWindowController *self_ = weakSelf;
         if (!self_) return;
+        self_->_catchingUp = NO;   // any glide still running finishes at the last width
         Settings.sidebarWidth = self_->_sidebarWidth;
     };
     [_root addSubview:_handle];
@@ -588,8 +594,9 @@ static const CGFloat kFullScreenLightsInset = 10;
         // Animate the constant alone, so every frame is laid out from the live constraints. An
         // implicit animation of the laid-out frames would pin the page to the end frame it had
         // worked out, and a drag or window resize during it left the page short of its edge.
+        CFTimeInterval duration = [key isEqual:@"sidebarIconsOnly"] ? kSnapDuration : 0;
         [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
-            ctx.duration = [key isEqual:@"sidebarIconsOnly"] ? 0.18 : 0;
+            ctx.duration = duration;
             ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
             width.animator.constant = target;
         }];
@@ -618,6 +625,24 @@ static const CGFloat kFullScreenLightsInset = 10;
             if (std::abs(wv.pageZoom - z) > 0.001) wv.pageZoom = z;
         }
     }
+}
+
+/// Sets the sidebar's width during a drag. Coming out of the rail the sidebar is still sliding
+/// behind the pointer: setting the width outright cut the slide short and jumped the edge to the
+/// pointer, so until it has caught up it glides after it instead.
+- (void)setSidebarWidthFollowingSnap:(CGFloat)width {
+    NSLayoutConstraint *c = _sidebarWidthConstraint;
+    // The animated constant is the width showing (AppKit steps it frame by frame).
+    if (_catchingUp && std::abs(c.constant - width) < 2) _catchingUp = NO;
+    if (!_catchingUp) {
+        c.constant = width;
+        return;
+    }
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+        ctx.duration = kCatchUpDuration;
+        ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+        c.animator.constant = width;
+    }];
 }
 
 - (CGFloat)effectiveSidebarWidth { return Settings.sidebarIconsOnly ? self.railWidth : _sidebarWidth; }
