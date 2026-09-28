@@ -550,7 +550,10 @@ struct Row {
 
 - (void)brook_setVisibleImage:(NSImage *)image {
     self.image = image;
+    // Xcode 26's SDK (CI) doesn't have this yet; macOS 26 shows menu images without it anyway.
+#if defined(__MAC_27_0) && __MAC_OS_X_VERSION_MAX_ALLOWED >= __MAC_27_0
     if (@available(macOS 27.0, *)) self.preferredImageVisibility = NSMenuItemImageVisibilityVisible;
+#endif
 }
 
 @end
