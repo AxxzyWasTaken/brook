@@ -853,7 +853,10 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
     }]];
     [l.container.widthAnchor constraintEqualToConstant:560].active = YES;
     _list = l;
-    [f row:@"Search engines" view:l.container];
+    // The list has no text baseline (as with Layout's toolbar grid): top-align the label with it.
+    NSGridRow *enginesRow = [f row:@"Search engines" view:l.container];
+    enginesRow.rowAlignment = NSGridRowAlignmentNone;
+    enginesRow.yPlacement = NSGridCellPlacementTop;
     [f note:@"Type a keyword and a space in the command bar to search with that engine, e.g. “yt cats”. Double-click a cell to edit it."];
 
     [f separator];
@@ -970,7 +973,10 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
     l.emptyLabel.stringValue = @"No sites yet. Click + or use the lock in the address bar.";
     _list = l;
     [l reload];
-    [f row:@"Per-site settings" view:l.container];
+    // The list has no text baseline (as with Layout's toolbar grid): top-align the label with it.
+    NSGridRow *sitesRow = [f row:@"Per-site settings" view:l.container];
+    sitesRow.rowAlignment = NSGridRowAlignmentNone;
+    sitesRow.yPlacement = NSGridCellPlacementTop;
     [f note:@"Zooming a page with ⌘+ / ⌘− remembers the level for that site. Click the lock in the address bar to change settings for the site you're on."];
     return [f viewWithWidth:880];
 }
