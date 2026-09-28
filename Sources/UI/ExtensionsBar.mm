@@ -153,6 +153,7 @@ static const CGFloat kIconSize = 16;
 - (instancetype)initWithButtonSize:(CGFloat)buttonSize {
     if ((self = [super initWithFrame:NSZeroRect])) {
         _buttonSize = buttonSize;
+        _buttonCornerRadius = buttonSize / 2;
         _maxVisible = NSUIntegerMax;
         _buttons = @[];
         _byContext = [NSMapTable strongToStrongObjectsMapTable];
@@ -191,6 +192,12 @@ static const CGFloat kIconSize = 16;
     self.needsLayout = YES;
 }
 
+- (void)setButtonCornerRadius:(CGFloat)buttonCornerRadius {
+    _buttonCornerRadius = buttonCornerRadius;
+    _moreButton.cornerRadius = buttonCornerRadius;
+    for (ExtensionButton *b in _buttons) b.cornerRadius = buttonCornerRadius;
+}
+
 - (void)setTab:(BrowserTab *)tab {
     _tab = tab;
     for (ExtensionButton *b in _buttons) [b refreshForTab:tab];
@@ -209,6 +216,7 @@ static const CGFloat kIconSize = 16;
             [old removeObjectForKey:ctx];
         } else {
             b = [[ExtensionButton alloc] initWithContext:ctx size:_buttonSize];
+            b.cornerRadius = _buttonCornerRadius;
             b.onClick = ^{ [ctx performActionForTab:BrowserState.shared.selectedTab]; };
             [self addSubview:b];
         }

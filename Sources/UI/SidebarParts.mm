@@ -38,7 +38,7 @@
         _cookie.hidden = YES;
         _cookie.translatesAutoresizingMaskIntoConstraints = NO;
         _cookieWidth = [_cookie.widthAnchor constraintEqualToConstant:0];
-        _ads = [[IconButton alloc] initWithSymbol:@"shield.lefthalf.filled" size:11 tooltip:nil dimension:20 onClick:nil];
+        _ads = [[IconButton alloc] initWithSymbol:@"shield.lefthalf.filled" size:11 tooltip:nil dimension:22 onClick:nil];
         _ads.tint = NSColor.tertiaryLabelColor;
         _ads.hidden = YES;
         for (NSLayoutConstraint *c in _ads.constraints) {
@@ -66,6 +66,7 @@
             // The address keeps most of the pill; extension buttons get what's left (two at the
             // default sidebar width, more as it widens) and the rest move into "…".
             bar.translatesAutoresizingMaskIntoConstraints = NO;
+            bar.buttonCornerRadius = 7;   // the same shape as the site and shield buttons beside it
             [self addSubview:bar];
             NSLayoutConstraint *minLabel = [_label.widthAnchor constraintGreaterThanOrEqualToConstant:110];
             minLabel.priority = NSLayoutPriorityRequired - 1;
@@ -143,7 +144,7 @@
     BOOL brookBlocks = Settings.blockAds && (!siteOverride || siteOverride.boolValue);
     BOOL blocking = host && (extension || brookBlocks);
     _ads.hidden = !blocking;
-    _adsWidth.constant = blocking ? 20 : 0;   // takes no room from the address while hidden
+    _adsWidth.constant = blocking ? 22 : 0;   // takes no room from the address while hidden
     if (blocking) {
         NSString *tip = extension ? [NSString stringWithFormat:@"Ads and trackers blocked by %@", extension]
                                   : @"Ads and trackers blocked";

@@ -15,6 +15,9 @@
 /// buttons before "…".
 @property (nonatomic) BOOL vertical;
 @property (nonatomic) NSUInteger maxVisible;
+/// The hover shape of each button. Default: round (half the button size), for the top bar's
+/// capsule; the sidebar sets its own buttons' radius so extensions match them.
+@property (nonatomic) CGFloat buttonCornerRadius;
 /// The tab whose extension state (icons, badges, enabled) the buttons show.
 @property (nonatomic, weak) BrowserTab *tab;
 /// The extension's own button if it's showing, else "…". Popups open from here.

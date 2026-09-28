@@ -131,6 +131,7 @@ static const CGFloat kRailButtonInset = 4;
         _railStack.spacing = 0;
         _railStack.alignment = NSLayoutAttributeLeading;   // the extensions' row lines up with the grid's
         _railExtensions.maxVisible = 1;                    // one extension and "…": as wide as the grid
+        _railExtensions.buttonCornerRadius = 7;            // the same shape as the rail's other buttons
         _railTopGlass = [NSGlassEffectView new];
         _railTabsGlass = [NSGlassEffectView new];
         _railSpacesGlass = [NSGlassEffectView new];
