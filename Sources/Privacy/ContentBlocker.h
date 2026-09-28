@@ -1,8 +1,8 @@
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
 
-/// Blocks ads and trackers with AdGuard's lists (Resources/blocklist.lzfse, made by
-/// scripts/blocklist.sh), compiled once into one WebKit content rule list and cached.
+/// Blocks ads and trackers with the lists uBlock Origin Lite enables by default
+/// (Resources/blocklist.lzfse, made by scripts/blocklist.sh), compiled once into one WebKit content rule list and cached.
 /// WebKit matches it out of process for every web view sharing the user content controller.
 /// A newer list from the "blocklist" release (refreshed daily by CI) is fetched at most once a
 /// day and swapped in once compiled. The list is paused while an ad-blocking extension is installed.

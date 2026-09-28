@@ -1,11 +1,12 @@
 #!/bin/bash
-# Builds Resources/blocklist.lzfse: AdGuard's filter lists converted to WebKit content-blocker
-# JSON by AdGuard's SafariConverterLib (the converter AdGuard for Safari and wBlock use), then
-# LZFSE-compressed (17 MB -> 1.7 MB; Foundation decompresses it in ~10 ms).
+# Builds Resources/blocklist.lzfse: the lists uBlock Origin Lite enables by default (EasyList,
+# EasyPrivacy, uBlock filters, Peter Lowe's list, uBlock badware risks) converted to WebKit
+# content-blocker JSON by AdGuard's SafariConverterLib (the converter AdGuard for Safari and wBlock
+# use), then LZFSE-compressed (~17 MB -> ~1.6 MB; Foundation decompresses it in ~10 ms).
 # The converter is only a build tool; it isn't linked into or shipped with Brook.
-# Both lists are converted together into one rule list: a list's exceptions (ignore-previous-rules)
-# only override its own earlier rules, so with a list each, one could block what the other allows.
-# One list of ~137k rules compiles as fast as two; WebKit's cap is 150k, checked below.
+# All lists are converted together into one rule list: a list's exceptions (ignore-previous-rules)
+# only override its own earlier rules, so with a list each, one could block what another allows.
+# One list of ~134k rules; WebKit's cap is 150k, checked below.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,10 +22,16 @@ if [ ! -x "$TOOL" ]; then
     swift build -c release --product ConverterTool --package-path "$WORK/scl"
 fi
 
-# 2 = AdGuard Base (EasyList + AdGuard English), 3 = Tracking Protection (EasyPrivacy + AdGuard).
+# Same coverage as uBlock Origin Lite's defaults, which scores 100/100 on adblock-tester.com.
+# AdGuard's own lists were tried first: they leave out Sentry/Bugsnag and the tester's banner paths,
+# score 73, and their "full" versions don't fit under the 150k cap.
 : > "$WORK/rules.txt"
-for id in 2 3; do
-    curl -fsSL "https://filters.adtidy.org/extension/safari/filters/${id}_optimized.txt" >> "$WORK/rules.txt"
+for url in https://easylist.to/easylist/easylist.txt \
+           https://easylist.to/easylist/easyprivacy.txt \
+           https://ublockorigin.github.io/uAssets/filters/filters.min.txt \
+           "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=1&mimetype=plaintext" \
+           https://ublockorigin.github.io/uAssets/filters/badware.min.txt; do
+    curl -fsSL "$url" >> "$WORK/rules.txt"
     echo >> "$WORK/rules.txt"
 done
 

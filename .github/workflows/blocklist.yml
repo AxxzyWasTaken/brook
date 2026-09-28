@@ -42,5 +42,5 @@ jobs:
           fi
           gh release view blocklist >/dev/null 2>&1 ||
             gh release create blocklist --prerelease --title "Blocklist" \
-              --notes "Ad and tracker rules for Brook, rebuilt daily from AdGuard's filters. Brook downloads this itself."
+              --notes "Ad and tracker rules for Brook, rebuilt daily from EasyList, EasyPrivacy and uBlock's filters. Brook downloads this itself."
           gh release upload blocklist Resources/blocklist.lzfse --clobber
