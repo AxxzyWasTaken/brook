@@ -296,6 +296,15 @@
 
 // MARK: - Content area
 
+/// The card's background extension, flipped like the web view inside it: unflipped, it fills the
+/// strip under the rail with the page upside down (the page's header showed at the rail's foot).
+@interface PageExtensionView : NSBackgroundExtensionView
+@end
+
+@implementation PageExtensionView
+- (BOOL)isFlipped { return YES; }
+@end
+
 @implementation ContentAreaView {
     NSView *_clip;
     CALayer *_progress;
@@ -307,6 +316,13 @@
     NSTextField *_linkLabel;
     NSLayoutConstraint *_linkLeading;
     NSLayoutConstraint *_linkTrailing;
+    // The part of the card not under the browser's glass (see coveredInsets). The page sits in
+    // it, inside `_extension`, which fills the covered strip with the page's own edge.
+    NSLayoutGuide *_uncovered;
+    NSBackgroundExtensionView *_extension;
+    NSView *_pageHost;
+    NSLayoutConstraint *_uncoveredLeading;
+    NSLayoutConstraint *_uncoveredTrailing;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -337,13 +353,34 @@
         [self addSubview:_clip];
         [_clip brook_pinEdgesTo:self];
 
+        _uncovered = [NSLayoutGuide new];
+        [_clip addLayoutGuide:_uncovered];
+        _uncoveredLeading = [_uncovered.leadingAnchor constraintEqualToAnchor:_clip.leadingAnchor];
+        _uncoveredTrailing = [_clip.trailingAnchor constraintEqualToAnchor:_uncovered.trailingAnchor];
+        [NSLayoutConstraint activateConstraints:@[
+            _uncoveredLeading, _uncoveredTrailing,
+            [_uncovered.topAnchor constraintEqualToAnchor:_clip.topAnchor],
+            [_uncovered.bottomAnchor constraintEqualToAnchor:_clip.bottomAnchor],
+        ]];
+
+        _pageHost = [NSView new];
+        _pageHost.translatesAutoresizingMaskIntoConstraints = NO;
+        _extension = [PageExtensionView new];
+        _extension.translatesAutoresizingMaskIntoConstraints = NO;
+        _extension.automaticallyPlacesContentView = NO;
+        _extension.contentView = _pageHost;
+        [_clip addSubview:_extension];
+        [_extension brook_pinEdgesTo:_clip];
+        [self pin:_pageHost toGuide:_uncovered];
+
         _empty.translatesAutoresizingMaskIntoConstraints = NO;
         [_clip addSubview:_empty];
-        [_empty brook_pinEdgesTo:_clip];
+        [self pin:_empty toGuide:_uncovered];
 
         _errorView.hidden = YES;
+        _errorView.translatesAutoresizingMaskIntoConstraints = NO;
         [_clip addSubview:_errorView];
-        [_errorView brook_pinEdgesTo:_clip];
+        [self pin:_errorView toGuide:_uncovered];
 
         _progress.backgroundColor = _accentColor.CGColor;
         _progress.opacity = 0;
@@ -359,8 +396,8 @@
         [_clip addSubview:_toast];
         [NSLayoutConstraint activateConstraints:@[
             [_findBar.topAnchor constraintEqualToAnchor:_clip.topAnchor constant:10],
-            [_findBar.trailingAnchor constraintEqualToAnchor:_clip.trailingAnchor constant:-12],
-            [_toast.centerXAnchor constraintEqualToAnchor:_clip.centerXAnchor],
+            [_findBar.trailingAnchor constraintEqualToAnchor:_uncovered.trailingAnchor constant:-12],
+            [_toast.centerXAnchor constraintEqualToAnchor:_uncovered.centerXAnchor],
             [_toast.bottomAnchor constraintEqualToAnchor:_clip.bottomAnchor constant:-18]
         ]];
         _linkLabel = [NSTextField labelWithString:@""];
@@ -376,11 +413,11 @@
         [_linkLabel setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                              forOrientation:NSLayoutConstraintOrientationHorizontal];
         [_clip addSubview:_linkLabel];
-        _linkLeading = [_linkLabel.leadingAnchor constraintEqualToAnchor:_clip.leadingAnchor constant:6];
-        _linkTrailing = [_clip.trailingAnchor constraintEqualToAnchor:_linkLabel.trailingAnchor constant:6];
+        _linkLeading = [_linkLabel.leadingAnchor constraintEqualToAnchor:_uncovered.leadingAnchor constant:6];
+        _linkTrailing = [_uncovered.trailingAnchor constraintEqualToAnchor:_linkLabel.trailingAnchor constant:6];
         [NSLayoutConstraint activateConstraints:@[
             [_linkLabel.bottomAnchor constraintEqualToAnchor:_clip.bottomAnchor constant:-6],
-            [_linkLabel.widthAnchor constraintLessThanOrEqualToAnchor:_clip.widthAnchor multiplier:0.6],
+            [_linkLabel.widthAnchor constraintLessThanOrEqualToAnchor:_uncovered.widthAnchor multiplier:0.6],
             [_linkLabel.heightAnchor constraintEqualToConstant:20],
         ]];
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(hoveredLink:)
@@ -401,6 +438,24 @@
     (where == LinkPreviewLeft ? _linkLeading : _linkTrailing).active = YES;
     _linkLabel.stringValue = [NSString stringWithFormat:@" %@ ", url];
     _linkLabel.hidden = NO;
+}
+
+- (void)pin:(NSView *)view toGuide:(NSLayoutGuide *)guide {
+    [NSLayoutConstraint activateConstraints:@[
+        [view.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor],
+        [view.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor],
+        [view.topAnchor constraintEqualToAnchor:guide.topAnchor],
+        [view.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor],
+    ]];
+}
+
+- (void)setCoveredInsets:(NSEdgeInsets)insets animated:(BOOL)animated {
+    if (NSEdgeInsetsEqual(insets, _coveredInsets)) return;
+    _coveredInsets = insets;
+    // Only the sides: the rail covers the card's edge, never its top or bottom.
+    (animated ? _uncoveredLeading.animator : _uncoveredLeading).constant = insets.left;
+    (animated ? _uncoveredTrailing.animator : _uncoveredTrailing).constant = insets.right;
+    [self updateProgressFrameAnimated:NO];
 }
 
 - (void)setAccentColor:(NSColor *)accentColor {
@@ -470,10 +525,10 @@
     }
     _empty.hidden = YES;
     BrookWebView *wv = [tab materialize];
-    if (wv.superview != _clip) {
-        wv.frame = _clip.bounds;
+    if (wv.superview != _pageHost) {
+        wv.frame = _pageHost.bounds;
         wv.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-        [_clip addSubview:wv positioned:NSWindowBelow relativeTo:_errorView];
+        [_pageHost addSubview:wv];
     }
     _webView = wv;
     [self updateError];
@@ -533,7 +588,9 @@
     [CATransaction setAnimationDuration:0.2];
     CGFloat h = 2.5;
     NSRect cb = _clip.bounds;
-    _progress.frame = CGRectMake(0, cb.size.height - h, cb.size.width * (CGFloat)_lastProgress, h);
+    // Across the part of the page left showing, not under the rail.
+    CGFloat x = _coveredInsets.left, w = std::max<CGFloat>(0, cb.size.width - x - _coveredInsets.right);
+    _progress.frame = CGRectMake(x, cb.size.height - h, w * (CGFloat)_lastProgress, h);
     [CATransaction commit];
 }
 

@@ -234,6 +234,7 @@ struct LightDefault {
     /// Distance from the sidebar's outer edge to the window edge; negative slides it off-screen.
     NSLayoutConstraint *_sidebarEdge;
     NSLayoutConstraint *_contentToSidebar;
+    CGFloat _cardEdge;   // the constant last given to _contentToSidebar (see -placeCardAnimated:)
     NSLayoutConstraint *_contentToEdge;
     NSLayoutConstraint *_contentTop;
     NSArray<NSLayoutConstraint *> *_positional;
@@ -518,6 +519,7 @@ static const CGFloat kFullScreenLightsInset = 10;
     if (_onRight) {
         _sidebarEdge = [trail constraintEqualToAnchor:_sidebarGlass.trailingAnchor constant:m];
         _contentToSidebar = [_sidebarGlass.leadingAnchor constraintEqualToAnchor:_content.trailingAnchor constant:m];
+        _cardEdge = m;
         _contentToEdge = [trail constraintEqualToAnchor:_content.trailingAnchor constant:m];
         [positional addObjectsFromArray:@[
             [_content.leadingAnchor constraintEqualToAnchor:lead constant:m],
@@ -527,6 +529,7 @@ static const CGFloat kFullScreenLightsInset = 10;
     } else {
         _sidebarEdge = [_sidebarGlass.leadingAnchor constraintEqualToAnchor:lead constant:m];
         _contentToSidebar = [_content.leadingAnchor constraintEqualToAnchor:_sidebarGlass.trailingAnchor constant:m];
+        _cardEdge = m;
         _contentToEdge = [_content.leadingAnchor constraintEqualToAnchor:lead constant:m];
         [positional addObjectsFromArray:@[
             [_content.trailingAnchor constraintEqualToAnchor:trail constant:-m],
@@ -557,9 +560,29 @@ static const CGFloat kFullScreenLightsInset = 10;
     [self updateContentEdge];
 }
 
+/// The icon rail floats over the page card's edge instead of sitting beside it: the card starts
+/// where the rail does, just as it would with no sidebar, and the page inside lays out clear of
+/// the rail. Animated inside the snap's group, the card's edge and the page's inset move by
+/// equal and opposite amounts, so the card slides under (or out from under) the rail while the
+/// page itself only follows the rail's width.
+- (void)placeCardAnimated:(BOOL)animated {
+    BOOL underRail = !_tabsOnTop && !self.sidebarHidden && Settings.sidebarIconsOnly;
+    CGFloat rail = self.railWidth;
+    CGFloat edge = underRail ? -rail : _inset;
+    CGFloat covered = underRail ? rail + _inset : 0;
+    // The animator's constant reads back mid-slide, so compare against the target set last:
+    // setting it again outright would cut a running slide short.
+    if (edge != _cardEdge) {
+        _cardEdge = edge;
+        (animated ? _contentToSidebar.animator : _contentToSidebar).constant = edge;
+    }
+    [_content setCoveredInsets:NSEdgeInsetsMake(0, _onRight ? 0 : covered, 0, _onRight ? covered : 0) animated:animated];
+}
+
 /// The page meets the sidebar only while the sidebar is showing (peeking floats over the page).
 - (void)updateContentEdge {
     BOOL besideSidebar = !_tabsOnTop && !self.sidebarHidden;
+    [self placeCardAnimated:NO];
     // Switch off the old edge before switching on the new one: for a moment both would pin the
     // page, and AppKit settles that clash by dropping the sidebar's width constraint.
     NSLayoutConstraint *on = besideSidebar ? _contentToSidebar : _contentToEdge;
@@ -613,6 +636,7 @@ static const CGFloat kFullScreenLightsInset = 10;
             ctx.duration = duration;
             ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
             width.animator.constant = target;
+            [self placeCardAnimated:YES];
         }];
     }
     if ([@[@"*", @"autoHide", @"sidebarIconsOnly"] containsObject:key]) {
