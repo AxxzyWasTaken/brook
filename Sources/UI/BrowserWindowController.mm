@@ -343,11 +343,9 @@ static const CGFloat kFullScreenLightsInset = 10;
     [_root addSubview:_content];
 
     _sidebarGlass.translatesAutoresizingMaskIntoConstraints = NO;
-    _sidebarGlass.contentView = _sidebar;
-    _sidebar.translatesAutoresizingMaskIntoConstraints = NO;
     [_root addSubview:_sidebarGlass];
-    [_sidebar brook_pinEdgesTo:_sidebarGlass];
     _sidebar.browser = self;
+    [self applySidebarSurface];
 
     _handle.translatesAutoresizingMaskIntoConstraints = NO;
     __weak BrowserWindowController *weakSelf = self;
@@ -440,7 +438,7 @@ static const CGFloat kFullScreenLightsInset = 10;
         [_topBar brook_pinEdgesTo:_topGlass];
         [self applyAppearanceSettings];
     }
-    _sidebarGlass.hidden = top;
+    [self applySidebarSurface];
     _topGlass.hidden = !top;
     _chrome = top ? _topBar : _sidebar;
     [self attachFullScreenLights];
@@ -460,6 +458,29 @@ static const CGFloat kFullScreenLightsInset = 10;
         [_fullScreenLights.centerYAnchor constraintEqualToAnchor:_chrome.titleRow.centerYAnchor],
     ];
     [NSLayoutConstraint activateConstraints:_fullScreenLightsPlacement];
+}
+
+/// The sidebar sits in one sheet of glass; the icon rail brings its own pieces (-railSurfaces), so
+/// it moves out onto the window, still in the sheet's place, and the sheet hides.
+- (void)applySidebarSurface {
+    BOOL pieces = Settings.sidebarIconsOnly;
+    _sidebarGlass.hidden = _tabsOnTop || pieces;
+    _sidebar.hidden = _tabsOnTop;
+    NSView *host = pieces ? _root : _sidebarGlass;
+    if (_sidebar.superview == host) return;
+    if (pieces) {
+        _sidebarGlass.contentView = nil;
+        [_root addSubview:_sidebar positioned:NSWindowAbove relativeTo:_sidebarGlass];
+    } else {
+        [_sidebar removeFromSuperview];
+        _sidebarGlass.contentView = _sidebar;
+    }
+    [_sidebar brook_pinEdgesTo:_sidebarGlass];
+}
+
+/// The sidebar's glass and the rail's pieces, styled alike.
+- (NSArray<NSGlassEffectView *> *)sidebarSurfaces {
+    return [@[_sidebarGlass] arrayByAddingObjectsFromArray:_sidebar.railSurfaces];
 }
 
 /// Constraints that depend on the tab layout, which side the sidebar is on and the page margin.
@@ -550,7 +571,8 @@ static const CGFloat kFullScreenLightsInset = 10;
                                                            @"favoritesColumns", @"tabDensity", @"tabFontSize", @"topTabsShrink",
                                                            @"tabStyle", @"accentSource", @"accentColor", @"uiFont", @"closeButtons",
                                                            @"tabSubtitles", @"sidebarIconsOnly", @"loadingIndicator",
-                                                           @"toolbarItems", @"addressDisplay", @"spaceTint", @"sidebarPosition"]];
+                                                           @"toolbarItems", @"addressDisplay", @"spaceTint", @"sidebarPosition",
+                                                           @"pageMargin"]];
     if ([appearanceKeys containsObject:key]) [self applyAppearanceSettings];
     if ([sidebarKeys containsObject:key]) [_chrome applySettings];
     if ([@[@"*", @"cardShadow", @"accentSource", @"accentColor", @"loadingIndicator", @"linkPreview"] containsObject:key]) {
@@ -558,6 +580,7 @@ static const CGFloat kFullScreenLightsInset = 10;
     }
     if ([@[@"*", @"sidebarIconsOnly", @"pageMargin", @"cornerRadius"] containsObject:key]) {
         [self endRailAddressEditing];
+        [self applySidebarSurface];
         NSLayoutConstraint *width = _sidebarWidthConstraint;
         CGFloat target = self.effectiveSidebarWidth;
         // Animate the constant alone, so every frame is laid out from the live constraints. An
@@ -630,12 +653,11 @@ static const CGFloat kFullScreenLightsInset = 10;
         }
         default: glassTint = [color colorWithAlphaComponent:0.15 * strength]; break;
     }
-    _sidebarGlass.tintColor = glassTint;
-    _topGlass.tintColor = glassTint;
+    NSArray<NSGlassEffectView *> *surfaces = [self.sidebarSurfaces arrayByAddingObjectsFromArray:_topGlass ? @[_topGlass] : @[]];
+    for (NSGlassEffectView *g in surfaces) g.tintColor = glassTint;
     if (@available(macOS 26.1, *)) {
         NSGlassEffectViewStyle style = material == ChromeMaterialClear ? NSGlassEffectViewStyleClear : NSGlassEffectViewStyleRegular;
-        _sidebarGlass.style = style;
-        _topGlass.style = style;
+        for (NSGlassEffectView *g in surfaces) g.style = style;
     }
 }
 
@@ -646,7 +668,7 @@ static const CGFloat kFullScreenLightsInset = 10;
         case ThemeModeDark: NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]; break;
     }
     CGFloat r = Settings.cornerRadius;
-    _sidebarGlass.cornerRadius = r == 0 ? 0 : r + 2;
+    for (NSGlassEffectView *g in self.sidebarSurfaces) g.cornerRadius = r == 0 ? 0 : r + 2;
     _topGlass.cornerRadius = _sidebarGlass.cornerRadius;
     _content.cornerRadius = r;
     [self applySpaceColors];
@@ -933,9 +955,9 @@ static const CGFloat kFullScreenLightsInset = 10;
         NSShadow *s = [NSShadow new];
         s.shadowBlurRadius = 20;
         s.shadowColor = [NSColor.blackColor colorWithAlphaComponent:0.3];
-        _sidebarGlass.shadow = s;
+        for (NSGlassEffectView *g in self.sidebarSurfaces) g.shadow = s;
     } else {
-        _sidebarGlass.shadow = nil;
+        for (NSGlassEffectView *g in self.sidebarSurfaces) g.shadow = nil;
     }
     CGFloat leading = hidden ? -(self.effectiveSidebarWidth + _inset * 2 + 24) : _inset;
     NSLayoutConstraint *sidebarEdge = _sidebarEdge;

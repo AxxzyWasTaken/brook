@@ -34,12 +34,19 @@ struct Row {
     NSLayoutConstraint *_titleRowLeading;
     IconButton *_toggleButton;
     ToolbarButtons *_navStack;
-    // Icon rail: the nav row's buttons, site settings and extensions, stacked under the lights.
+    // Icon rail: the nav row's buttons (with site settings) and extensions, in a grid under the lights.
     NSStackView *_railStack;
     ToolbarButtons *_railButtons;
-    IconButton *_railSiteButton;
     ExtensionsBar *_railExtensions;
     NSLayoutConstraint *_favoritesTopRail;
+    // The rail's glass: controls, tabs and spaces as separate pieces.
+    NSGlassEffectView *_railTopGlass;
+    NSGlassEffectView *_railTabsGlass;
+    NSGlassEffectView *_railSpacesGlass;
+    NSLayoutConstraint *_railTabsTop;
+    NSLayoutConstraint *_railTabsHeight;
+    NSLayoutConstraint *_railTabsMaxBottom;
+    NSLayoutConstraint *_scrollBottom;
     FavoritesGridView *_favoritesGrid;
     NSLayoutConstraint *_favoritesTop;
     NSLayoutConstraint *_pillTop;
@@ -66,10 +73,10 @@ struct Row {
 
 - (NSView *)titleRow { return _titleRow; }
 - (ExtensionsBar *)extensionsBar { return Settings.sidebarIconsOnly ? _railExtensions : _urlPill.extensionsBar; }
+- (NSArray<NSGlassEffectView *> *)railSurfaces { return @[_railTopGlass, _railTabsGlass, _railSpacesGlass]; }
 
 - (NSView *)siteInfoAnchor {
-    if (!Settings.sidebarIconsOnly) return _urlPill.siteButton;
-    return [_railButtons buttonForItem:ToolbarItemSiteSettings] ?: _railSiteButton;
+    return Settings.sidebarIconsOnly ? [_railButtons buttonForItem:ToolbarItemSiteSettings] : _urlPill.siteButton;
 }
 
 - (NSView *)viewForSelectedTab {
@@ -102,17 +109,22 @@ struct Row {
             [weakSelf.browser toggleSidebar];
         }];
         _navStack = [ToolbarButtons new];
+        // Two columns of buttons, then the extensions in a row as wide as the grid.
         _railButtons = [ToolbarButtons new];
         _railButtons.orientation = NSUserInterfaceLayoutOrientationVertical;
-        _railSiteButton = [[IconButton alloc] initWithSymbol:@"slider.horizontal.3" tooltip:@"Site Settings" onClick:^{
-            [weakSelf.browser showSiteInfo];
-        }];
+        _railButtons.alignment = NSLayoutAttributeLeading;
+        _railButtons.spacing = 0;
+        _railButtons.columns = 2;
+        _railButtons.includesSiteSettings = YES;
         _railExtensions = [[ExtensionsBar alloc] initWithButtonSize:28];
-        _railExtensions.vertical = YES;
-        _railExtensions.maxVisible = 3;
-        _railStack = [NSStackView stackViewWithViews:@[_railButtons, _railSiteButton, _railExtensions]];
+        _railStack = [NSStackView stackViewWithViews:@[_railButtons, _railExtensions]];
         _railStack.orientation = NSUserInterfaceLayoutOrientationVertical;
-        _railStack.spacing = 2;
+        _railStack.spacing = 0;
+        _railStack.alignment = NSLayoutAttributeLeading;   // the extensions' row lines up with the grid's
+        _railExtensions.maxVisible = 1;                    // one extension and "…": as wide as the grid
+        _railTopGlass = [NSGlassEffectView new];
+        _railTabsGlass = [NSGlassEffectView new];
+        _railSpacesGlass = [NSGlassEffectView new];
         _fireButton = [[IconButton alloc] initWithSymbol:@"flame" tooltip:@"Burn Tabs & Data (⇧⌘⌫)" onClick:^{
             [weakSelf.browser fire];
         }];
@@ -138,6 +150,12 @@ struct Row {
 
 - (void)build {
     __weak SidebarView *weakSelf = self;
+
+    // The rail's glass pieces go in first, behind everything they frame.
+    for (NSGlassEffectView *g in self.railSurfaces) {
+        g.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:g];
+    }
 
     // Nav row
     _titleRow.translatesAutoresizingMaskIntoConstraints = NO;
@@ -247,7 +265,6 @@ struct Row {
         [_scrollView.topAnchor constraintEqualToAnchor:_favoritesGrid.bottomAnchor constant:10],
         [_scrollView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10],
         [_scrollView.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10],
-        [_scrollView.bottomAnchor constraintEqualToAnchor:bottom.topAnchor constant:-4],
 
         [bottom.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:8],
         [bottom.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8],
@@ -264,15 +281,35 @@ struct Row {
     _titleRowTop = [_titleRow.topAnchor constraintEqualToAnchor:self.topAnchor constant:8];
     _titleRowLeading = [_titleRow.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:78];
     _favoritesTop = [_favoritesGrid.topAnchor constraintEqualToAnchor:_urlPill.bottomAnchor constant:12];
-    _favoritesTopRail = [_favoritesGrid.topAnchor constraintEqualToAnchor:_railStack.bottomAnchor constant:10];
     [NSLayoutConstraint activateConstraints:@[
         [_railStack.topAnchor constraintEqualToAnchor:_titleRow.bottomAnchor constant:6],
         [_railStack.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
     ]];
+    // The rail: controls from the top down to under the extensions; tabs just below, only as tall
+    // as the rows (scrolling once they reach the spaces); spaces at the bottom.
+    _scrollBottom = [_scrollView.bottomAnchor constraintEqualToAnchor:bottom.topAnchor constant:-4];
+    _railTabsTop = [_railTabsGlass.topAnchor constraintEqualToAnchor:_railTopGlass.bottomAnchor constant:8];
+    _favoritesTopRail = [_favoritesGrid.topAnchor constraintEqualToAnchor:_railTabsGlass.topAnchor constant:8];
+    _railTabsHeight = [_scrollView.heightAnchor constraintEqualToConstant:0];
+    _railTabsHeight.priority = NSLayoutPriorityDefaultLow;
+    _railTabsMaxBottom = [_scrollView.bottomAnchor constraintLessThanOrEqualToAnchor:bottom.topAnchor constant:-24];
+    [NSLayoutConstraint activateConstraints:@[
+        [_railTopGlass.topAnchor constraintEqualToAnchor:self.topAnchor],
+        [_railTopGlass.bottomAnchor constraintEqualToAnchor:_railStack.bottomAnchor constant:8],
+        _railTabsTop,
+        // Padded like the top, so a row cut off mid-scroll stops short of the glass edge.
+        [_railTabsGlass.bottomAnchor constraintEqualToAnchor:_scrollView.bottomAnchor constant:8],
+        [_railSpacesGlass.topAnchor constraintEqualToAnchor:bottom.topAnchor constant:-8],
+        [_railSpacesGlass.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+    ]];
+    for (NSGlassEffectView *g in self.railSurfaces) {
+        [g.leadingAnchor constraintEqualToAnchor:self.leadingAnchor].active = YES;
+        [g.trailingAnchor constraintEqualToAnchor:self.trailingAnchor].active = YES;
+    }
     _pillTop = [_urlPill.topAnchor constraintEqualToAnchor:_titleRow.bottomAnchor constant:10];
     _pillHeight = [_urlPill.heightAnchor constraintEqualToConstant:0];
     _bottomHeight = [bottom.heightAnchor constraintEqualToConstant:28];
-    [NSLayoutConstraint activateConstraints:@[_titleRowTop, _titleRowLeading, _favoritesTop, _pillTop, _bottomHeight]];
+    [NSLayoutConstraint activateConstraints:@[_titleRowTop, _titleRowLeading, _favoritesTop, _pillTop, _bottomHeight, _scrollBottom]];
     [self applySettings];
 }
 
@@ -299,11 +336,21 @@ struct Row {
     _navStack.hidden = rail;
     _toggleButton.hidden = rail;
     _railStack.hidden = !rail;
-    // The rail's own site button unless site settings is already one of the toolbar buttons.
-    _railSiteButton.hidden = [_railButtons buttonForItem:ToolbarItemSiteSettings] != nil;
-    // Deactivate first so the two never pin the favorites at once.
-    (rail ? _favoritesTop : _favoritesTopRail).active = NO;
-    (rail ? _favoritesTopRail : _favoritesTop).active = YES;
+    for (NSGlassEffectView *g in self.railSurfaces) g.hidden = !rail;
+    _railSpacesGlass.hidden = !rail || !showBottom;
+    // The pieces sit as far apart as the page sits from the sidebar, but never touch.
+    CGFloat gap = std::max<CGFloat>(6, Settings.pageMargin);
+    _railTabsTop.constant = gap;
+    _railTabsMaxBottom.constant = showBottom ? -(16 + gap) : 0;
+    // The glass pads the rail's list, so it needs no inset of its own.
+    _scrollView.contentInsets = NSEdgeInsetsMake(0, 0, rail ? 0 : 8, 0);
+    // Deactivate first so the two placements never pin the favorites (or the list's end) at once.
+    for (NSLayoutConstraint *c in rail ? @[_favoritesTop, _scrollBottom] : @[_favoritesTopRail, _railTabsHeight, _railTabsMaxBottom]) {
+        c.active = NO;
+    }
+    for (NSLayoutConstraint *c in rail ? @[_favoritesTopRail, _railTabsHeight, _railTabsMaxBottom] : @[_favoritesTop, _scrollBottom]) {
+        c.active = YES;
+    }
     if (rail) {
         _urlPill.hidden = YES;
         _pillHeight.active = YES;
@@ -322,6 +369,14 @@ struct Row {
     [_table reloadData];
     [self updateSelection];
     [self reloadFavorites];
+    [self updateRailTabsHeight];
+}
+
+/// The rail's tab piece hugs its rows.
+- (void)updateRailTabsHeight {
+    NSInteger rows = _table.numberOfRows;
+    CGFloat rowsHeight = rows ? NSMaxY([_table rectOfRow:rows - 1]) : 0;
+    _railTabsHeight.constant = rowsHeight + _scrollView.contentInsets.bottom;
 }
 
 - (void)reloadFavorites {
@@ -330,6 +385,8 @@ struct Row {
     _favoritesGrid.hidden = !show;
     [_favoritesGrid reloadFavorites:show ? state.favorites : @[] selected:state.selectedTab];
     _favoritesTop.constant = show ? 12 : 0;
+    // Without favorites the tabs start 8pt into their glass (the list sits 10pt below the grid).
+    _favoritesTopRail.constant = show ? 8 : -2;
 }
 
 // MARK: Updates from the window controller
@@ -354,6 +411,7 @@ struct Row {
     }
     [_table reloadData];
     [self reloadFavorites];
+    [self updateRailTabsHeight];
     [self rebuildSpaceDots];
     [self updateSelection];
 }
@@ -425,7 +483,6 @@ struct Row {
     BrowserTab *tab = self.state.selectedTab;
     [_navStack updateWithTab:tab];
     [_railButtons updateWithTab:tab];
-    _railSiteButton.enabled = tab.url != nil;
     _railExtensions.tab = tab;
     [_urlPill updateWithTab:tab];
 }

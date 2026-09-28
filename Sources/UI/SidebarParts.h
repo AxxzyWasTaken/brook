@@ -66,6 +66,10 @@
 /// order. Shared by the sidebar and the top bar.
 @interface ToolbarButtons : NSStackView
 @property (weak) BrowserWindowController *browser;
+/// Buttons per row (the icon rail's grid); set before -rebuild. 0 lays them out in one line.
+@property (nonatomic) NSUInteger columns;
+/// Adds site settings when it isn't one of the chosen items (the rail has no address pill).
+@property (nonatomic) BOOL includesSiteSettings;
 /// Rebuilds from Settings.toolbarItems.
 - (void)rebuild;
 /// Enabled state and the reload/stop symbol.

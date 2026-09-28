@@ -12,6 +12,9 @@
 @property (readonly) NSView *siteInfoAnchor;
 /// The selected tab's row or favorite tile, if it's showing.
 - (NSView *)viewForSelectedTab;
+/// The icon rail's glass pieces (controls, tabs, spaces), each only as tall as what's in it. The
+/// window controller styles them like the sidebar's own glass, which the rail doesn't use.
+@property (readonly) NSArray<NSGlassEffectView *> *railSurfaces;
 @end
 
 /// NSMenuItem that runs a block.

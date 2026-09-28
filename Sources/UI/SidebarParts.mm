@@ -378,7 +378,12 @@ static NSString *ToolbarItemTooltip(ToolbarItem item) {
     for (NSView *v in [self.arrangedSubviews copy]) [v removeFromSuperview];
     _buttons.clear();
     __weak ToolbarButtons *weakSelf = self;
-    for (NSNumber *n in Settings.toolbarItems) {
+    NSArray<NSNumber *> *items = Settings.toolbarItems;
+    if (_includesSiteSettings && ![items containsObject:@(ToolbarItemSiteSettings)]) {
+        items = [items arrayByAddingObject:@(ToolbarItemSiteSettings)];
+    }
+    NSStackView *row = nil;
+    for (NSNumber *n in items) {
         ToolbarItem item = (ToolbarItem)n.integerValue;
         __block IconButton *button = nil;
         button = [[IconButton alloc] initWithSymbol:ToolbarItemSymbol(item) tooltip:ToolbarItemTooltip(item) onClick:^{
@@ -397,7 +402,17 @@ static NSString *ToolbarItemTooltip(ToolbarItem item) {
             }
         }];
         _buttons.emplace_back(item, button);
-        [self addArrangedSubview:button];
+        if (_columns == 0) {
+            [self addArrangedSubview:button];
+            continue;
+        }
+        // Rows of `columns`, leading-aligned, so a short last row lines up with the ones above.
+        if (!row || row.arrangedSubviews.count == _columns) {
+            row = [NSStackView new];
+            row.spacing = self.spacing;
+            [self addArrangedSubview:row];
+        }
+        [row addArrangedSubview:button];
     }
     [self updateWithTab:BrowserState.shared.selectedTab];
 }
