@@ -1,0 +1,46 @@
+name: Blocklist
+
+# Rebuilds the ad and tracker list daily and publishes it as the "blocklist" release asset, which
+# Brook fetches at most once a day (ContentBlocker). Only uploads when the rules changed, so the
+# asset's ETag / Last-Modified stay put and clients get 304 Not Modified.
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: blocklist
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Converter cache
+        uses: actions/cache@v4
+        with:
+          path: build/blocklist/scl
+          key: scl-v4.3.0-${{ runner.os }}
+
+      - name: Build list
+        run: scripts/blocklist.sh
+
+      - name: Publish if changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release download blocklist -p blocklist.lzfse -D build/published 2>/dev/null &&
+             compression_tool -decode -i build/published/blocklist.lzfse -o build/published/blocklist.json &&
+             cmp -s build/published/blocklist.json build/blocklist/blocklist.json; then
+            echo "Unchanged, not publishing."
+            exit 0
+          fi
+          gh release view blocklist >/dev/null 2>&1 ||
+            gh release create blocklist --prerelease --title "Blocklist" \
+              --notes "Ad and tracker rules for Brook, rebuilt daily from AdGuard's filters. Brook downloads this itself."
+          gh release upload blocklist Resources/blocklist.lzfse --clobber

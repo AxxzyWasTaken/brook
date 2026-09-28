@@ -129,6 +129,14 @@ static NSString *const kBlockProbeURL = @"https://www.google-analytics.com/colle
 static const NSTimeInterval kBlockProbeInterval = 0.1;
 /// Stop waiting after this long (say, a blocker that doesn't list the probe, or no network).
 static const NSTimeInterval kBlockProbeTimeout = 2;
+/// How long to watch for a newly added blocker's rules (uBlock Origin Lite's first compile: ~10s).
+static const NSTimeInterval kBlockVerifyTimeout = 60;
+/// After the probe sees a new blocker block, wait this long before counting it, so tabs that were
+/// already open have its rules too (they get them ~1s after a new web view). Overlap is harmless.
+static const NSTimeInterval kBlockSettleDelay = 3;
+/// An extension enabling at least this much declarativeNetRequest rule data counts as an ad blocker
+/// (uBlock Origin Lite: ~5 MB).
+static const unsigned long long kAdBlockerRulesetBytes = 100 * 1024;
 
 @implementation ExtensionManager {
     std::vector<ExtensionRecord> _records;
@@ -137,6 +145,8 @@ static const NSTimeInterval kBlockProbeTimeout = 2;
     BOOL _loaded;
     NSMutableArray<dispatch_block_t> *_waitingForLoad;
     WKWebView *_blockProbe;
+    BOOL _blockingActive;   // a probe saw an extension block
+    BOOL _verifying;
 }
 
 + (ExtensionManager *)shared {
@@ -252,11 +262,48 @@ static const NSTimeInterval kBlockProbeTimeout = 2;
         [self markLoaded];
         return;
     }
-    [self probeBlockingSince:CACurrentMediaTime()];
+    __weak ExtensionManager *weakSelf = self;
+    [self probeBlockingSince:CACurrentMediaTime() timeout:kBlockProbeTimeout completion:^(BOOL blocked) {
+        ExtensionManager *self_ = weakSelf;
+        if (!self_) return;
+        [self_ setBlockingActive:blocked];
+        [self_ markLoaded];
+        // Rules can take far longer on the first launch after an update (WebKit recompiles them).
+        if (!blocked) [self_ verifyBlocking];
+    }];
+}
+
+/// Watches (up to a minute) for extension blocking to take effect in a fresh web view: after an
+/// extension is added, or when the launch probe timed out.
+- (void)verifyBlocking {
+    if (_verifying || _blockingActive || !self.adBlockerName) return;
+    _verifying = YES;
+    [self makeBlockProbe];
+    __weak ExtensionManager *weakSelf = self;
+    [self probeBlockingSince:CACurrentMediaTime() timeout:kBlockVerifyTimeout completion:^(BOOL blocked) {
+        ExtensionManager *self_ = weakSelf;
+        if (!self_) return;
+        self_->_blockProbe = nil;
+        if (!blocked) { self_->_verifying = NO; return; }
+        // Web views that already existed get the rules a while after a new one like the probe.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kBlockSettleDelay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            ExtensionManager *s = weakSelf;
+            if (!s) return;
+            s->_verifying = NO;
+            [s setBlockingActive:s.adBlockerName != nil];
+        });
+    }];
+}
+
+- (void)setBlockingActive:(BOOL)active {
+    if (_blockingActive == active) return;
+    _blockingActive = active;
+    [self notify];
 }
 
 /// Blocked requests fail at once without touching the network; anything slower got through.
-- (void)probeBlockingSince:(CFTimeInterval)start {
+/// Tries every 0.1s, then (past the launch timeout) slows towards once a second.
+- (void)probeBlockingSince:(CFTimeInterval)start timeout:(NSTimeInterval)timeout completion:(void (^)(BOOL blocked))completion {
     NSString *js = @"const t = performance.now();"
                     "return await new Promise(done => {"
                     "  const img = new Image();"
@@ -268,15 +315,16 @@ static const NSTimeInterval kBlockProbeTimeout = 2;
     [_blockProbe callAsyncJavaScript:js arguments:@{@"url": kBlockProbeURL} inFrame:nil inContentWorld:WKContentWorld.defaultClientWorld
                    completionHandler:^(id result, NSError *error) {
         ExtensionManager *self_ = weakSelf;
-        if (!self_ || self_->_loaded) return;
+        if (!self_ || !self_->_blockProbe) return;
         // `error` is expected while the probe page is still loading; just try again.
-        if ([result isEqual:@YES] || CACurrentMediaTime() - start > kBlockProbeTimeout) {
-            [self_ markLoaded];
+        CFTimeInterval elapsed = CACurrentMediaTime() - start;
+        if ([result isEqual:@YES] || elapsed > timeout) {
+            completion([result isEqual:@YES]);
             return;
         }
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kBlockProbeInterval * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            [weakSelf probeBlockingSince:start];
+        NSTimeInterval interval = elapsed < kBlockProbeTimeout ? kBlockProbeInterval : std::min(1.0, elapsed / 10);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(interval * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [weakSelf probeBlockingSince:start timeout:timeout completion:completion];
         });
     }];
 }
@@ -296,6 +344,40 @@ static const NSTimeInterval kBlockProbeTimeout = 2;
     }
     if (!_waitingForLoad) _waitingForLoad = [NSMutableArray array];
     [_waitingForLoad addObject:[block copy]];
+}
+
+- (NSString *)activeAdBlockerName { return _blockingActive ? self.adBlockerName : nil; }
+
+/// The first loaded extension that looks like an ad blocker (enables sizeable declarativeNetRequest
+/// rule files), whether or not its rules are in force yet.
+- (NSString *)adBlockerName {
+    for (const auto &r : _records) {
+        WKWebExtensionContext *c = [self contextForID:r.identifier];
+        if (!c || ![c.webExtension.requestedPermissions containsObject:WKWebExtensionPermissionDeclarativeNetRequest]) continue;
+        if ([self rulesetBytes:c.webExtension in:[_folder URLByAppendingPathComponent:r.folder isDirectory:YES]] >= kAdBlockerRulesetBytes) {
+            return c.webExtension.displayName ?: r.name;
+        }
+    }
+    return nil;
+}
+
+/// Total size of the rule files an extension enables by default. Ad blockers ship megabytes of them;
+/// extensions that only tweak headers or redirect a few URLs ship little or none.
+- (unsigned long long)rulesetBytes:(WKWebExtension *)ext in:(NSURL *)base {
+    id dnr = ext.manifest[@"declarative_net_request"];
+    id resources = [dnr isKindOfClass:NSDictionary.class] ? dnr[@"rule_resources"] : nil;
+    if (![resources isKindOfClass:NSArray.class]) return 0;
+    unsigned long long total = 0;
+    for (id item in (NSArray *)resources) {
+        if (![item isKindOfClass:NSDictionary.class] || ![item[@"enabled"] isEqual:@YES]) continue;
+        id path = item[@"path"];
+        if (![path isKindOfClass:NSString.class]) continue;
+        NSURL *file = [base URLByAppendingPathComponent:[path stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"/"]]];
+        // Standardized so "../" can't point outside the extension's folder.
+        if (![file.URLByStandardizingPath.path hasPrefix:base.URLByStandardizingPath.path]) continue;
+        total += [NSFileManager.defaultManager attributesOfItemAtPath:file.path error:nil].fileSize;
+    }
+    return total;
 }
 
 - (WKWebExtensionContext *)makeContext:(WKWebExtension *)ext id:(NSString *)identifier {
@@ -460,6 +542,7 @@ static const NSTimeInterval kBlockProbeTimeout = 2;
                                                            chromeWebStoreID});
                 [strong saveRecords];
                 [strong notify];
+                [strong verifyBlocking];   // an ad blocker counts once its rules are seen blocking
                 completion(nil);
             }];
         });
@@ -518,7 +601,10 @@ static const NSTimeInterval kBlockProbeTimeout = 2;
         }
     }
     [self saveRecords];
+    // Whatever blocked may be gone; another installed blocker has to prove itself again.
+    _blockingActive = NO;
     [self notify];
+    [self verifyBlocking];
 }
 
 - (BOOL)isInToolbar:(WKWebExtensionContext *)context {

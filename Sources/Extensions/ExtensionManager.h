@@ -46,6 +46,10 @@ FOUNDATION_EXPORT NSNotificationName const ExtensionManagerActionDidChangeNotifi
 /// Runs `block` on the main queue once installed extensions have loaded (straight away if they
 /// already have). Pages loaded before then would skip content blockers such as uBlock Origin Lite.
 - (void)whenLoaded:(dispatch_block_t)block;
+/// The installed ad-blocking extension (enables sizeable declarativeNetRequest rule files, like
+/// uBlock Origin Lite or AdGuard) once a probe has seen its rules block, or nil. Posts
+/// ExtensionManagerDidChangeNotification when it changes. ContentBlocker pauses Brook's list for it.
+@property (readonly) NSString *activeAdBlockerName;
 
 /// Accepts a Chrome Web Store URL or a bare 32-letter extension ID. Completion runs on the main
 /// queue; error is nil on success (also when the extension is already installed).

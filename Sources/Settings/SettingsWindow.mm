@@ -913,6 +913,12 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
     NSDictionary<NSString *, SiteOverride *> *_sites;
 }
 
+- (instancetype)initWithNibName:(NSNibName)nib bundle:(NSBundle *)bundle {
+    // "contentBlocker": an ad-blocking extension was added or removed (the ad blocking note).
+    if ((self = [super initWithNibName:nib bundle:bundle])) self.rebuildKeys = [NSSet setWithObjects:@"*", @"contentBlocker", nil];
+    return self;
+}
+
 - (NSView *)makeContent {
     _sites = SiteSettings.all;
     _hosts = [_sites.allKeys sortedArrayUsingSelector:@selector(compare:)];
@@ -935,6 +941,10 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
                                         onChange:^(BOOL on) { Settings.blockCookiePopups = on; }]];
     [f row:@"Ads" view:[Controls check:@"Block ads and trackers" on:Settings.blockAds
                               onChange:^(BOOL on) { Settings.blockAds = on; }]];
+    if (NSString *blocker = ContentBlocker.shared.pausedFor) {
+        [f note:[NSString stringWithFormat:@"Paused while “%@” is installed, so the two don’t block twice "
+                                           "or undo each other’s exceptions.", blocker]];
+    }
 
     [f separator];
     EditableList *l = [[EditableList alloc] initWithColumns:{{@"site", @"Website", 160}, {@"zoom", @"Zoom", 84}, {@"js", @"JavaScript", 92},

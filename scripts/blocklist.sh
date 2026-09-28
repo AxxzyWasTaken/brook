@@ -1,15 +1,18 @@
 #!/bin/bash
-# Builds Resources/blocklist-*.json: AdGuard's filter lists converted to WebKit content-blocker
-# JSON by AdGuard's SafariConverterLib (the converter AdGuard for Safari and wBlock use).
+# Builds Resources/blocklist.lzfse: AdGuard's filter lists converted to WebKit content-blocker
+# JSON by AdGuard's SafariConverterLib (the converter AdGuard for Safari and wBlock use), then
+# LZFSE-compressed (17 MB -> 1.7 MB; Foundation decompresses it in ~10 ms).
 # The converter is only a build tool; it isn't linked into or shipped with Brook.
-# One JSON per list: WebKit caps a rule list at 150k rules, and a list's exceptions
-# (ignore-previous-rules) only cover its own rules, as in Safari content blockers.
+# Both lists are converted together into one rule list: a list's exceptions (ignore-previous-rules)
+# only override its own earlier rules, so with a list each, one could block what the other allows.
+# One list of ~137k rules compiles as fast as two; WebKit's cap is 150k, checked below.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONVERTER_TAG=v4.3.0
 WORK=build/blocklist
 TOOL="$WORK/scl/.build/release/ConverterTool"
+OUT=Resources/blocklist.lzfse
 mkdir -p "$WORK"
 
 if [ ! -x "$TOOL" ]; then
@@ -18,11 +21,21 @@ if [ ! -x "$TOOL" ]; then
     swift build -c release --product ConverterTool --package-path "$WORK/scl"
 fi
 
-convert() {   # name, AdGuard filter id
-    curl -fsSL "https://filters.adtidy.org/extension/safari/filters/$2_optimized.txt" -o "$WORK/$1.txt"
-    "$TOOL" convert --input-path "$WORK/$1.txt" --safari-rules-json-path "Resources/blocklist-$1.json" \
-        --advanced-blocking-rules-path "$WORK/$1-advanced.txt" > "$WORK/$1.log"
-    ls -l "Resources/blocklist-$1.json"
-}
-convert ads 2        # AdGuard Base filter (EasyList + AdGuard English)
-convert trackers 3   # AdGuard Tracking Protection filter (EasyPrivacy + AdGuard)
+# 2 = AdGuard Base (EasyList + AdGuard English), 3 = Tracking Protection (EasyPrivacy + AdGuard).
+: > "$WORK/rules.txt"
+for id in 2 3; do
+    curl -fsSL "https://filters.adtidy.org/extension/safari/filters/${id}_optimized.txt" >> "$WORK/rules.txt"
+    echo >> "$WORK/rules.txt"
+done
+
+# Without output paths the tool prints a JSON summary with the rules inside it.
+"$TOOL" convert --input-path "$WORK/rules.txt" > "$WORK/result.json"
+read -r rules discarded < <(jq -r '"\(.safariRulesCount) \(.discardedSafariRules)"' "$WORK/result.json")
+if [ "$discarded" != 0 ]; then
+    echo "error: $discarded rules over WebKit's 150,000-rule cap were dropped" >&2
+    exit 1
+fi
+jq -r .safariRulesJSON "$WORK/result.json" > "$WORK/blocklist.json"
+rm -f "$OUT"
+compression_tool -encode -a lzfse -i "$WORK/blocklist.json" -o "$OUT"
+echo "$rules rules, $(wc -c < "$OUT" | tr -d ' ') bytes -> $OUT"

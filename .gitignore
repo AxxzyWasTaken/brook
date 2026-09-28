@@ -4,4 +4,4 @@ DerivedData/
 .DS_Store
 *.zip
 Support/Info.plist
-Resources/blocklist-*.json
+Resources/blocklist.lzfse
