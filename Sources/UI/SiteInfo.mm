@@ -125,10 +125,12 @@ static NSStackView *BrookVerticalStack(NSStackView *stack) {
     }]];
     [form finish];
     [form.grid columnAtIndex:0].width = 96;
-    // One width for every popup so the right edge lines up.
+    // One width for every popup, filling the column so the right edge lines up with the Reload
+    // button: the 330 stack less its 16 insets, the 96 label column and the grid's 12 spacing.
+    const CGFloat popupWidth = 330 - 2 * 16 - 96 - form.grid.columnSpacing;
     for (NSView *v in form.grid.subviews) {
         if ([v isKindOfClass:NSPopUpButton.class]) {
-            [v.widthAnchor constraintEqualToConstant:180].active = YES;
+            [v.widthAnchor constraintEqualToConstant:popupWidth].active = YES;
         }
     }
 
