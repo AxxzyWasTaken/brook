@@ -315,6 +315,7 @@
     __weak BrowserTab *_tab;
     float _shadowStrength;
     double _lastProgress;
+    NSView *_linkBox;
     NSTextField *_linkLabel;
     NSLayoutConstraint *_linkLeading;
     NSLayoutConstraint *_linkTrailing;
@@ -402,25 +403,30 @@
             [_toast.centerXAnchor constraintEqualToAnchor:_uncovered.centerXAnchor],
             [_toast.bottomAnchor constraintEqualToAnchor:_clip.bottomAnchor constant:-18]
         ]];
+        // The label sits centred in a rounded box: a text field draws at the top of a taller frame.
+        _linkBox = [NSView new];
+        _linkBox.wantsLayer = YES;
+        _linkBox.layer.cornerRadius = 6;
+        _linkBox.hidden = YES;
+        _linkBox.translatesAutoresizingMaskIntoConstraints = NO;
         _linkLabel = [NSTextField labelWithString:@""];
         _linkLabel.font = [NSFont systemFontOfSize:11];
         _linkLabel.textColor = NSColor.secondaryLabelColor;
         _linkLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
-        _linkLabel.drawsBackground = YES;
-        _linkLabel.wantsLayer = YES;
-        _linkLabel.layer.cornerRadius = 6;
-        _linkLabel.layer.masksToBounds = YES;
-        _linkLabel.hidden = YES;
         _linkLabel.translatesAutoresizingMaskIntoConstraints = NO;
         [_linkLabel setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                              forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [_clip addSubview:_linkLabel];
-        _linkLeading = [_linkLabel.leadingAnchor constraintEqualToAnchor:_uncovered.leadingAnchor constant:6];
-        _linkTrailing = [_uncovered.trailingAnchor constraintEqualToAnchor:_linkLabel.trailingAnchor constant:6];
+        [_linkBox addSubview:_linkLabel];
+        [_clip addSubview:_linkBox];
+        _linkLeading = [_linkBox.leadingAnchor constraintEqualToAnchor:_uncovered.leadingAnchor constant:6];
+        _linkTrailing = [_uncovered.trailingAnchor constraintEqualToAnchor:_linkBox.trailingAnchor constant:6];
         [NSLayoutConstraint activateConstraints:@[
-            [_linkLabel.bottomAnchor constraintEqualToAnchor:_clip.bottomAnchor constant:-6],
-            [_linkLabel.widthAnchor constraintLessThanOrEqualToAnchor:_uncovered.widthAnchor multiplier:0.6],
-            [_linkLabel.heightAnchor constraintEqualToConstant:20],
+            [_linkBox.bottomAnchor constraintEqualToAnchor:_clip.bottomAnchor constant:-6],
+            [_linkBox.widthAnchor constraintLessThanOrEqualToAnchor:_uncovered.widthAnchor multiplier:0.6],
+            [_linkBox.heightAnchor constraintEqualToConstant:20],
+            [_linkLabel.leadingAnchor constraintEqualToAnchor:_linkBox.leadingAnchor constant:6],
+            [_linkBox.trailingAnchor constraintEqualToAnchor:_linkLabel.trailingAnchor constant:6],
+            [_linkLabel.centerYAnchor constraintEqualToAnchor:_linkBox.centerYAnchor],
         ]];
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(hoveredLink:)
                                                    name:BrookHoveredLinkNotification object:nil];
@@ -434,12 +440,12 @@
     if (note.object != _webView) return;
     NSString *url = note.userInfo[@"url"];
     LinkPreview where = Settings.linkPreview;
-    if (where == LinkPreviewOff || url.length == 0) { _linkLabel.hidden = YES; return; }
+    if (where == LinkPreviewOff || url.length == 0) { _linkBox.hidden = YES; return; }
     // Off before on, so the two edges never pin the label at once.
     (where == LinkPreviewLeft ? _linkTrailing : _linkLeading).active = NO;
     (where == LinkPreviewLeft ? _linkLeading : _linkTrailing).active = YES;
-    _linkLabel.stringValue = [NSString stringWithFormat:@" %@ ", url];
-    _linkLabel.hidden = NO;
+    _linkLabel.stringValue = url;
+    _linkBox.hidden = NO;
 }
 
 - (void)pin:(NSView *)view toGuide:(NSLayoutGuide *)guide {
@@ -493,7 +499,7 @@
 - (void)updateColors {
     _clip.layer.backgroundColor = [self brook_cg:NSColor.textBackgroundColor];
     _clip.layer.borderColor = [self brook_cg:BrookFill(0, 0.08, 1, 0.1)];
-    _linkLabel.backgroundColor = NSColor.windowBackgroundColor;
+    _linkBox.layer.backgroundColor = [self brook_cg:NSColor.windowBackgroundColor];
     // Settings → Appearance → Page shadow.
     BOOL dark = BrookIsDark(self.effectiveAppearance);
     CardShadow shadow = Settings.cardShadow;
@@ -515,7 +521,7 @@
     _tab = tab;
     WKWebView *current = _webView;
     if (current && current != tab.webView) [current removeFromSuperview];
-    _linkLabel.hidden = YES;
+    _linkBox.hidden = YES;
     _empty.spaceName = spaceName;
     if (!tab) {
         _webView = nil;
