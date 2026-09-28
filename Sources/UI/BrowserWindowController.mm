@@ -466,8 +466,10 @@ static const CGFloat kFullScreenLightsInset = 10;
     BOOL pieces = Settings.sidebarIconsOnly;
     _sidebarGlass.hidden = _tabsOnTop || pieces;
     _sidebar.hidden = _tabsOnTop;
-    NSView *host = pieces ? _root : _sidebarGlass;
-    if (_sidebar.superview == host) return;
+    // The glass puts its content view inside a container of its own, so ask the glass, not the
+    // sidebar's superview, whether it's already there.
+    BOOL inGlass = _sidebarGlass.contentView == _sidebar;
+    if (pieces ? _sidebar.superview == _root : inGlass) return;
     if (pieces) {
         _sidebarGlass.contentView = nil;
         [_root addSubview:_sidebar positioned:NSWindowAbove relativeTo:_sidebarGlass];
