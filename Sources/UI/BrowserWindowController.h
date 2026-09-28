@@ -59,6 +59,8 @@
 
 // Site settings, downloads, extensions
 - (void)showSiteInfo;
+/// The same popover, pointing at the pill icon that opened it.
+- (void)showSiteInfoFromView:(NSView *)from;
 - (void)showDownloadsFromView:(NSView *)anchor;
 - (void)presentExtensionPopup:(WKWebExtensionAction *)action;
 - (void)promptChromeWebStore;

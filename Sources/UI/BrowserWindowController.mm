@@ -1312,7 +1312,10 @@ static const CGFloat kFullScreenLightsInset = 10;
     return _onRight ? NSRectEdgeMinX : NSRectEdgeMaxX;
 }
 
-- (void)showSiteInfo {
+- (void)showSiteInfo { [self showSiteInfoFromView:nil]; }
+
+/// from: the pill icon that was clicked (the popover points at it); nil uses the usual anchor.
+- (void)showSiteInfoFromView:(NSView *)from {
     NSURL *url = _state.selectedTab.url;
     NSString *host = BrookHost(url);
     if (!url || !host) return;
@@ -1320,7 +1323,7 @@ static const CGFloat kFullScreenLightsInset = 10;
     popover.behavior = NSPopoverBehaviorTransient;
     popover.contentViewController = [[SiteInfoViewController alloc] initWithHost:host
                                                                           secure:[url.scheme isEqualToString:@"https"]];
-    NSView *anchor = _tabsOnTop ? _topBar.siteInfoAnchor : _sidebar.siteInfoAnchor;
+    NSView *anchor = from ?: (_tabsOnTop ? _topBar.siteInfoAnchor : _sidebar.siteInfoAnchor);
     BOOL rail = !_tabsOnTop && Settings.sidebarIconsOnly && (!self.sidebarHidden || _peeking);
     if ((self.urlPillVisible || rail) && anchor.window) {
         [popover showRelativeToRect:anchor.bounds ofView:anchor preferredEdge:self.pillPopoverEdge];

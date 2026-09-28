@@ -4,7 +4,7 @@
 
 @implementation URLPillView {
     NSTextField *_label;
-    NSImageView *_ads;
+    IconButton *_ads;
     NSLayoutConstraint *_adsWidth;      // 0 while hidden, so it takes no room from the address
     NSImageView *_cookie;
     NSLayoutConstraint *_cookieWidth;   // 0 while hidden, so it takes no room from the address
@@ -38,13 +38,13 @@
         _cookie.hidden = YES;
         _cookie.translatesAutoresizingMaskIntoConstraints = NO;
         _cookieWidth = [_cookie.widthAnchor constraintEqualToConstant:0];
-        _ads = [NSImageView new];
-        _ads.image = [NSImage brook_symbol:@"shield.lefthalf.filled" size:11];
-        _ads.contentTintColor = NSColor.tertiaryLabelColor;
-        _ads.imageAlignment = NSImageAlignLeft;
+        _ads = [[IconButton alloc] initWithSymbol:@"shield.lefthalf.filled" size:11 tooltip:nil dimension:20 onClick:nil];
+        _ads.tint = NSColor.tertiaryLabelColor;
         _ads.hidden = YES;
-        _ads.translatesAutoresizingMaskIntoConstraints = NO;
-        _adsWidth = [_ads.widthAnchor constraintEqualToConstant:0];
+        for (NSLayoutConstraint *c in _ads.constraints) {
+            if (c.firstAttribute == NSLayoutAttributeWidth && c.firstItem == _ads) _adsWidth = c;
+        }
+        _adsWidth.constant = 0;
         for (NSView *v in @[_siteButton, _label, _ads, _cookie]) [self addSubview:v];
 
         // Both give way when the pill is collapsed to nothing (address bar off, or the icon rail).
@@ -58,7 +58,6 @@
             [_label.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             [_ads.leadingAnchor constraintGreaterThanOrEqualToAnchor:_label.trailingAnchor constant:4],
             [_ads.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
-            _adsWidth,
             [_cookie.leadingAnchor constraintEqualToAnchor:_ads.trailingAnchor constant:2],
             [_cookie.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             _cookieWidth,
@@ -91,6 +90,8 @@
     }
     return self;
 }
+
+- (IconButton *)adsButton { return _ads; }
 
 - (void)updateWithTab:(BrowserTab *)tab {
     _extensionsBar.tab = tab;
@@ -142,9 +143,13 @@
     BOOL brookBlocks = Settings.blockAds && (!siteOverride || siteOverride.boolValue);
     BOOL blocking = host && (extension || brookBlocks);
     _ads.hidden = !blocking;
-    _adsWidth.active = !blocking;
-    if (blocking) _ads.toolTip = extension ? [NSString stringWithFormat:@"Ads and trackers blocked by %@", extension]
-                                           : @"Ads and trackers blocked";
+    _adsWidth.constant = blocking ? 20 : 0;   // takes no room from the address while hidden
+    if (blocking) {
+        NSString *tip = extension ? [NSString stringWithFormat:@"Ads and trackers blocked by %@", extension]
+                                  : @"Ads and trackers blocked";
+        _ads.toolTip = [tip stringByAppendingString:@" — click for this site's settings"];
+        _ads.accessibilityLabel = tip;
+    }
 }
 
 - (void)setCookieShown:(BOOL)shown {

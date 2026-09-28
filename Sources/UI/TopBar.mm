@@ -1249,6 +1249,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     _urlPill.hoverColor = Palette.wellHover;
     _urlPill.onClick = ^{ [weakSelf.browser showCommandBarEditing:YES]; };
     _urlPill.siteButton.onClick = ^{ [weakSelf.browser showSiteInfo]; };
+    _urlPill.adsButton.onClick = ^{ [weakSelf.browser showSiteInfoFromView:weakSelf.urlPill.adsButton]; };
     _urlPill.reloadButton.onClick = ^{ [weakSelf.browser reloadOrStop]; };
     _favorites.translatesAutoresizingMaskIntoConstraints = NO;
     _strip.onEdit = ^(BrowserTab *tab) { [weakSelf beginEditingAddress]; };
