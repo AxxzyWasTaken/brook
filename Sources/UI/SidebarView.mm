@@ -64,6 +64,7 @@ struct Row {
     IconButton *_downloadsButton;
     IconButton *_addSpaceButton;
     NSStackView *_spaceStack;
+    SpaceDot *_railSpaceDot;   // the rail's space button, filling its glass piece
 
     TabDensity _rowDensity;
     CGFloat _rowFontSize;
@@ -73,6 +74,9 @@ struct Row {
     CGFloat _swipeDistance;
     BOOL _swallowMomentum;
 }
+
+/// Gap between the rail's space piece and the button filling it.
+static const CGFloat kRailButtonInset = 4;
 
 - (BrowserState *)state { return BrowserState.shared; }
 
@@ -474,6 +478,8 @@ struct Row {
 
 - (void)rebuildSpaceDots {
     for (NSView *v in [_spaceStack.arrangedSubviews copy]) [v removeFromSuperview];
+    [_railSpaceDot removeFromSuperview];
+    _railSpaceDot = nil;
     BrowserState *state = self.state;
     __weak SidebarView *weakSelf = self;
     NSArray<Space *> *spaces = state.spaces;
@@ -488,7 +494,17 @@ struct Row {
         __weak SpaceDot *weakDot = dot;
         dot.onClick = ^{ [weakSelf showSpacesMenuFrom:weakDot]; };
         dot.menu = self.browser.spacesMenu;
-        [_spaceStack addArrangedSubview:dot];
+        // The whole piece is the button: its hover fills the glass, inset like a tab row in its piece.
+        [self addSubview:dot];
+        NSView *glass = _railSpacesGlass;
+        [NSLayoutConstraint activateConstraints:@[
+            [dot.leadingAnchor constraintEqualToAnchor:glass.leadingAnchor constant:kRailButtonInset],
+            [dot.trailingAnchor constraintEqualToAnchor:glass.trailingAnchor constant:-kRailButtonInset],
+            [dot.topAnchor constraintEqualToAnchor:glass.topAnchor constant:kRailButtonInset],
+            [dot.bottomAnchor constraintEqualToAnchor:glass.bottomAnchor constant:-kRailButtonInset],
+        ]];
+        _railSpaceDot = dot;
+        [self railSurfacesDidChangeCornerRadius];
         return;
     }
     for (NSInteger i = 0; i < (NSInteger)spaces.count; i++) {
@@ -499,6 +515,11 @@ struct Row {
         dot.menu = [self.browser menuForSpace:space];
         [_spaceStack addArrangedSubview:dot];
     }
+}
+
+- (void)railSurfacesDidChangeCornerRadius {
+    // Concentric with the glass around it.
+    _railSpaceDot.cornerRadius = std::max<CGFloat>(4, _railSpacesGlass.cornerRadius - kRailButtonInset);
 }
 
 /// The spaces menu beside the rail's space button, on the page side.

@@ -38,7 +38,8 @@
 - (instancetype)initWithSpace:(Space *)space;
 @property (readonly) Space *space;
 @property (nonatomic) BOOL isCurrent;
-/// The rail's single dot: clicking lists the spaces rather than switching to this one.
+/// The rail's single dot: clicking lists the spaces rather than switching to this one. It's then
+/// sized by whoever places it (the whole glass piece is the button), not a fixed 24pt square.
 @property (nonatomic) BOOL opensMenu;
 @end
 

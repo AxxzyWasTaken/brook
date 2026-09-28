@@ -321,6 +321,7 @@ static const CGFloat kGap = 8;
 
 @implementation SpaceDot {
     CALayer *_dot;
+    NSArray<NSLayoutConstraint *> *_size;
 }
 
 - (instancetype)initWithSpace:(Space *)space {
@@ -331,10 +332,15 @@ static const CGFloat kGap = 8;
         self.toolTip = space.name;
         [self.layer addSublayer:_dot];
         self.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.widthAnchor constraintEqualToConstant:24].active = YES;
-        [self.heightAnchor constraintEqualToConstant:24].active = YES;
+        _size = @[[self.widthAnchor constraintEqualToConstant:24], [self.heightAnchor constraintEqualToConstant:24]];
+        [NSLayoutConstraint activateConstraints:_size];
     }
     return self;
+}
+
+- (void)setOpensMenu:(BOOL)opensMenu {
+    _opensMenu = opensMenu;
+    for (NSLayoutConstraint *c in _size) c.active = !opensMenu;
 }
 
 - (void)setIsCurrent:(BOOL)isCurrent {

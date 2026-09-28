@@ -734,6 +734,7 @@ static const CGFloat kFullScreenLightsInset = 10;
     }
     CGFloat r = Settings.cornerRadius;
     for (NSGlassEffectView *g in self.sidebarSurfaces) g.cornerRadius = r == 0 ? 0 : r + 2;
+    [_sidebar railSurfacesDidChangeCornerRadius];
     _topGlass.cornerRadius = _sidebarGlass.cornerRadius;
     _content.cornerRadius = r;
     [self applySpaceColors];

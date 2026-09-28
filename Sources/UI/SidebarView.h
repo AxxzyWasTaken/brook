@@ -15,6 +15,8 @@
 /// The icon rail's glass pieces (controls, tabs, spaces), each only as tall as what's in it. The
 /// window controller styles them like the sidebar's own glass, which the rail doesn't use.
 @property (readonly) NSArray<NSGlassEffectView *> *railSurfaces;
+/// Call after changing the rail surfaces' corner radius, so the buttons filling them follow.
+- (void)railSurfacesDidChangeCornerRadius;
 @end
 
 /// NSMenuItem that runs a block.
