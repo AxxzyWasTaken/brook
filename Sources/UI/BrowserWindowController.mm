@@ -723,6 +723,10 @@ static const CGFloat kFullScreenLightsInset = 10;
     if (@available(macOS 26.1, *)) {
         NSGlassEffectViewStyle style = material == ChromeMaterialClear ? NSGlassEffectViewStyleClear : NSGlassEffectViewStyleRegular;
         for (NSGlassEffectView *g in surfaces) g.style = style;
+        // A hidden sidebar only shows peeking over the page, and clear glass let the page's own
+        // text read through the tabs (no tint covers it). It peeks as regular glass instead.
+        if (!_tabsOnTop && self.sidebarHidden)
+            for (NSGlassEffectView *g in self.sidebarSurfaces) g.style = NSGlassEffectViewStyleRegular;
     }
 }
 
@@ -1017,6 +1021,7 @@ static const CGFloat kFullScreenLightsInset = 10;
     _handle.hidden = _tabsOnTop || self.sidebarHidden;
     if (hidden) [self endRailAddressEditing];
     _hotZone.hidden = _tabsOnTop || !self.sidebarHidden || _peeking;
+    [self applyChromeMaterial];   // a hidden sidebar peeks as regular glass, never clear
     if (_peeking) {
         NSShadow *s = [NSShadow new];
         s.shadowBlurRadius = 20;
