@@ -560,13 +560,13 @@ static const CGFloat kFullScreenLightsInset = 10;
         [self endRailAddressEditing];
         NSLayoutConstraint *width = _sidebarWidthConstraint;
         CGFloat target = self.effectiveSidebarWidth;
-        NSView *root = _root;
+        // Animate the constant alone, so every frame is laid out from the live constraints. An
+        // implicit animation of the laid-out frames would pin the page to the end frame it had
+        // worked out, and a drag or window resize during it left the page short of its edge.
         [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
             ctx.duration = [key isEqual:@"sidebarIconsOnly"] ? 0.18 : 0;
             ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
-            ctx.allowsImplicitAnimation = YES;
             width.animator.constant = target;
-            [root layoutSubtreeIfNeeded];
         }];
     }
     if ([@[@"*", @"autoHide", @"sidebarIconsOnly"] containsObject:key]) {
@@ -939,13 +939,11 @@ static const CGFloat kFullScreenLightsInset = 10;
     }
     CGFloat leading = hidden ? -(self.effectiveSidebarWidth + _inset * 2 + 24) : _inset;
     NSLayoutConstraint *sidebarEdge = _sidebarEdge;
-    NSView *root = _root;
+    // Constant only, not implicit frame animation: see settingsChanged: for why.
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
         ctx.duration = animated ? 0.25 : 0;
         ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
-        ctx.allowsImplicitAnimation = YES;
         sidebarEdge.animator.constant = leading;
-        [root layoutSubtreeIfNeeded];
     } completionHandler:^{
         BrowserWindowController *self_ = weakSelf;
         if (!self_ || self_->_lightsGeneration != generation || lightsHidden) return;
