@@ -1635,14 +1635,14 @@ static NSImage *SpaceDotImage(NSColor *color) {
 - (instancetype)initWithItem:(DownloadItem *)item {
     if ((self = [super initWithFrame:NSZeroRect])) {
         _item = item;
+        // The popover's 320 less its 14 insets, so the name and the bar use the full width.
+        [self.widthAnchor constraintEqualToConstant:320 - 2 * 14].active = YES;
         _name = [NSTextField labelWithString:@""];
         _name.font = [NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
         _name.lineBreakMode = NSLineBreakByTruncatingMiddle;
-        [_name.widthAnchor constraintEqualToConstant:250].active = YES;
         _bar = [NSProgressIndicator new];
         _bar.indeterminate = NO;
         _bar.controlSize = NSControlSizeSmall;
-        [_bar.widthAnchor constraintEqualToConstant:250].active = YES;
         _reveal = [NSButton buttonWithTitle:@"Show in Finder" target:self action:@selector(revealInFinder)];
         _reveal.bezelStyle = NSBezelStyleInline;
         _reveal.controlSize = NSControlSizeSmall;
@@ -1650,6 +1650,8 @@ static NSImage *SpaceDotImage(NSColor *color) {
         _failed.textColor = NSColor.systemRedColor;
         _failed.font = [NSFont systemFontOfSize:11];
         for (NSView *v in @[_name, _bar, _reveal, _failed]) [self addArrangedSubview:v];
+        [_name.widthAnchor constraintEqualToAnchor:self.widthAnchor].active = YES;
+        [_bar.widthAnchor constraintEqualToAnchor:self.widthAnchor].active = YES;
         self.orientation = NSUserInterfaceLayoutOrientationVertical;
         self.alignment = NSLayoutAttributeLeading;
         self.spacing = 4;
