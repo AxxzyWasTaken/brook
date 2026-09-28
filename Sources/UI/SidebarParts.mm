@@ -378,6 +378,8 @@ static const CGFloat kGap = 8;
 }
 
 static const CGFloat kToolbarButtonSize = 28;
+/// "»" is narrower than a button, like Safari's toolbar overflow, so it takes less of the row.
+static const CGFloat kMoreButtonWidth = 18;
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
     if ((self = [super initWithFrame:frameRect])) {
@@ -386,6 +388,9 @@ static const CGFloat kToolbarButtonSize = 28;
         __weak ToolbarButtons *weakSelf = self;
         _moreButton = [[IconButton alloc] initWithSymbol:@"chevron.right.2" size:12 tooltip:@"More"
                                                dimension:kToolbarButtonSize onClick:^{ [weakSelf showMoreMenu]; }];
+        for (NSLayoutConstraint *c in _moreButton.constraints) {
+            if (c.firstItem == _moreButton && c.firstAttribute == NSLayoutAttributeWidth) c.constant = kMoreButtonWidth;
+        }
         _shown = NSUIntegerMax;
         [self rebuild];
     }
@@ -407,10 +412,12 @@ static const CGFloat kToolbarButtonSize = 28;
     [super layout];
     if (!_overflows || _columns) return;
     // Every button if they fit, else as many as fit beside "»".
-    CGFloat step = kToolbarButtonSize + self.spacing;
-    NSUInteger fit = (NSUInteger)std::max<CGFloat>(0, floor((NSWidth(self.bounds) + self.spacing) / step));
+    CGFloat width = NSWidth(self.bounds), step = kToolbarButtonSize + self.spacing;
     NSUInteger count = _buttons.size();
-    NSUInteger shown = fit >= count ? count : (fit > 0 ? fit - 1 : 0);
+    NSUInteger shown = count;
+    if (count * step - self.spacing > width) {
+        shown = (NSUInteger)std::max<CGFloat>(0, floor((width - kMoreButtonWidth) / step));
+    }
     if (shown == _shown) return;
     _shown = shown;
     for (NSUInteger i = 0; i < count; i++) _buttons[i].second.hidden = i >= shown;
