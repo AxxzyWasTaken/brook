@@ -46,6 +46,41 @@ BOOL BrookIsDark(NSAppearance *appearance) {
                isEqualToString:NSAppearanceNameDarkAqua];
 }
 
+BOOL BrookIncreaseContrast(NSAppearance *appearance) {
+    if (NSWorkspace.sharedWorkspace.accessibilityDisplayShouldIncreaseContrast) return YES;
+    NSString *match = [appearance bestMatchFromAppearancesWithNames:@[
+        NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
+        NSAppearanceNameAccessibilityHighContrastAqua, NSAppearanceNameAccessibilityHighContrastDarkAqua]];
+    return [match isEqualToString:NSAppearanceNameAccessibilityHighContrastAqua] ||
+           [match isEqualToString:NSAppearanceNameAccessibilityHighContrastDarkAqua];
+}
+
+BOOL BrookReduceMotion(void) {
+    return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+}
+
+static dispatch_queue_t BrookWriteQueue() {
+    static dispatch_queue_t q;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        q = dispatch_queue_create("app.brook.writes",
+                                  dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
+    });
+    return q;
+}
+
+void BrookWriteJSONInBackground(id object, NSJSONWritingOptions options, NSURL *url) {
+    if (!object || !url) return;
+    dispatch_async(BrookWriteQueue(), ^{
+        NSData *data = [NSJSONSerialization dataWithJSONObject:object options:options error:nil];
+        if (data) [data writeToURL:url options:NSDataWritingAtomic error:nil];
+    });
+}
+
+void BrookFinishBackgroundWrites(void) {
+    dispatch_sync(BrookWriteQueue(), ^{});
+}
+
 NSFont *BrookUIFont(CGFloat size, NSFontWeight weight) {
     NSFont *base = [NSFont systemFontOfSize:size weight:weight];
     NSFontDescriptorSystemDesign design = nil;
@@ -317,14 +352,21 @@ static BOOL BrookMatches(NSString *s, NSString *pattern) {
     return colors;
 }
 
+NSColor *BrookFill(CGFloat lightWhite, CGFloat lightAlpha, CGFloat darkWhite, CGFloat darkAlpha) {
+    // Increase Contrast roughly doubles a translucent fill or hairline, capped at half opacity.
+    return [NSColor colorWithName:nil dynamicProvider:^NSColor *(NSAppearance *appearance) {
+        BOOL dark = BrookIsDark(appearance);
+        CGFloat a = dark ? darkAlpha : lightAlpha;
+        if (a < 0.5 && BrookIncreaseContrast(appearance)) a = std::min<CGFloat>(0.5, a * 2.2);
+        return [NSColor colorWithWhite:dark ? darkWhite : lightWhite alpha:a];
+    }];
+}
+
 #define BROOK_DYNAMIC(NAME, LW, LA, DW, DA)                                                          \
     +(NSColor *)NAME {                                                                               \
         static NSColor *c;                                                                           \
         static dispatch_once_t once;                                                                 \
-        dispatch_once(&once, ^{                                                                      \
-            c = [NSColor brook_dynamicLight:[NSColor colorWithWhite:LW alpha:LA]                     \
-                                       dark:[NSColor colorWithWhite:DW alpha:DA]];                   \
-        });                                                                                          \
+        dispatch_once(&once, ^{ c = BrookFill(LW, LA, DW, DA); });                                   \
         return c;                                                                                    \
     }
 

@@ -444,9 +444,14 @@ struct Row {
     [self rebuildRows];
     if (forward) {
         CATransition *t = [CATransition animation];
-        t.type = kCATransitionPush;
-        t.subtype = *forward ? kCATransitionFromRight : kCATransitionFromLeft;
-        t.duration = 0.28;
+        if (BrookReduceMotion()) {
+            t.type = kCATransitionFade;   // no sideways travel with Reduce Motion
+            t.duration = 0.2;
+        } else {
+            t.type = kCATransitionPush;
+            t.subtype = *forward ? kCATransitionFromRight : kCATransitionFromLeft;
+            t.duration = 0.28;
+        }
         t.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
         [_scrollView.layer addAnimation:t forKey:@"spaceSwitch"];
     }
@@ -478,6 +483,7 @@ struct Row {
         if (!current) return;
         SpaceDot *dot = [[SpaceDot alloc] initWithSpace:current];
         dot.isCurrent = YES;
+        dot.opensMenu = YES;
         dot.toolTip = spaces.count > 1 ? [current.name stringByAppendingString:@" · Switch Space"] : current.name;
         __weak SpaceDot *weakDot = dot;
         dot.onClick = ^{ [weakSelf showSpacesMenuFrom:weakDot]; };
@@ -587,6 +593,7 @@ struct Row {
         TabCellView *cell = [made isKindOfClass:TabCellView.class] ? made : [TabCellView new];
         __weak SidebarView *weakSelf = self;
         cell.onClose = ^(BrowserTab *t) { [weakSelf.state close:t]; };
+        cell.onSelect = ^(BrowserTab *t) { [weakSelf selectTab:t]; };
         cell.fontSize = _rowFontSize;
         cell.iconOnly = Settings.sidebarIconsOnly;
         [cell configureWithTab:tab selected:tab == self.state.selectedTab];
@@ -599,6 +606,8 @@ struct Row {
     case Row::NewTab: {
         id made = [tableView makeViewWithIdentifier:NewTabCellView.reuseID owner:self];
         NewTabCellView *cell = [made isKindOfClass:NewTabCellView.class] ? made : [NewTabCellView new];
+        __weak SidebarView *weakSelf = self;
+        cell.onPress = ^{ [weakSelf.browser newTab]; };
         cell.fontSize = _rowFontSize;
         cell.iconOnly = Settings.sidebarIconsOnly;
         return cell;

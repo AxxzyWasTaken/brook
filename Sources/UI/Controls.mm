@@ -28,6 +28,7 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
 - (void)setCornerRadius:(CGFloat)cornerRadius {
     _cornerRadius = cornerRadius;
     self.needsDisplay = YES;
+    [self noteFocusRingMaskChanged];
 }
 
 - (void)setBaseColor:(NSColor *)baseColor {
@@ -116,6 +117,105 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
 - (void)viewDidChangeEffectiveAppearance {
     [super viewDidChangeEffectiveAppearance];
     self.needsDisplay = YES;
+}
+
+// MARK: Keyboard
+
+- (BOOL)isActionable { return self.onClick != nil || self.action != nil; }
+
+/// Keyboard focus only with Full Keyboard Access on (like NSButton), and never from a click:
+/// clicking a toolbar button must leave the page's focus where it was.
+- (BOOL)acceptsFirstResponder {
+    if (!NSApp.isFullKeyboardAccessEnabled || !self.isActionable || !self.isEnabled) return NO;
+    switch (NSApp.currentEvent.type) {
+        case NSEventTypeLeftMouseDown:
+        case NSEventTypeRightMouseDown:
+        case NSEventTypeOtherMouseDown: return NO;
+        default: return YES;
+    }
+}
+
+- (BOOL)canBecomeKeyView { return self.acceptsFirstResponder && !self.isHiddenOrHasHiddenAncestor; }
+
+- (void)keyDown:(NSEvent *)event {
+    NSString *key = event.charactersIgnoringModifiers;
+    if (self.isEnabled && ([key isEqualToString:@" "] || [key isEqualToString:@"\r"])) [self fire];
+    else [super keyDown:event];
+}
+
+- (void)performClick:(id)sender {
+    if (self.isEnabled) [self fire];
+}
+
+- (NSRect)focusRingMaskBounds { return self.bounds; }
+
+- (void)drawFocusRingMask {
+    [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:self.cornerRadius yRadius:self.cornerRadius] fill];
+}
+
+// MARK: Accessibility
+
+/// Decorative instances (a tab row's background, the address pill's magnifying glass with no
+/// page open) do nothing when pressed and stay out of the tree.
+- (BOOL)isAccessibilityElement { return self.isActionable && self.accessibilityLabel.length > 0; }
+
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityButtonRole; }
+
+/// An explicit label, else the tooltip without its shortcut: "Reload (⌘R)" reads "Reload".
+- (NSString *)accessibilityLabel {
+    NSString *label = [super accessibilityLabel];
+    if (label.length) return label;
+    NSString *tip = self.toolTip;
+    NSRange open = [tip rangeOfString:@" (" options:NSBackwardsSearch];
+    if (open.location != NSNotFound && [tip hasSuffix:@")"]) {
+        NSString *inside = [tip substringFromIndex:open.location];
+        if ([inside rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"⌘⌃⌥⇧"]].location != NSNotFound ||
+            [inside isEqualToString:@" (esc)"]) {
+            return [tip substringToIndex:open.location];
+        }
+    }
+    return tip;
+}
+
+/// The shortcut, which the label leaves out. (NSView's own help is the whole tooltip, which
+/// would just repeat the label.)
+- (NSString *)accessibilityHelp {
+    NSString *tip = self.toolTip, *label = self.accessibilityLabel;
+    return tip.length && ![tip isEqualToString:label] ? tip : nil;
+}
+
+- (BOOL)isAccessibilityEnabled { return self.isEnabled; }
+
+/// Buttons nested inside (the address pill's Site Settings and extensions, a tab's close
+/// button). Only those: the icon and title are this button's label already.
+- (NSArray *)accessibilityChildren {
+    NSMutableArray *buttons = [NSMutableArray array];
+    NSMutableArray<NSView *> *queue = [self.subviews mutableCopy];
+    while (queue.count) {
+        NSView *v = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        if (v.isHidden) continue;
+        if ([v isKindOfClass:HoverControl.class] || [v isKindOfClass:NSButton.class]) {
+            if (v.isAccessibilityElement) [buttons addObject:v];
+        } else {
+            [queue addObjectsFromArray:v.subviews];
+        }
+    }
+    return buttons;
+}
+
+- (BOOL)accessibilityPerformPress {
+    if (!self.isEnabled) return NO;
+    [self fire];
+    return YES;
+}
+
+/// VoiceOver's "show menu" (VO-Shift-M) opens the same menu a right-click would.
+- (BOOL)accessibilityPerformShowMenu {
+    NSMenu *menu = [self menuForEvent:NSApp.currentEvent];
+    if (!menu) return NO;
+    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, NSHeight(self.bounds) + 4) inView:self];
+    return YES;
 }
 
 @end
@@ -218,8 +318,17 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
 
 - (NSView *)hitTest:(NSPoint)point { return nil; }
 
+// The label shows only for a moment and holds the last message after; VoiceOver hears each
+// message as an announcement instead of finding a stale label.
+- (BOOL)isAccessibilityElement { return NO; }
+- (NSArray *)accessibilityChildren { return nil; }
+
 - (void)showText:(NSString *)text {
     _label.stringValue = text;
+    NSAccessibilityPostNotificationWithUserInfo(NSApp, NSAccessibilityAnnouncementRequestedNotification, @{
+        NSAccessibilityAnnouncementKey: text ?: @"",
+        NSAccessibilityPriorityKey: @(NSAccessibilityPriorityMedium),
+    });
     if (_hideWork) dispatch_block_cancel(_hideWork);
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
         ctx.duration = 0.18;

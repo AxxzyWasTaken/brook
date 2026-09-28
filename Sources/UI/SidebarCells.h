@@ -9,6 +9,8 @@
 @property (class, readonly) NSUserInterfaceItemIdentifier reuseID;
 @property (nonatomic, readonly, weak) BrowserTab *tab;
 @property (copy) void (^onClose)(BrowserTab *tab);
+/// Pressed through accessibility (VoiceOver, Voice Control); clicks go through the table.
+@property (copy) void (^onSelect)(BrowserTab *tab);
 @property (nonatomic) CGFloat fontSize;   // default 13
 /// The icon-only sidebar rail: just the favicon, centred.
 @property (nonatomic) BOOL iconOnly;
@@ -23,6 +25,8 @@
 @property (class, readonly) NSUserInterfaceItemIdentifier reuseID;   // "NewTabCell"
 @property (nonatomic) CGFloat fontSize;   // default 13
 @property (nonatomic) BOOL iconOnly;
+/// Pressed through accessibility; clicks go through the table.
+@property (copy) void (^onPress)(void);
 @end
 
 /// Hairline between pinned and regular tabs.

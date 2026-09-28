@@ -49,6 +49,26 @@ static NSString *StringFromJSON(id v) {
     return [v isKindOfClass:NSString.class] ? v : nil;
 }
 
+/// Every site a saved session's favorites and tabs point at (not the archive, which only the
+/// Settings list shows).
+static NSSet<NSString *> *HostsInRecord(NSDictionary *record) {
+    NSMutableSet<NSString *> *hosts = [NSMutableSet set];
+    auto add = [&](id tabs) {
+        if (![tabs isKindOfClass:NSArray.class]) return;
+        for (NSDictionary *r in tabs) {
+            if (![r isKindOfClass:NSDictionary.class]) continue;
+            if (NSString *h = BrookHost(URLFromJSON(r[@"url"]) ?: URLFromJSON(r[@"homeURL"]))) [hosts addObject:h];
+        }
+    };
+    add(record[@"favorites"]);
+    for (NSDictionary *s in record[@"spaces"]) {
+        if (![s isKindOfClass:NSDictionary.class]) continue;
+        add(s[@"pinned"]);
+        add(s[@"tabs"]);
+    }
+    return hosts;
+}
+
 static NSDictionary *TabRecord(BrowserTab *t) {
     NSMutableDictionary *d = [@{@"id": t.identifier.UUIDString, @"title": t.title ?: @""} mutableCopy];
     if (t.url) d[@"url"] = t.url.absoluteString;
@@ -141,6 +161,7 @@ struct ClosedTab {
     NSDictionary *record = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     NSArray *spaceRecords = [record isKindOfClass:NSDictionary.class] ? record[@"spaces"] : nil;
     if ([spaceRecords isKindOfClass:NSArray.class] && spaceRecords.count > 0) {
+        [FaviconStore.shared warmHosts:HostsInRecord(record)];   // restored tabs draw with their icons
         for (NSDictionary *r in record[@"favorites"]) {
             if (BrowserTab *t = [self makeTab:r favorite:YES pinned:NO]) [_favorites addObject:t];
         }
@@ -243,8 +264,8 @@ struct ClosedTab {
     NSMutableDictionary *record = [@{@"favorites": favs, @"spaces": spaces, @"currentSpace": @(_currentSpaceIndex),
                                      @"archived": archived} mutableCopy];
     if (_selectedTab) record[@"selected"] = _selectedTab.identifier.UUIDString;
-    NSData *data = [NSJSONSerialization dataWithJSONObject:record options:0 error:nil];
-    [data writeToURL:_fileURL options:NSDataWritingAtomic error:nil];
+    // Built here from fresh objects, so the writer thread has the only reference to it.
+    BrookWriteJSONInBackground(record, 0, _fileURL);
 }
 
 // MARK: Locating tabs

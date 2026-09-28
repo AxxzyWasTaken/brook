@@ -27,6 +27,9 @@
     self.needsDisplay = YES;
 }
 
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityRadioButtonRole; }
+- (id)accessibilityValue { return @(_isChosen); }
+
 - (void)updateLayer {
     CALayer *layer = self.layer;
     if (!layer) return;

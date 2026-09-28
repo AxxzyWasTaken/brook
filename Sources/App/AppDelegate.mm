@@ -82,6 +82,7 @@
 - (void)applicationWillTerminate:(NSNotification *)notification {
     [self.state saveNow];
     [HistoryStore.shared saveNow];
+    BrookFinishBackgroundWrites();   // the saves above are queued; don't quit before they land
 }
 
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag {

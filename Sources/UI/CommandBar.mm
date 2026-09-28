@@ -263,8 +263,26 @@ NSInteger CharacterCount(NSString *s) {
         _scrollAtTop = [_scroll.topAnchor constraintEqualToAnchor:content.topAnchor constant:8];
         _scrollBelowField.active = YES;
         _panel.contentView = root;
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(iconLoaded:)
+                                                   name:FaviconStoreDidLoadIconNotification object:nil];
     }
     return self;
+}
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+
+/// A suggestion's site icon arrived from the disk cache: redraw its rows (selection stays).
+- (void)iconLoaded:(NSNotification *)note {
+    if (!self.isVisible) return;
+    NSString *host = note.object;
+    NSMutableIndexSet *rows = [NSMutableIndexSet indexSet];
+    for (size_t i = 0; i < _suggestions.size(); i++) {
+        const Suggestion &s = _suggestions[i];
+        NSURL *url = s.kind == Suggestion::Open ? s.url
+                   : s.kind == Suggestion::History ? [NSURL URLWithString:s.history.url] : nil;
+        if (url && [BrookHost(url) isEqualToString:host]) [rows addIndex:i];
+    }
+    if (rows.count) [_table reloadDataForRowIndexes:rows columnIndexes:[NSIndexSet indexSetWithIndex:0]];
 }
 
 // MARK: Show / hide

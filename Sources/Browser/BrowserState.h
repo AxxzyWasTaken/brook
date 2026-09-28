@@ -77,6 +77,8 @@ struct TabPosition {
 
 - (void)load;
 - (void)scheduleSave;
+/// Snapshots the session now; the file is written on a background queue (see
+/// BrookFinishBackgroundWrites).
 - (void)saveNow;
 
 - (std::optional<TabPosition>)locationOf:(BrowserTab *)tab;

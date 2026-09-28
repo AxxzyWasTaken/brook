@@ -97,8 +97,7 @@ static NSImage *TabIcon(BrowserTab *tab) {
 // MARK: - Tab
 
 static NSColor *SelectedRimColor(void) {
-    static NSColor *c = [NSColor brook_dynamicLight:[NSColor colorWithWhite:0 alpha:0.07]
-                                               dark:[NSColor colorWithWhite:1 alpha:0.14]];
+    static NSColor *c = BrookFill(0, 0.07, 1, 0.14);
     return c;
 }
 
@@ -204,11 +203,26 @@ static NSColor *SelectedRimColor(void) {
         _label.textColor = NSColor.labelColor;
         [self addSubview:_label];
         self.fontSize = 13;
-        self.accessibilityElement = YES;
-        self.accessibilityRole = NSAccessibilityRadioButtonRole;
         [self refresh];
     }
     return self;
+}
+
+// A tab is a radio button in the strip's group: pressing it (keyboard, VoiceOver) selects it.
+- (BOOL)isActionable { return YES; }
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityRadioButtonRole; }
+- (id)accessibilityValue { return @(_selected); }
+- (void)fire { if (self.onSelect) self.onSelect(_tab); }
+
+- (NSArray<NSAccessibilityCustomAction *> *)accessibilityCustomActions {
+    if (_pinnedStyle || !self.onClose) return nil;
+    __weak TopTabView *weakSelf = self;
+    return @[[[NSAccessibilityCustomAction alloc] initWithName:@"Close Tab" handler:^BOOL {
+        TopTabView *self_ = weakSelf;
+        if (!self_ || !self_.onClose) return NO;
+        self_.onClose(self_.tab);
+        return YES;
+    }]];
 }
 
 - (void)setFontSize:(CGFloat)fontSize {
@@ -245,7 +259,6 @@ static NSColor *SelectedRimColor(void) {
     if (selected == _selected) return;
     _selected = selected;
     self.isHighlightedState = selected;
-    self.accessibilityValue = @(selected);
     [self refreshTextColor];
     self.needsLayout = YES;   // shows or hides the reload button
     if (_addressWhenSelected) [self refresh];
@@ -917,6 +930,9 @@ static const CGFloat kTabGap = 2;
     _label.stringValue = space.name ?: @"";
 }
 
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityMenuButtonRole; }
+- (id)accessibilityValue { return _label.stringValue; }
+
 - (NSMenu *)menuForEvent:(NSEvent *)event { return self.browser.spacesMenu; }
 
 @end
@@ -1404,9 +1420,14 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     BrowserState *state = BrowserState.shared;
     if (forward) {
         CATransition *t = [CATransition animation];
-        t.type = kCATransitionPush;
-        t.subtype = *forward ? kCATransitionFromRight : kCATransitionFromLeft;
-        t.duration = 0.28;
+        if (BrookReduceMotion()) {
+            t.type = kCATransitionFade;   // no sideways travel with Reduce Motion
+            t.duration = 0.2;
+        } else {
+            t.type = kCATransitionPush;
+            t.subtype = *forward ? kCATransitionFromRight : kCATransitionFromLeft;
+            t.duration = 0.28;
+        }
         t.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
         [_strip.layer addAnimation:t forKey:@"spaceSwitch"];
     }

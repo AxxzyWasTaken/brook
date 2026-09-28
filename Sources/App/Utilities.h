@@ -66,6 +66,19 @@
 @end
 
 FOUNDATION_EXPORT BOOL BrookIsDark(NSAppearance *appearance);
+/// A translucent grey fill or hairline for each appearance (white level, alpha), made stronger
+/// with Increase Contrast. Palette's fills are built from it.
+FOUNDATION_EXPORT NSColor *BrookFill(CGFloat lightWhite, CGFloat lightAlpha, CGFloat darkWhite, CGFloat darkAlpha);
+/// Increase Contrast is on: a high-contrast appearance, or the system setting (a theme forced to
+/// Light or Dark can hide the former).
+FOUNDATION_EXPORT BOOL BrookIncreaseContrast(NSAppearance *appearance);
+/// Reduce Motion is on: swap slides and pushes for fades.
+FOUNDATION_EXPORT BOOL BrookReduceMotion(void);
+/// Serialises `object` (which the caller must not mutate afterwards) to JSON and writes it
+/// atomically to `url` on a background queue. Writes run one at a time, in call order.
+FOUNDATION_EXPORT void BrookWriteJSONInBackground(id object, NSJSONWritingOptions options, NSURL *url);
+/// Blocks until every queued write has finished (at quit).
+FOUNDATION_EXPORT void BrookFinishBackgroundWrites(void);
 /// The chrome's font (Settings → Appearance → Font) at this size and weight.
 FOUNDATION_EXPORT NSFont *BrookUIFont(CGFloat size, NSFontWeight weight);
 /// The accent (Settings → Appearance → Accent): system, the current space's colour, or a custom one.

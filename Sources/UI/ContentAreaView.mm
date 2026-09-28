@@ -435,8 +435,7 @@
 
 - (void)updateColors {
     _clip.layer.backgroundColor = [self brook_cg:NSColor.textBackgroundColor];
-    _clip.layer.borderColor = [self brook_cg:[NSColor brook_dynamicLight:[NSColor colorWithWhite:0 alpha:0.08]
-                                                                     dark:[NSColor colorWithWhite:1 alpha:0.1]]];
+    _clip.layer.borderColor = [self brook_cg:BrookFill(0, 0.08, 1, 0.1)];
     _linkLabel.backgroundColor = NSColor.windowBackgroundColor;
     // Settings → Appearance → Page shadow.
     BOOL dark = BrookIsDark(self.effectiveAppearance);

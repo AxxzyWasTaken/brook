@@ -7,8 +7,8 @@
 
 @class CommandBarController;
 
-// BrowserWindow, EdgeHotZone, ResizeHandle, DownloadsViewController and ClosureButtonTarget
-// stay private to BrowserWindowController.mm.
+// BrowserWindow, EdgeHotZone, ResizeHandle and the downloads popover stay private to
+// BrowserWindowController.mm.
 
 /// The main browser window: sidebar (or top bar) + content card, and the app's commands.
 @interface BrowserWindowController : NSWindowController <NSWindowDelegate, BrowserStateObserver>

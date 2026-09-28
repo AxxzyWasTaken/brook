@@ -89,19 +89,24 @@ static void BrookRemoveAllData(NSArray<WKWebsiteDataStore *> *stores, NSUInteger
     CALayer *layer = self.layer;
     if (!layer) return;
     _gradient.frame = self.bounds;
-    CABasicAnimation *rise = [CABasicAnimation animationWithKeyPath:@"transform.translation.y"];
-    rise.fromValue = @(-self.bounds.size.height);
-    rise.toValue = @(self.bounds.size.height * 0.25);
+    // Reduce Motion: the same warm wash glows in place at the bottom of the window, no sweep.
+    BOOL still = BrookReduceMotion();
+    CFTimeInterval duration = still ? 0.6 : 0.9;
+    if (!still) {
+        CABasicAnimation *rise = [CABasicAnimation animationWithKeyPath:@"transform.translation.y"];
+        rise.fromValue = @(-self.bounds.size.height);
+        rise.toValue = @(self.bounds.size.height * 0.25);
+        rise.duration = duration;
+        rise.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+        [_gradient addAnimation:rise forKey:@"rise"];
+    }
     CAKeyframeAnimation *fade = [CAKeyframeAnimation animationWithKeyPath:@"opacity"];
-    fade.values = @[@0, @1, @1, @0];
+    fade.values = still ? @[@0, @0.7, @0.7, @0] : @[@0, @1, @1, @0];
     fade.keyTimes = @[@0, @0.2, @0.55, @1];
     CAAnimationGroup *group = [CAAnimationGroup animation];
     group.animations = @[fade];
-    group.duration = 0.9;
+    group.duration = duration;
     group.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
-    rise.duration = 0.9;
-    rise.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
-    [_gradient addAnimation:rise forKey:@"rise"];
     [CATransaction begin];
     __weak FireAnimationView *weakSelf = self;
     [CATransaction setCompletionBlock:^{

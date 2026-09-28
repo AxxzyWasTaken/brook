@@ -638,9 +638,14 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
 
 @implementation TabsPane {
     EditableList *_list;
+    Debouncer *_iconReload;
 }
 
 - (NSView *)makeContent {
+    // Site icons come in from the disk cache after the rows first draw; refresh them together.
+    [NSNotificationCenter.defaultCenter removeObserver:self name:FaviconStoreDidLoadIconNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(iconLoaded:)
+                                               name:FaviconStoreDidLoadIconNotification object:nil];
     SettingsForm *f = [SettingsForm new];
     [f row:@"New tabs open" view:[Controls popupWithTitles:EnumTitles(NewTabPositionCount, ^(NSInteger i) { return NewTabPositionTitle((NewTabPosition)i); })
                                              selectedIndex:Settings.newTabPosition
@@ -722,6 +727,16 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
     [l reload];
     [f row:@"" view:l.container];
     return [f view];
+}
+
+- (void)iconLoaded:(NSNotification *)note {
+    if (!_list.table.window) return;
+    if (!_iconReload) _iconReload = [[Debouncer alloc] initWithDelay:0.1];
+    __weak TabsPane *weakSelf = self;
+    [_iconReload call:^{
+        TabsPane *self_ = weakSelf;
+        if (self_) [self_->_list.table reloadData];
+    }];
 }
 
 - (void)restoreSelected {

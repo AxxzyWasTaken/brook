@@ -148,19 +148,23 @@
     }
     NSMutableArray *json = [NSMutableArray arrayWithCapacity:list.count];
     for (HistoryEntry *e in list) [json addObject:e.toJSON];
-    NSData *data = [NSJSONSerialization dataWithJSONObject:json options:NSJSONWritingWithoutEscapingSlashes error:nil];
-    if (data) [data writeToURL:_fileURL options:NSDataWritingAtomic error:nil];
+    BrookWriteJSONInBackground(json, NSJSONWritingWithoutEscapingSlashes, _fileURL);
 }
 
 @end
 
 // MARK: - Favicons
 
+NSNotificationName const FaviconStoreDidLoadIconNotification = @"BrookFaviconStoreDidLoadIcon";
+
 @implementation FaviconStore {
     NSCache<NSString *, NSImage *> *_memory;
     NSMutableDictionary<NSString *, NSMutableArray<void (^)(NSImage *)> *> *_inflight;
+    /// Disk reads under way, with whoever is waiting on each (nil blocks: just fill the cache).
+    NSMutableDictionary<NSString *, NSMutableArray<void (^)(NSImage *)> *> *_reading;
     NSMutableSet<NSString *> *_misses;
     NSURL *_dir;
+    dispatch_queue_t _io;
 }
 
 + (FaviconStore *)shared {
@@ -174,8 +178,11 @@
     if ((self = [super init])) {
         _memory = [NSCache new];
         _inflight = [NSMutableDictionary dictionary];
+        _reading = [NSMutableDictionary dictionary];
         _misses = [NSMutableSet set];
         _dir = [AppPaths sub:@"Favicons" in:AppPaths.caches];
+        _io = dispatch_queue_create("app.brook.favicons",
+                                    dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_CONCURRENT, QOS_CLASS_USER_INITIATED, 0));
     }
     return self;
 }
@@ -185,23 +192,63 @@
         [[host stringByReplacingOccurrencesOfString:@"/" withString:@"_"] stringByAppendingString:@".img"]];
 }
 
+static NSImage *ReadIcon(NSURL *file) {
+    NSData *data = [NSData dataWithContentsOfURL:file];
+    return data ? [[NSImage alloc] initWithData:data] : nil;
+}
+
+- (void)warmHosts:(NSSet<NSString *> *)hosts {
+    NSMutableArray<NSString *> *wanted = [NSMutableArray array];
+    for (NSString *h in hosts) if (h.length && ![_memory objectForKey:h]) [wanted addObject:h];
+    if (wanted.count == 0) return;
+    std::vector<NSImage *> found(wanted.count);
+    NSImage * __strong *slots = found.data();
+    NSArray<NSString *> *list = wanted;
+    // A few small files read side by side: a couple of milliseconds, before the first frame.
+    dispatch_apply(list.count, _io, ^(size_t i) { slots[i] = ReadIcon([self fileForHost:list[i]]); });
+    for (NSUInteger i = 0; i < list.count; i++) if (found[i]) [_memory setObject:found[i] forKey:list[i]];
+}
+
 - (NSImage *)cachedIconForHost:(NSString *)host {
-    if (!host) return nil;
+    if (!host.length) return nil;
     if (NSImage *img = [_memory objectForKey:host]) return img;
-    NSData *data = [NSData dataWithContentsOfURL:[self fileForHost:host]];
-    NSImage *img = data ? [[NSImage alloc] initWithData:data] : nil;
-    if (img) {
-        [_memory setObject:img forKey:host];
-        return img;
-    }
+    [self readHost:host then:nil];
     return nil;
 }
 
+- (void)cachedIconForHost:(NSString *)host completion:(void (^)(NSImage *icon))completion {
+    if (!host.length) { completion(nil); return; }
+    if (NSImage *img = [_memory objectForKey:host]) { completion(img); return; }
+    [self readHost:host then:completion];
+}
+
+/// Reads the host's icon file off the main thread, into memory. `then` runs on the main queue.
+- (void)readHost:(NSString *)host then:(void (^)(NSImage *))then {
+    if (NSMutableArray *waiters = _reading[host]) {
+        if (then) [waiters addObject:[then copy]];
+        return;
+    }
+    _reading[host] = then ? [NSMutableArray arrayWithObject:[then copy]] : [NSMutableArray array];
+    NSURL *file = [self fileForHost:host];
+    dispatch_async(_io, ^{
+        NSImage *img = ReadIcon(file);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSArray<void (^)(NSImage *)> *waiters = self->_reading[host];
+            [self->_reading removeObjectForKey:host];
+            if (img) {
+                [self->_memory setObject:img forKey:host];
+                [NSNotificationCenter.defaultCenter postNotificationName:FaviconStoreDidLoadIconNotification object:host];
+            }
+            for (void (^w)(NSImage *) in waiters) w(img);
+        });
+    });
+}
+
 - (void)iconForHost:(NSString *)host completion:(void (^)(NSImage *icon))completion {
-    if (NSImage *img = [self cachedIconForHost:host]) { completion(img); return; }
+    if (!host.length) { completion(nil); return; }
+    if (NSImage *img = [_memory objectForKey:host]) { completion(img); return; }
     if ([_misses containsObject:host]) { completion(nil); return; }
     if (NSMutableArray *waiters = _inflight[host]) { [waiters addObject:[completion copy]]; return; }
-    NSURL *dest = [self fileForHost:host];
     _inflight[host] = [NSMutableArray arrayWithObject:[completion copy]];
 
     void (^finish)(NSImage *) = ^(NSImage *img) {
@@ -211,21 +258,25 @@
         for (void (^w)(NSImage *) in waiters) w(img);
     };
 
-    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://icons.duckduckgo.com/ip3/%@.ico", host]];
-    if (!url) {
-        dispatch_async(dispatch_get_main_queue(), ^{ finish(nil); });
-        return;
-    }
-    [[NSURLSession.sharedSession dataTaskWithURL:url
-                               completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        BOOL ok = data && [response isKindOfClass:NSHTTPURLResponse.class] &&
-                  ((NSHTTPURLResponse *)response).statusCode == 200;
-        dispatch_async(dispatch_get_main_queue(), ^{
+    // Disk first, then DuckDuckGo's icon service.
+    NSURL *dest = [self fileForHost:host];
+    [self readHost:host then:^(NSImage *cached) {
+        if (cached) { finish(cached); return; }
+        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://icons.duckduckgo.com/ip3/%@.ico", host]];
+        if (!url) { finish(nil); return; }
+        [[NSURLSession.sharedSession dataTaskWithURL:url
+                                   completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            BOOL ok = data && [response isKindOfClass:NSHTTPURLResponse.class] &&
+                      ((NSHTTPURLResponse *)response).statusCode == 200;
+            // Still on the session's queue: decode and save here, hand the image to the main queue.
             NSImage *img = ok ? [[NSImage alloc] initWithData:data] : nil;
             if (img) [data writeToURL:dest options:NSDataWritingAtomic error:nil];
-            finish(img);
-        });
-    }] resume];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                finish(img);
+                if (img) [NSNotificationCenter.defaultCenter postNotificationName:FaviconStoreDidLoadIconNotification object:host];
+            });
+        }] resume];
+    }];
 }
 
 @end

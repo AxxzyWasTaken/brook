@@ -309,6 +309,40 @@
     _closeButton.hidden = !show;
 }
 
+// MARK: Accessibility: one radio button per tab, its title as the label.
+
+- (BOOL)isAccessibilityElement { return _tab != nil; }
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityRadioButtonRole; }
+- (NSString *)accessibilityLabel { return _tab.displayTitle; }
+- (id)accessibilityValue { return @(_selected); }
+- (NSString *)accessibilityHelp {
+    NSString *host = BrookHost(_tab.url);
+    return _tab.isLoading ? [NSString stringWithFormat:@"Loading %@", host ?: @""] : host;
+}
+
+- (NSArray *)accessibilityChildren { return nil; }   // the title and icon are the label
+
+- (BOOL)accessibilityPerformPress {
+    BrowserTab *tab = _tab;
+    if (!tab || !self.onSelect) return NO;
+    self.onSelect(tab);
+    return YES;
+}
+
+- (NSArray<NSAccessibilityCustomAction *> *)accessibilityCustomActions {
+    BrowserTab *tab = _tab;
+    if (!tab || !self.onClose) return nil;
+    __weak TabCellView *weakSelf = self;
+    NSString *name = tab.isPinned ? @"Unload Pinned Tab" : @"Close Tab";
+    return @[[[NSAccessibilityCustomAction alloc] initWithName:name handler:^BOOL {
+        TabCellView *self_ = weakSelf;
+        BrowserTab *t = self_.tab;
+        if (!t || !self_.onClose) return NO;
+        self_.onClose(t);
+        return YES;
+    }]];
+}
+
 @end
 
 // MARK: - "New Tab" row
@@ -395,6 +429,17 @@
 
 - (void)mouseEntered:(NSEvent *)event { _background.baseColor = Palette.rowHover; }
 - (void)mouseExited:(NSEvent *)event { _background.baseColor = NSColor.clearColor; }
+
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityButtonRole; }
+- (NSString *)accessibilityLabel { return @"New Tab"; }
+- (NSString *)accessibilityHelp { return @"⌘T"; }
+- (NSArray *)accessibilityChildren { return nil; }
+- (BOOL)accessibilityPerformPress {
+    if (!self.onPress) return NO;
+    self.onPress();
+    return YES;
+}
 
 @end
 

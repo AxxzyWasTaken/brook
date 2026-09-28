@@ -93,6 +93,7 @@
         _siteButton.enabled = NO;
         _siteButton.imageView.alphaValue = 1;
         _siteButton.toolTip = nil;
+        _siteButton.accessibilityValue = nil;
         _label.stringValue = @"Search or enter address";
         [self setCookieShown:NO];
         return;
@@ -105,6 +106,8 @@
     _siteButton.enabled = hasHost;
     _siteButton.imageView.alphaValue = 1;
     _siteButton.toolTip = hasHost ? @"Settings for this website" : nil;
+    // The padlock or warning, for VoiceOver.
+    _siteButton.accessibilityValue = secure ? @"Secure connection" : (http ? @"Not secure" : nil);
     // Settings → Layout → Address shows.
     switch (Settings.addressDisplay) {
         case AddressDisplayFull: _label.stringValue = url.absoluteString ?: @""; break;
@@ -120,6 +123,10 @@
     _cookie.hidden = !shown;
     _cookieWidth.active = !shown;
 }
+
+/// "Address, example.com": the label names the control, the value is what it shows.
+- (NSString *)accessibilityLabel { return @"Address"; }
+- (id)accessibilityValue { return _label.stringValue; }
 
 @end
 
@@ -335,6 +342,13 @@ static const CGFloat kGap = 8;
     self.needsLayout = YES;
     self.needsDisplay = YES;
 }
+
+// A space is a radio button; the rail's single dot opens the spaces menu instead.
+- (NSAccessibilityRole)accessibilityRole {
+    return _opensMenu ? NSAccessibilityMenuButtonRole : NSAccessibilityRadioButtonRole;
+}
+- (NSString *)accessibilityLabel { return _space.name; }
+- (id)accessibilityValue { return _opensMenu ? nil : @(_isCurrent); }
 
 - (void)updateLayer {
     [super updateLayer];

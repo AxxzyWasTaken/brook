@@ -5,6 +5,9 @@ FOUNDATION_EXPORT NSPasteboardType const BrookTabPasteboardType;
 
 /// A lightweight clickable view with hover and press states, drawn with a single layer.
 /// Subclasses may override -updateLayer and -hoverChanged.
+/// With an onClick or action it's an accessibility button (labelled from its tooltip, minus the
+/// shortcut) and, with Full Keyboard Access on, a key view that Space and Return press. Subclasses
+/// override the accessibility getters for another role, label or value.
 @interface HoverControl : NSControl
 @property (copy) void (^onClick)(void);
 @property (nonatomic) CGFloat cornerRadius;          // default 8; redraws
@@ -18,6 +21,9 @@ FOUNDATION_EXPORT NSPasteboardType const BrookTabPasteboardType;
 - (void)hoverChanged;
 /// Runs onClick, then sends the control's action (if any) to its target.
 - (void)fire;
+/// Pressing it does something (default: has an onClick or action). Only these are accessibility
+/// elements and key views.
+@property (readonly) BOOL isActionable;
 @end
 
 /// An SF Symbol button, Arc-style: no border, soft hover background.

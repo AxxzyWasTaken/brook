@@ -38,6 +38,8 @@
 - (instancetype)initWithSpace:(Space *)space;
 @property (readonly) Space *space;
 @property (nonatomic) BOOL isCurrent;
+/// The rail's single dot: clicking lists the spaces rather than switching to this one.
+@property (nonatomic) BOOL opensMenu;
 @end
 
 /// What the window controller needs from whichever tab UI is showing: the sidebar or the top bar.

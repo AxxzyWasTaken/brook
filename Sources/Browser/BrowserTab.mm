@@ -190,6 +190,15 @@ static void *kTabKVOContext = &kTabKVOContext;
         if (hostChanged && host) {
             self.favicon = [FaviconStore.shared cachedIconForHost:host];
             [_state tabDidChange:self change:TabChangeFavicon];
+            if (!self.favicon) {   // maybe on disk: read it in the background
+                __weak BrowserTab *weakSelf = self;
+                [FaviconStore.shared cachedIconForHost:host completion:^(NSImage *icon) {
+                    BrowserTab *self_ = weakSelf;
+                    if (!self_ || !icon || !SameHost(BrookHost(self_.url), host)) return;
+                    self_.favicon = icon;
+                    [self_.state tabDidChange:self_ change:TabChangeFavicon];
+                }];
+            }
         }
         [_state tabDidChange:self change:TabChangeURL];
     } else if ([keyPath isEqualToString:@"loading"]) {

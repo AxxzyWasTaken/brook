@@ -194,11 +194,6 @@ static const CGFloat kLightSize = 14, kLightSlot = 16, kLightStep = 23;
 @interface DownloadsViewController : NSViewController
 @end
 
-@interface ClosureButtonTarget : NSObject
-- (instancetype)initWithBlock:(void (^)(void))block;
-- (void)run;
-@end
-
 // MARK: - Window controller
 
 namespace {
@@ -421,6 +416,25 @@ static const CGFloat kFullScreenLightsInset = 10;
                                            selector:@selector(settingsChanged:)
                                                name:BrookSettingsDidChangeNotification
                                              object:nil];
+    // Increase Contrast toggled: redraw so the palette re-resolves (a theme forced to Light or
+    // Dark keeps the same appearance object, so AppKit wouldn't on its own).
+    [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self
+                                                       selector:@selector(displayOptionsChanged:)
+                                                           name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                                                         object:nil];
+}
+
+- (void)displayOptionsChanged:(NSNotification *)note {
+    NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:self.window.contentView.superview ?: self.window.contentView];
+    while (views.count) {
+        NSView *v = views.lastObject;
+        [views removeLastObject];
+        [v viewDidChangeEffectiveAppearance];
+        v.needsDisplay = YES;
+        v.needsLayout = YES;
+        [views addObjectsFromArray:v.subviews];
+    }
+    [self applyAppearanceSettings];
 }
 
 /// Shows the sidebar or the top bar, following Settings → Appearance → Tab layout.
@@ -988,13 +1002,38 @@ static const CGFloat kFullScreenLightsInset = 10;
     }
     CGFloat leading = hidden ? -(self.effectiveSidebarWidth + _inset * 2 + 24) : _inset;
     NSLayoutConstraint *sidebarEdge = _sidebarEdge;
+    // Reduce Motion: the sidebar fades out where it is, or appears in place and fades in, instead
+    // of sliding. In the icon rail the sidebar sits on the root, outside its (hidden) glass.
+    BOOL fade = animated && BrookReduceMotion() && std::abs(sidebarEdge.constant - leading) > 0.5;
+    NSView *fading = _sidebarGlass.contentView == _sidebar ? _sidebarGlass : _sidebar;
+    fading.alphaValue = 1;   // an interrupted fade doesn't leave it faint
+    if (fade && hidden) {
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+            ctx.duration = 0.15;
+            fading.animator.alphaValue = 0;
+        } completionHandler:^{
+            BrowserWindowController *self_ = weakSelf;
+            if (!self_ || self_->_lightsGeneration != generation) return;
+            fading.alphaValue = 1;
+            sidebarEdge.constant = leading;
+        }];
+        [self alignNavRow];
+        return;
+    }
+    if (fade) fading.alphaValue = 0;
     // Constant only, not implicit frame animation: see settingsChanged: for why.
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
-        ctx.duration = animated ? 0.25 : 0;
+        ctx.duration = animated && !fade ? 0.25 : 0;
         ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
         sidebarEdge.animator.constant = leading;
     } completionHandler:^{
         BrowserWindowController *self_ = weakSelf;
+        if (fade) {
+            [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+                ctx.duration = 0.2;
+                fading.animator.alphaValue = 1;
+            }];
+        }
         if (!self_ || self_->_lightsGeneration != generation || lightsHidden) return;
         for (NSButton *b in lights) {
             if (b.isHidden) {
@@ -1542,18 +1581,84 @@ static NSImage *SpaceDotImage(NSColor *color) {
 
 // MARK: - Downloads popover
 
+/// One download: its name, then a progress bar, a Show in Finder button or "Failed". Kept for the
+/// download's lifetime and updated in place, so VoiceOver and keyboard focus stay put while the
+/// progress ticks.
+@interface DownloadRowView : NSStackView
+@property (readonly) DownloadItem *item;
+- (instancetype)initWithItem:(DownloadItem *)item;
+- (void)refresh;
+@end
+
+@implementation DownloadRowView {
+    NSTextField *_name;
+    NSProgressIndicator *_bar;
+    NSButton *_reveal;
+    NSTextField *_failed;
+}
+
+- (instancetype)initWithItem:(DownloadItem *)item {
+    if ((self = [super initWithFrame:NSZeroRect])) {
+        _item = item;
+        _name = [NSTextField labelWithString:@""];
+        _name.font = [NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
+        _name.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        [_name.widthAnchor constraintEqualToConstant:250].active = YES;
+        _bar = [NSProgressIndicator new];
+        _bar.indeterminate = NO;
+        _bar.controlSize = NSControlSizeSmall;
+        [_bar.widthAnchor constraintEqualToConstant:250].active = YES;
+        _reveal = [NSButton buttonWithTitle:@"Show in Finder" target:self action:@selector(revealInFinder)];
+        _reveal.bezelStyle = NSBezelStyleInline;
+        _reveal.controlSize = NSControlSizeSmall;
+        _failed = [NSTextField labelWithString:@"Failed"];
+        _failed.textColor = NSColor.systemRedColor;
+        _failed.font = [NSFont systemFontOfSize:11];
+        for (NSView *v in @[_name, _bar, _reveal, _failed]) [self addArrangedSubview:v];
+        self.orientation = NSUserInterfaceLayoutOrientationVertical;
+        self.alignment = NSLayoutAttributeLeading;
+        self.spacing = 4;
+        self.detachesHiddenViews = YES;
+        [self refresh];
+    }
+    return self;
+}
+
+- (void)refresh {
+    DownloadItem *item = _item;
+    if (![_name.stringValue isEqualToString:item.filename ?: @""]) _name.stringValue = item.filename ?: @"";
+    DownloadStatus status = item.status;
+    _bar.hidden = status != DownloadStatusActive;
+    _reveal.hidden = status != DownloadStatusFinished;
+    _failed.hidden = status != DownloadStatusFailed;
+    if (status == DownloadStatusActive) _bar.doubleValue = item.fraction * 100;
+}
+
+- (void)revealInFinder {
+    if (NSURL *dest = _item.destination) [NSWorkspace.sharedWorkspace activateFileViewerSelectingURLs:@[dest]];
+}
+
+@end
+
 @implementation DownloadsViewController {
     NSStackView *_stack;
     NSTimer *_timer;
-    NSMutableArray<ClosureButtonTarget *> *_helpers;
+    NSTextField *_empty;
+    NSButton *_clear;
+    NSMapTable<DownloadItem *, DownloadRowView *> *_rows;
 }
 
 - (instancetype)initWithNibName:(NSNibName)nibNameOrNil bundle:(NSBundle *)nibBundleOrNil {
     if ((self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil])) {
         _stack = [NSStackView new];
-        _helpers = [NSMutableArray array];
+        _rows = [NSMapTable strongToStrongObjectsMapTable];
     }
     return self;
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [_timer invalidate];
 }
 
 - (void)loadView {
@@ -1566,104 +1671,71 @@ static NSImage *SpaceDotImage(NSColor *color) {
     [v addSubview:_stack];
     [_stack brook_pinEdgesTo:v];
     [v.widthAnchor constraintEqualToConstant:320].active = YES;
+    _empty = [NSTextField labelWithString:@"No downloads"];
+    _clear = [NSButton buttonWithTitle:@"Clear" target:self action:@selector(clear)];
+    _clear.bezelStyle = NSBezelStyleInline;
+    _clear.controlSize = NSControlSizeSmall;
     self.view = v;
-    [self rebuild];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(sync)
+                                               name:DownloadManagerDidChangeNotification object:nil];
+    [self sync];
 }
 
 - (void)viewDidAppear {
     [super viewDidAppear];
+    // Progress has no change notification; tick it while the popover is open.
     __weak DownloadsViewController *weakSelf = self;
     _timer = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) {
-        [weakSelf rebuild];
+        [weakSelf refreshProgress];
     }];
 }
 
 - (void)viewWillDisappear {
     [super viewWillDisappear];
     [_timer invalidate];
+    _timer = nil;
 }
 
-- (void)rebuild {
-    for (NSView *v in [_stack.arrangedSubviews copy]) [v removeFromSuperview];
-    [_helpers removeAllObjects];
-    NSArray<DownloadItem *> *items = DownloadManager.shared.items;
-    if (items.count == 0) {
-        [_stack addArrangedSubview:[NSTextField labelWithString:@"No downloads"]];
-        return;
+- (void)refreshProgress {
+    for (DownloadRowView *row in _rows.objectEnumerator) {
+        if (row.item.status == DownloadStatusActive) [row refresh];
     }
-    NSUInteger shown = 0;
-    for (DownloadItem *item in items) {
-        if (shown++ >= 8) break;
-        NSTextField *name = [NSTextField labelWithString:item.filename];
-        name.font = [NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
-        name.lineBreakMode = NSLineBreakByTruncatingMiddle;
-        [name.widthAnchor constraintEqualToConstant:250].active = YES;
-        NSStackView *row = [NSStackView stackViewWithViews:@[name]];
-        row.orientation = NSUserInterfaceLayoutOrientationVertical;
-        row.alignment = NSLayoutAttributeLeading;
-        row.spacing = 4;
-        switch (item.status) {
-            case DownloadStatusActive: {
-                NSProgressIndicator *bar = [NSProgressIndicator new];
-                bar.indeterminate = NO;
-                bar.doubleValue = item.fraction * 100;
-                bar.controlSize = NSControlSizeSmall;
-                [bar.widthAnchor constraintEqualToConstant:250].active = YES;
-                [row addArrangedSubview:bar];
-                break;
-            }
-            case DownloadStatusFinished: {
-                NSButton *reveal = [NSButton buttonWithTitle:@"Show in Finder" target:nil action:nil];
-                reveal.bezelStyle = NSBezelStyleInline;
-                reveal.controlSize = NSControlSizeSmall;
-                NSURL *dest = item.destination;
-                ClosureButtonTarget *helper = [[ClosureButtonTarget alloc] initWithBlock:^{
-                    if (dest) [NSWorkspace.sharedWorkspace activateFileViewerSelectingURLs:@[dest]];
-                }];
-                reveal.target = helper;
-                reveal.action = @selector(run);
-                [_helpers addObject:helper];
-                [row addArrangedSubview:reveal];
-                break;
-            }
-            case DownloadStatusFailed: {
-                NSTextField *failed = [NSTextField labelWithString:@"Failed"];
-                failed.textColor = NSColor.systemRedColor;
-                failed.font = [NSFont systemFontOfSize:11];
-                [row addArrangedSubview:failed];
-                break;
-            }
-        }
-        [_stack addArrangedSubview:row];
-    }
+}
+
+/// Matches the rows to the download list (newest first, up to 8), reusing each download's row.
+- (void)sync {
+    NSArray<DownloadItem *> *all = DownloadManager.shared.items;
+    NSArray<DownloadItem *> *items = all.count > 8 ? [all subarrayWithRange:NSMakeRange(0, 8)] : all;
+    NSMutableArray<NSView *> *wanted = [NSMutableArray array];
+    NSMapTable<DownloadItem *, DownloadRowView *> *next = [NSMapTable strongToStrongObjectsMapTable];
     BOOL anyDone = NO;
-    for (DownloadItem *item in items) {
+    for (DownloadItem *item in all) {
         if (item.status != DownloadStatusActive) { anyDone = YES; break; }
     }
-    if (anyDone) {
-        NSButton *clear = [NSButton buttonWithTitle:@"Clear" target:self action:@selector(clear)];
-        clear.bezelStyle = NSBezelStyleInline;
-        clear.controlSize = NSControlSizeSmall;
-        [_stack addArrangedSubview:clear];
+    for (DownloadItem *item in items) {
+        DownloadRowView *row = [_rows objectForKey:item] ?: [[DownloadRowView alloc] initWithItem:item];
+        [row refresh];
+        [next setObject:row forKey:item];
+        [wanted addObject:row];
     }
+    _rows = next;
+    if (items.count == 0) [wanted addObject:_empty];
+    if (anyDone) [wanted addObject:_clear];
+    if ([_stack.arrangedSubviews isEqualToArray:wanted]) return;
+    // Only views that leave are removed; the rest are re-ordered where they stand.
+    for (NSView *v in [_stack.arrangedSubviews copy]) {
+        if (![wanted containsObject:v]) [v removeFromSuperview];
+    }
+    [wanted enumerateObjectsUsingBlock:^(NSView *v, NSUInteger i, BOOL *stop) {
+        NSArray<NSView *> *current = self->_stack.arrangedSubviews;
+        if (i < current.count && current[i] == v) return;
+        if (v.superview == self->_stack) [self->_stack removeArrangedSubview:v];
+        [self->_stack insertArrangedSubview:v atIndex:i];
+    }];
 }
 
 - (void)clear {
-    [DownloadManager.shared clearFinished];
-    [self rebuild];
+    [DownloadManager.shared clearFinished];   // notifies, which syncs
 }
-
-@end
-
-@implementation ClosureButtonTarget {
-    void (^_block)(void);
-}
-
-- (instancetype)initWithBlock:(void (^)(void))block {
-    if ((self = [super init])) _block = [block copy];
-    return self;
-}
-
-- (void)run { _block(); }
 
 @end
