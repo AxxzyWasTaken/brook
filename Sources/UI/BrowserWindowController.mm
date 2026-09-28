@@ -1423,7 +1423,7 @@ static const CGFloat kFullScreenLightsInset = 10;
         [NSPasteboard.generalPasteboard clearContents];
         [NSPasteboard.generalPasteboard setString:url.absoluteString forType:NSPasteboardTypeString];
     }]];
-    [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Duplicate" handler:^{ [state duplicate:tab]; }]];
+    [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Duplicate Tab" handler:^{ [state duplicate:tab]; }]];
     if (tab.isLoaded && tab != state.selectedTab) {
         [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Unload to Save Memory" handler:^{ [tab unload]; }]];
     }
