@@ -269,6 +269,13 @@ static const CGFloat kGap = 8;
     }
 }
 
+- (NSView *)tileForTab:(BrowserTab *)tab {
+    for (FavoriteTile *t in _tiles) {
+        if (t.tab == tab) return t;
+    }
+    return nil;
+}
+
 - (void)layout {
     [super layout];
     if (_tiles.count == 0) return;

@@ -170,6 +170,7 @@ static const CGFloat kLightSize = 14, kLightSlot = 16, kLightStep = 23;
 
 /// Drag handle between the sidebar and the page.
 @interface ResizeHandle : NSView
+@property (copy) void (^onBegin)(void);
 @property (copy) void (^onDrag)(CGFloat dx);
 @property (copy) void (^onEnd)(void);
 @end
@@ -177,6 +178,9 @@ static const CGFloat kLightSize = 14, kLightSlot = 16, kLightStep = 23;
 @implementation ResizeHandle
 - (BOOL)mouseDownCanMoveWindow { return NO; }
 - (void)resetCursorRects { [self addCursorRect:self.bounds cursor:NSCursor.resizeLeftRightCursor]; }
+- (void)mouseDown:(NSEvent *)event {
+    if (self.onBegin) self.onBegin();
+}
 - (void)mouseDragged:(NSEvent *)event {
     if (self.onDrag) self.onDrag(event.deltaX);
 }
@@ -211,6 +215,13 @@ struct LightDefault {
     NSView *_tint;
     NSGlassEffectView *_sidebarGlass;
     ResizeHandle *_handle;
+    /// Where the pointer has dragged the sidebar's edge to, which can pass the width it shows.
+    CGFloat _dragWidth;
+    /// The sidebar's width when the drag began: what it springs back to after the rail.
+    CGFloat _dragStartWidth;
+    /// Icon rail: the address field that pops out beside the selected tab.
+    NSGlassEffectView *_railAddress;
+    NSTextField *_railAddressField;
     EdgeHotZone *_hotZone;
     FullScreenLights *_fullScreenLights;
     NSArray<NSLayoutConstraint *> *_fullScreenLightsPlacement;
@@ -308,6 +319,9 @@ struct LightDefault {
 /// The icon-only rail's narrowest width; it grows so the traffic lights above the icons fit.
 static const CGFloat kRailWidth = 72;
 
+/// Dragging the sidebar narrower than this turns it into the icon rail.
+static const CGFloat kSnapToRailWidth = 150;
+
 /// Width of the strip at the window edge that reveals a hidden sidebar.
 static const CGFloat kHotZoneWidth = 24;
 /// Distance from the sidebar's leading edge to the full-screen traffic lights (matches the real ones).
@@ -337,11 +351,33 @@ static const CGFloat kFullScreenLightsInset = 10;
 
     _handle.translatesAutoresizingMaskIntoConstraints = NO;
     __weak BrowserWindowController *weakSelf = self;
+    _handle.onBegin = ^{
+        BrowserWindowController *self_ = weakSelf;
+        if (!self_) return;
+        self_->_dragWidth = self_.effectiveSidebarWidth;
+        self_->_dragStartWidth = self_->_sidebarWidth;
+    };
     _handle.onDrag = ^(CGFloat dx) {
         BrowserWindowController *self_ = weakSelf;
         if (!self_) return;
         CGFloat delta = self_->_onRight ? -dx : dx;
-        self_->_sidebarWidth = std::min<CGFloat>(420, std::max<CGFloat>(190, self_->_sidebarWidth + delta));
+        self_->_dragWidth += delta;
+        // Past the snap point the sidebar becomes the icon rail, and dragged back out it returns
+        // to the width it had. Each snap restarts from the width now showing, so the edge has to
+        // travel back past the snap point before it flips again.
+        BOOL rail = Settings.sidebarIconsOnly;
+        if (rail != (self_->_dragWidth < kSnapToRailWidth)) {
+            // Passing the minimum width on the way in mustn't become the width to return to.
+            if (!rail) {
+                self_->_sidebarWidth = self_->_dragStartWidth;
+                self_->_sidebarWidthConstraint.constant = self_->_sidebarWidth;
+            }
+            Settings.sidebarIconsOnly = !rail;
+            self_->_dragWidth = self_.effectiveSidebarWidth;
+            return;
+        }
+        if (rail) return;
+        self_->_sidebarWidth = std::min<CGFloat>(420, std::max<CGFloat>(190, self_->_dragWidth));
         self_->_sidebarWidthConstraint.constant = self_->_sidebarWidth;
         // On the right the sidebar's left edge (and the traffic lights in it) moves with the width.
         if (self_->_onRight) {
@@ -521,7 +557,17 @@ static const CGFloat kFullScreenLightsInset = 10;
         [_content applySettings];
     }
     if ([@[@"*", @"sidebarIconsOnly", @"pageMargin", @"cornerRadius"] containsObject:key]) {
-        _sidebarWidthConstraint.constant = self.effectiveSidebarWidth;
+        [self endRailAddressEditing];
+        NSLayoutConstraint *width = _sidebarWidthConstraint;
+        CGFloat target = self.effectiveSidebarWidth;
+        NSView *root = _root;
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+            ctx.duration = [key isEqual:@"sidebarIconsOnly"] ? 0.18 : 0;
+            ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+            ctx.allowsImplicitAnimation = YES;
+            width.animator.constant = target;
+            [root layoutSubtreeIfNeeded];
+        }];
     }
     if ([@[@"*", @"autoHide", @"sidebarIconsOnly"] containsObject:key]) {
         _autoHideSuspended = NO;
@@ -779,6 +825,7 @@ static const CGFloat kFullScreenLightsInset = 10;
 }
 
 - (void)browserStateDidSelect:(BrowserTab *)tab previous:(BrowserTab *)previous {
+    if (tab != previous) [self endRailAddressEditing];   // editing belongs to the tab it started in
     [_content showTab:tab spaceName:_state.currentSpace.name];
     [_chrome updateSelection];
     WKWebView *wv = tab.webView;
@@ -879,7 +926,8 @@ static const CGFloat kFullScreenLightsInset = 10;
         }
     }
     [self updateContentEdge];
-    _handle.hidden = _tabsOnTop || self.sidebarHidden || Settings.sidebarIconsOnly;
+    _handle.hidden = _tabsOnTop || self.sidebarHidden;
+    if (hidden) [self endRailAddressEditing];
     _hotZone.hidden = _tabsOnTop || !self.sidebarHidden || _peeking;
     if (_peeking) {
         NSShadow *s = [NSShadow new];
@@ -927,7 +975,7 @@ static const CGFloat kFullScreenLightsInset = 10;
         NSPoint p = [self_->_root convertPoint:event.locationInWindow fromView:nil];
         NSRect glass = self_->_sidebarGlass.frame;
         BOOL away = self_->_onRight ? p.x < NSMinX(glass) - 24 : p.x > NSMaxX(glass) + 24;
-        if (away) [self_ endPeek];
+        if (away && !self_.railAddressEditing) [self_ endPeek];
         return event;
     }];
     self.window.acceptsMouseMovedEvents = YES;
@@ -942,11 +990,78 @@ static const CGFloat kFullScreenLightsInset = 10;
     [self applySidebarVisibilityAnimated:YES];
 }
 
+// MARK: Icon rail address
+
+- (BOOL)railAddressEditing { return _railAddress && !_railAddress.isHidden; }
+
+- (BOOL)beginRailAddressEditing {
+    BrowserTab *tab = _state.selectedTab;
+    if (_tabsOnTop || !Settings.sidebarIconsOnly || (self.sidebarHidden && !_peeking) || !tab) return NO;
+    NSView *row = [_sidebar viewForSelectedTab];
+    if (!row.window) return NO;
+    if (!_railAddress) {
+        NSTextField *f = [NSTextField new];
+        f.bordered = NO;
+        f.drawsBackground = NO;
+        f.focusRingType = NSFocusRingTypeNone;
+        f.font = BrookUIFont(13, NSFontWeightRegular);
+        f.textColor = NSColor.labelColor;
+        f.placeholderString = @"Search or enter address";
+        f.lineBreakMode = NSLineBreakByTruncatingTail;
+        f.cell.scrollable = YES;
+        f.cell.wraps = NO;
+        f.translatesAutoresizingMaskIntoConstraints = NO;
+        NSView *holder = [NSView new];
+        [holder addSubview:f];
+        [NSLayoutConstraint activateConstraints:@[
+            [f.leadingAnchor constraintEqualToAnchor:holder.leadingAnchor constant:12],
+            [f.trailingAnchor constraintEqualToAnchor:holder.trailingAnchor constant:-12],
+            [f.centerYAnchor constraintEqualToAnchor:holder.centerYAnchor],
+        ]];
+        NSGlassEffectView *glass = [NSGlassEffectView new];
+        glass.cornerRadius = 12;
+        glass.contentView = holder;
+        glass.hidden = YES;
+        NSShadow *s = [NSShadow new];
+        s.shadowBlurRadius = 16;
+        s.shadowColor = [NSColor.blackColor colorWithAlphaComponent:0.25];
+        glass.shadow = s;
+        _railAddress = glass;
+        _railAddressField = f;
+    }
+    // Over the page, beside the rail, level with the tab.
+    [_root layoutSubtreeIfNeeded];
+    NSRect rowRect = [row convertRect:row.bounds toView:_root];
+    NSRect rail = _sidebarGlass.frame;
+    // As wide as the suggestions list under it (which is never narrower than 560), so they line up.
+    CGFloat h = 36, w = std::min<CGFloat>(560, NSWidth(_root.bounds) - NSWidth(rail) - 3 * _inset - 16);
+    CGFloat x = _onRight ? NSMinX(rail) - 8 - w : NSMaxX(rail) + 8;
+    CGFloat y = std::clamp<CGFloat>(NSMidY(rowRect) - h / 2, _inset, NSMaxY(_root.bounds) - _inset - h);
+    _railAddress.frame = NSMakeRect(x, y, w, h);
+    _railAddress.tintColor = _sidebarGlass.tintColor;
+    [_root addSubview:_railAddress positioned:NSWindowAbove relativeTo:nil];   // over the page and the handle
+    _railAddress.hidden = NO;
+    _railAddressField.stringValue = tab.url.absoluteString ?: @"";
+    __weak BrowserWindowController *weakSelf = self;
+    [self.commandBar showAttachedToField:_railAddressField alignedWith:_railAddress below:_railAddress onEnd:^{
+        BrowserWindowController *self_ = weakSelf;
+        if (self_) self_->_railAddress.hidden = YES;
+    }];
+    return YES;
+}
+
+- (void)endRailAddressEditing {
+    if (self.railAddressEditing && self.commandBar.isAttached) [self.commandBar dismiss];
+    _railAddress.hidden = YES;
+}
+
 // MARK: Commands
 
 - (void)showCommandBarEditing:(BOOL)editing {
     // Compact tabs edit the address in the selected tab itself (⌘L and clicks on the tab).
     if (editing && _tabsOnTop && _topBar.compact && [_topBar beginEditingAddress]) return;
+    // The icon rail has no address bar: edit it in a field beside the selected tab instead.
+    if (editing && [self beginRailAddressEditing]) return;
     [self.commandBar showEditingCurrent:editing && _state.selectedTab != nil];
 }
 
@@ -1087,8 +1202,9 @@ static const CGFloat kFullScreenLightsInset = 10;
     popover.behavior = NSPopoverBehaviorTransient;
     popover.contentViewController = [[SiteInfoViewController alloc] initWithHost:host
                                                                           secure:[url.scheme isEqualToString:@"https"]];
-    NSView *anchor = _tabsOnTop ? _topBar.siteInfoAnchor : _chrome.urlPill.siteButton;
-    if (self.urlPillVisible && anchor) {
+    NSView *anchor = _tabsOnTop ? _topBar.siteInfoAnchor : _sidebar.siteInfoAnchor;
+    BOOL rail = !_tabsOnTop && Settings.sidebarIconsOnly && (!self.sidebarHidden || _peeking);
+    if ((self.urlPillVisible || rail) && anchor.window) {
         [popover showRelativeToRect:anchor.bounds ofView:anchor preferredEdge:self.pillPopoverEdge];
     } else {
         [popover showRelativeToRect:NSMakeRect(NSMidX(_content.bounds), NSMaxY(_content.bounds) - 4, 1, 1)
@@ -1113,7 +1229,8 @@ static const CGFloat kFullScreenLightsInset = 10;
     if (!popover) return;
     NSView *anchor = [_chrome.extensionsBar anchorForContext:action.webExtensionContext];
     WKWebView *wv = _content.webView;
-    if (!self.urlPillVisible && wv) {
+    BOOL rail = !_tabsOnTop && Settings.sidebarIconsOnly && (!self.sidebarHidden || _peeking);
+    if (!self.urlPillVisible && !rail && wv) {
         [popover showRelativeToRect:NSMakeRect(20, wv.bounds.size.height - 20, 1, 1) ofView:wv preferredEdge:NSRectEdgeMaxY];
     } else {
         [popover showRelativeToRect:anchor.bounds ofView:anchor preferredEdge:self.pillPopoverEdge];

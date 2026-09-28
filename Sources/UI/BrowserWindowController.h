@@ -21,6 +21,8 @@
 @property (readonly) SidebarView *sidebar;
 @property (readonly) ContentAreaView *content;
 @property (readonly) BOOL sidebarHidden;
+/// The icon rail's address field is open beside the selected tab.
+@property (readonly) BOOL railAddressEditing;
 /// Settings → Appearance → Tab layout is Top or Compact: the top bar shows instead of the sidebar.
 @property (readonly) BOOL tabsOnTop;
 /// The ⌘T / ⌘L bar; compact tabs also use its suggestions list under the tab being edited.

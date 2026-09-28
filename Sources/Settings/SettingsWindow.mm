@@ -557,7 +557,7 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
                              selectedIndex:Settings.autoHide
                                   onChange:^(NSInteger i) { Settings.autoHide = (ChromeAutoHide)i; }];
     [f row:@"Hide sidebar" view:_hidePopup];
-    [f note:@"Same as View → Hide Sidebar (⌘S). A hidden sidebar slides back when the pointer reaches the window's edge."];
+    [f note:@"Same as View → Hide Sidebar (⌘S). A hidden sidebar slides back when the pointer reaches the window's edge. Drag the sidebar's edge in far enough and it becomes a narrow rail of icons."];
     // ⌘S changes this setting too; keep the menu in step without rebuilding the pane.
     if (!_hideObserver) {
         __weak LayoutPane *weakSelf = self;
@@ -570,8 +570,6 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
             if (self_) [self_->_hidePopup selectItemAtIndex:Settings.autoHide];
         }];
     }
-    [f row:@"" view:[Controls check:@"Icons only (a narrow rail)" on:Settings.sidebarIconsOnly
-                           onChange:^(BOOL on) { Settings.sidebarIconsOnly = on; }]];
 
     [f separator];
     [f row:@"Tab rows" view:[Controls segmentedWithTitles:EnumTitles(TabDensityCount, ^(NSInteger i) { return TabDensityTitle((TabDensity)i); })

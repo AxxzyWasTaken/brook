@@ -29,6 +29,8 @@
 - (void)updateSelection:(BrowserTab *)selected;
 /// Redraws the tile for one tab.
 - (void)refresh:(BrowserTab *)tab;
+/// The tile showing a tab, if it's a favorite here.
+- (NSView *)tileForTab:(BrowserTab *)tab;
 @end
 
 /// A space's coloured dot in the sidebar's bottom bar.

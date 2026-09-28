@@ -396,8 +396,9 @@
     NSString *url = note.userInfo[@"url"];
     LinkPreview where = Settings.linkPreview;
     if (where == LinkPreviewOff || url.length == 0) { _linkLabel.hidden = YES; return; }
-    _linkLeading.active = where == LinkPreviewLeft;
-    _linkTrailing.active = where == LinkPreviewRight;
+    // Off before on, so the two edges never pin the label at once.
+    (where == LinkPreviewLeft ? _linkTrailing : _linkLeading).active = NO;
+    (where == LinkPreviewLeft ? _linkLeading : _linkTrailing).active = YES;
     _linkLabel.stringValue = [NSString stringWithFormat:@" %@ ", url];
     _linkLabel.hidden = NO;
 }

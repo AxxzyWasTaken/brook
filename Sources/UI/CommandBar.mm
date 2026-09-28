@@ -305,8 +305,9 @@ NSInteger CharacterCount(NSString *s) {
     _panel.refusesKey = attached;
     _searchIcon.hidden = attached;
     _field.hidden = attached;
-    _scrollBelowField.active = !attached;
-    _scrollAtTop.active = attached;
+    // Off before on, or both pin the list at once and AppKit breaks one of them.
+    (attached ? _scrollBelowField : _scrollAtTop).active = NO;
+    (attached ? _scrollAtTop : _scrollBelowField).active = YES;
 }
 
 - (void)showAttachedToField:(NSTextField *)field alignedWith:(NSView *)anchor below:(NSView *)bar

@@ -11,6 +11,10 @@
 /// ExtensionsBar.mm.)
 @interface ExtensionsBar : NSView
 - (instancetype)initWithButtonSize:(CGFloat)buttonSize;
+/// Top to bottom instead of right-aligned in a row (the icon rail), showing at most `maxVisible`
+/// buttons before "…".
+@property (nonatomic) BOOL vertical;
+@property (nonatomic) NSUInteger maxVisible;
 /// The tab whose extension state (icons, badges, enabled) the buttons show.
 @property (nonatomic, weak) BrowserTab *tab;
 /// The extension's own button if it's showing, else "…". Popups open from here.

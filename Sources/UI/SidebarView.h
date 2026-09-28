@@ -8,6 +8,10 @@
 @interface SidebarView : NSView <BrowserChrome>
 @property (nonatomic, weak) BrowserWindowController *browser;
 @property (readonly) URLPillView *urlPill;
+/// Where the site settings popover opens from: the pill's button, or the rail's.
+@property (readonly) NSView *siteInfoAnchor;
+/// The selected tab's row or favorite tile, if it's showing.
+- (NSView *)viewForSelectedTab;
 @end
 
 /// NSMenuItem that runs a block.

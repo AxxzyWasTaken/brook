@@ -153,6 +153,7 @@ static const CGFloat kIconSize = 16;
 - (instancetype)initWithButtonSize:(CGFloat)buttonSize {
     if ((self = [super initWithFrame:NSZeroRect])) {
         _buttonSize = buttonSize;
+        _maxVisible = NSUIntegerMax;
         _buttons = @[];
         _byContext = [NSMapTable strongToStrongObjectsMapTable];
         __weak ExtensionsBar *weakSelf = self;
@@ -174,7 +175,20 @@ static const CGFloat kIconSize = 16;
 - (BOOL)mouseDownCanMoveWindow { return YES; }
 
 - (NSSize)intrinsicContentSize {
-    return NSMakeSize((CGFloat)(_buttons.count + 1) * _buttonSize, _buttonSize);
+    CGFloat length = (CGFloat)(std::min(_buttons.count, _maxVisible) + 1) * _buttonSize;
+    return _vertical ? NSMakeSize(_buttonSize, length) : NSMakeSize(length, _buttonSize);
+}
+
+- (void)setVertical:(BOOL)vertical {
+    _vertical = vertical;
+    [self invalidateIntrinsicContentSize];
+    self.needsLayout = YES;
+}
+
+- (void)setMaxVisible:(NSUInteger)maxVisible {
+    _maxVisible = maxVisible;
+    [self invalidateIntrinsicContentSize];
+    self.needsLayout = YES;
 }
 
 - (void)setTab:(BrowserTab *)tab {
@@ -220,9 +234,28 @@ static const CGFloat kIconSize = 16;
     [super layout];
     NSSize size = self.bounds.size;
     CGFloat step = _buttonSize;
+    if (_vertical) {
+        // Top down; AppKit's y grows upwards, so count from the top edge.
+        NSUInteger fit = (NSUInteger)std::max<CGFloat>(0, floor((size.height - _buttonSize) / step));
+        NSUInteger visible = std::min({fit, _buttons.count, _maxVisible});
+        CGFloat x = floor((size.width - _buttonSize) / 2);
+        CGFloat top = size.height;
+        for (NSUInteger i = 0; i < _buttons.count; i++) {
+            ExtensionButton *b = _buttons[i];
+            b.hidden = i >= visible;
+            if (i < visible) {
+                top -= step;
+                NSRect r = NSMakeRect(x, top, _buttonSize, _buttonSize);
+                if (!NSEqualRects(b.frame, r)) b.frame = r;
+            }
+        }
+        NSRect more = NSMakeRect(x, top - step, _buttonSize, _buttonSize);
+        if (!NSEqualRects(_moreButton.frame, more)) _moreButton.frame = more;
+        return;
+    }
     // As many buttons as fit before "…", which always shows at the end.
     NSUInteger fit = (NSUInteger)std::max<CGFloat>(0, floor((size.width - _buttonSize) / step));
-    NSUInteger visible = std::min(fit, _buttons.count);
+    NSUInteger visible = std::min({fit, _buttons.count, _maxVisible});
     CGFloat y = floor((size.height - _buttonSize) / 2);
     // Right-aligned, in install order; when squeezed the last ones move into "…", like Chrome.
     CGFloat x = size.width - (CGFloat)(visible + 1) * step;
@@ -319,7 +352,9 @@ static const CGFloat kIconSize = 16;
         remove.submenu = sub;
         [menu addItem:remove];
     }
-    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, -4) inView:_moreButton];
+    // Beside the button in the rail (the page is to that side), below it in a row.
+    NSPoint at = _vertical ? NSMakePoint(NSWidth(_moreButton.bounds) + 4, NSHeight(_moreButton.bounds)) : NSMakePoint(0, -4);
+    [menu popUpMenuPositioningItem:nil atLocation:at inView:_moreButton];
 }
 
 @end

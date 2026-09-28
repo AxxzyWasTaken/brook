@@ -34,6 +34,12 @@ struct Row {
     NSLayoutConstraint *_titleRowLeading;
     IconButton *_toggleButton;
     ToolbarButtons *_navStack;
+    // Icon rail: the nav row's buttons, site settings and extensions, stacked under the lights.
+    NSStackView *_railStack;
+    ToolbarButtons *_railButtons;
+    IconButton *_railSiteButton;
+    ExtensionsBar *_railExtensions;
+    NSLayoutConstraint *_favoritesTopRail;
     FavoritesGridView *_favoritesGrid;
     NSLayoutConstraint *_favoritesTop;
     NSLayoutConstraint *_pillTop;
@@ -59,7 +65,22 @@ struct Row {
 - (BrowserState *)state { return BrowserState.shared; }
 
 - (NSView *)titleRow { return _titleRow; }
-- (ExtensionsBar *)extensionsBar { return _urlPill.extensionsBar; }
+- (ExtensionsBar *)extensionsBar { return Settings.sidebarIconsOnly ? _railExtensions : _urlPill.extensionsBar; }
+
+- (NSView *)siteInfoAnchor {
+    if (!Settings.sidebarIconsOnly) return _urlPill.siteButton;
+    return [_railButtons buttonForItem:ToolbarItemSiteSettings] ?: _railSiteButton;
+}
+
+- (NSView *)viewForSelectedTab {
+    BrowserTab *tab = self.state.selectedTab;
+    if (!tab) return nil;
+    if (tab.isFavorite) return [_favoritesGrid tileForTab:tab];
+    NSInteger row = [self rowIndexOfTab:tab];
+    if (row < 0) return nil;
+    [_table scrollRowToVisible:row];
+    return [_table viewAtColumn:0 row:row makeIfNecessary:NO];
+}
 - (CGFloat)titleRowHeight { return 28; }
 - (NSLayoutConstraint *)titleRowTop { return _titleRowTop; }
 - (NSLayoutConstraint *)titleRowLeading { return _titleRowLeading; }
@@ -81,6 +102,17 @@ struct Row {
             [weakSelf.browser toggleSidebar];
         }];
         _navStack = [ToolbarButtons new];
+        _railButtons = [ToolbarButtons new];
+        _railButtons.orientation = NSUserInterfaceLayoutOrientationVertical;
+        _railSiteButton = [[IconButton alloc] initWithSymbol:@"slider.horizontal.3" tooltip:@"Site Settings" onClick:^{
+            [weakSelf.browser showSiteInfo];
+        }];
+        _railExtensions = [[ExtensionsBar alloc] initWithButtonSize:28];
+        _railExtensions.vertical = YES;
+        _railExtensions.maxVisible = 3;
+        _railStack = [NSStackView stackViewWithViews:@[_railButtons, _railSiteButton, _railExtensions]];
+        _railStack.orientation = NSUserInterfaceLayoutOrientationVertical;
+        _railStack.spacing = 2;
         _fireButton = [[IconButton alloc] initWithSymbol:@"flame" tooltip:@"Burn Tabs & Data (⇧⌘⌫)" onClick:^{
             [weakSelf.browser fire];
         }];
@@ -115,12 +147,15 @@ struct Row {
     [_titleRow addSubview:_toggleButton];
     [_titleRow addSubview:navStack];
 
+    _railStack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self addSubview:_railStack];
+
     _urlPill.translatesAutoresizingMaskIntoConstraints = NO;
     _urlPill.onClick = ^{ [weakSelf.browser showCommandBarEditing:YES]; };
     _urlPill.siteButton.onClick = ^{ [weakSelf.browser showSiteInfo]; };
     [self addSubview:_urlPill];
 
-    _favoritesGrid.onSelect = ^(BrowserTab *tab) { [weakSelf.state selectTab:tab]; };
+    _favoritesGrid.onSelect = ^(BrowserTab *tab) { [weakSelf selectTab:tab]; };
     _favoritesGrid.onDropTab = ^(NSUUID *tabID, NSInteger index) {
         SidebarView *strongSelf = weakSelf;
         if (!strongSelf) return;
@@ -229,6 +264,11 @@ struct Row {
     _titleRowTop = [_titleRow.topAnchor constraintEqualToAnchor:self.topAnchor constant:8];
     _titleRowLeading = [_titleRow.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:78];
     _favoritesTop = [_favoritesGrid.topAnchor constraintEqualToAnchor:_urlPill.bottomAnchor constant:12];
+    _favoritesTopRail = [_favoritesGrid.topAnchor constraintEqualToAnchor:_railStack.bottomAnchor constant:10];
+    [NSLayoutConstraint activateConstraints:@[
+        [_railStack.topAnchor constraintEqualToAnchor:_titleRow.bottomAnchor constant:6],
+        [_railStack.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
+    ]];
     _pillTop = [_urlPill.topAnchor constraintEqualToAnchor:_titleRow.bottomAnchor constant:10];
     _pillHeight = [_urlPill.heightAnchor constraintEqualToConstant:0];
     _bottomHeight = [bottom.heightAnchor constraintEqualToConstant:28];
@@ -240,10 +280,12 @@ struct Row {
 - (void)setBrowser:(BrowserWindowController *)browser {
     _browser = browser;
     _navStack.browser = browser;
+    _railButtons.browser = browser;
 }
 
 - (void)applySettings {
     [_navStack rebuild];
+    [_railButtons rebuild];
     BOOL showPill = Settings.showAddressBar;
     _urlPill.hidden = !showPill;
     _pillHeight.active = !showPill;
@@ -256,6 +298,12 @@ struct Row {
     BOOL rail = Settings.sidebarIconsOnly;
     _navStack.hidden = rail;
     _toggleButton.hidden = rail;
+    _railStack.hidden = !rail;
+    // The rail's own site button unless site settings is already one of the toolbar buttons.
+    _railSiteButton.hidden = [_railButtons buttonForItem:ToolbarItemSiteSettings] != nil;
+    // Deactivate first so the two never pin the favorites at once.
+    (rail ? _favoritesTop : _favoritesTopRail).active = NO;
+    (rail ? _favoritesTopRail : _favoritesTop).active = YES;
     if (rail) {
         _urlPill.hidden = YES;
         _pillHeight.active = YES;
@@ -376,6 +424,9 @@ struct Row {
 - (void)updateChrome {
     BrowserTab *tab = self.state.selectedTab;
     [_navStack updateWithTab:tab];
+    [_railButtons updateWithTab:tab];
+    _railSiteButton.enabled = tab.url != nil;
+    _railExtensions.tab = tab;
     [_urlPill updateWithTab:tab];
 }
 
@@ -440,13 +491,21 @@ struct Row {
     return NO;
 }
 
+/// In the icon rail, clicking the tab that's already selected edits its address, like the
+/// compact top bar.
+- (void)selectTab:(BrowserTab *)tab {
+    BOOL again = tab == self.state.selectedTab;
+    [self.state selectTab:tab];
+    if (again && Settings.sidebarIconsOnly) [self.browser showCommandBarEditing:YES];
+}
+
 - (void)rowClicked {
     NSInteger row = _table.clickedRow;
     if (row < 0 || row >= (NSInteger)_rows.size()) return;
     const Row &r = _rows[row];
     switch (r.kind) {
     case Row::Pinned:
-    case Row::Tab: [self.state selectTab:r.tabValue]; break;
+    case Row::Tab: [self selectTab:r.tabValue]; break;
     case Row::NewTab: [self.browser newTab]; break;
     case Row::Divider: break;
     }
