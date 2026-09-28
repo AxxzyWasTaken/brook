@@ -663,6 +663,8 @@ static const CGFloat kFullScreenLightsInset = 10;
             if (std::abs(wv.pageZoom - z) > 0.001) wv.pageZoom = z;
         }
     }
+    // The shield in the address pill follows the ad blocking switches and an ad-blocking extension.
+    if ([@[@"*", @"blockAds", @"siteSettings", @"contentBlocker"] containsObject:key]) [_chrome updateChrome];
 }
 
 /// Sets the sidebar's width during a drag. Coming out of the rail the sidebar is still sliding

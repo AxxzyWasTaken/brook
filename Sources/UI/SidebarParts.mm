@@ -4,6 +4,8 @@
 
 @implementation URLPillView {
     NSTextField *_label;
+    NSImageView *_ads;
+    NSLayoutConstraint *_adsWidth;      // 0 while hidden, so it takes no room from the address
     NSImageView *_cookie;
     NSLayoutConstraint *_cookieWidth;   // 0 while hidden, so it takes no room from the address
 }
@@ -36,7 +38,14 @@
         _cookie.hidden = YES;
         _cookie.translatesAutoresizingMaskIntoConstraints = NO;
         _cookieWidth = [_cookie.widthAnchor constraintEqualToConstant:0];
-        for (NSView *v in @[_siteButton, _label, _cookie]) [self addSubview:v];
+        _ads = [NSImageView new];
+        _ads.image = [NSImage brook_symbol:@"shield.lefthalf.filled" size:11];
+        _ads.contentTintColor = NSColor.tertiaryLabelColor;
+        _ads.imageAlignment = NSImageAlignLeft;
+        _ads.hidden = YES;
+        _ads.translatesAutoresizingMaskIntoConstraints = NO;
+        _adsWidth = [_ads.widthAnchor constraintEqualToConstant:0];
+        for (NSView *v in @[_siteButton, _label, _ads, _cookie]) [self addSubview:v];
 
         // Both give way when the pill is collapsed to nothing (address bar off, or the icon rail).
         NSLayoutConstraint *height = [self.heightAnchor constraintEqualToConstant:34];
@@ -47,7 +56,10 @@
             [_siteButton.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             [_label.leadingAnchor constraintEqualToAnchor:_siteButton.trailingAnchor constant:2],
             [_label.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
-            [_cookie.leadingAnchor constraintGreaterThanOrEqualToAnchor:_label.trailingAnchor constant:4],
+            [_ads.leadingAnchor constraintGreaterThanOrEqualToAnchor:_label.trailingAnchor constant:4],
+            [_ads.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+            _adsWidth,
+            [_cookie.leadingAnchor constraintEqualToAnchor:_ads.trailingAnchor constant:2],
             [_cookie.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             _cookieWidth,
         ]];
@@ -96,6 +108,7 @@
         _siteButton.accessibilityValue = nil;
         _label.stringValue = @"Search or enter address";
         [self setCookieShown:NO];
+        [self updateAdsForHost:nil];
         return;
     }
     BOOL secure = [url.scheme isEqualToString:@"https"];
@@ -117,6 +130,21 @@
     NSString *cmp = tab.consentCMP;
     [self setCookieShown:cmp != nil];
     if (cmp) _cookie.toolTip = [NSString stringWithFormat:@"Cookie popup declined for you (%@)", cmp];
+    [self updateAdsForHost:BrookHost(url)];
+}
+
+/// The shield shows while ads and trackers are being blocked on this site, and nothing when they
+/// aren't (off globally or for the site), so the pill only says what's true. With an ad-blocking
+/// extension installed Brook's list is paused and the extension does the blocking; the tooltip names it.
+- (void)updateAdsForHost:(NSString *)host {
+    NSString *extension = ContentBlocker.shared.pausedFor;
+    NSNumber *siteOverride = [SiteSettings overrideForHost:host].blockAds;
+    BOOL brookBlocks = Settings.blockAds && (!siteOverride || siteOverride.boolValue);
+    BOOL blocking = host && (extension || brookBlocks);
+    _ads.hidden = !blocking;
+    _adsWidth.active = !blocking;
+    if (blocking) _ads.toolTip = extension ? [NSString stringWithFormat:@"Ads and trackers blocked by %@", extension]
+                                           : @"Ads and trackers blocked";
 }
 
 - (void)setCookieShown:(BOOL)shown {
