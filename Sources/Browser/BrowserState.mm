@@ -517,7 +517,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
 
 - (void)togglePin:(BrowserTab *)tab {
     Space *s = [self spaceOf:tab] ?: self.currentSpace;
-    if (tab.isPinned || tab.isFavorite) {
+    if (tab.isPinned) {
         [self move:tab to:TabLocation::tabsIn(s) index:0];
     } else {
         [self move:tab to:TabLocation::pinnedIn(s) index:(NSInteger)s.pinned.count];
