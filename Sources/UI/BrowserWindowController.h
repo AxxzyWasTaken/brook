@@ -68,6 +68,8 @@
 - (NSMenu *)menuForTab:(BrowserTab *)tab;
 /// Edit, move and delete one space.
 - (NSMenu *)menuForSpace:(Space *)space;
+/// Every space to switch to, New Space, then the current space's own items.
+- (NSMenu *)spacesMenu;
 
 // Spaces
 - (void)promptNewSpace;

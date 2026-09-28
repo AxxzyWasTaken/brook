@@ -67,6 +67,11 @@ struct Row {
 
     TabDensity _rowDensity;
     CGFloat _rowFontSize;
+
+    // A sideways two-finger swipe anywhere on the sidebar switches spaces.
+    BOOL _swipeHorizontal;
+    CGFloat _swipeDistance;
+    BOOL _swallowMomentum;
 }
 
 - (BrowserState *)state { return BrowserState.shared; }
@@ -145,6 +150,38 @@ struct Row {
 }
 
 - (BOOL)mouseDownCanMoveWindow { return YES; }
+
+// Scrolls over anything that doesn't scroll itself (buttons, favorites, the gaps between the
+// rail's pieces) arrive here; the tab list hands its own over first.
+- (void)scrollWheel:(NSEvent *)event {
+    if (![self handleSpaceSwipe:event]) [super scrollWheel:event];
+}
+
+/// Takes a sideways two-finger swipe, switching spaces once it's gone far enough, and the
+/// momentum after it. Returns NO for anything else, which scrolls as usual.
+- (BOOL)handleSpaceSwipe:(NSEvent *)event {
+    if (!event.hasPreciseScrollingDeltas || !Settings.swipeSwitchesSpaces) return NO;
+    if (event.phase == NSEventPhaseBegan) {
+        _swipeHorizontal = std::abs(event.scrollingDeltaX) > std::abs(event.scrollingDeltaY) * 1.3;
+        _swipeDistance = 0;
+        _swallowMomentum = NO;
+    }
+    if (_swipeHorizontal) {
+        if (event.phase == NSEventPhaseChanged || event.phase == NSEventPhaseBegan) _swipeDistance += event.scrollingDeltaX;
+        if (event.phase == NSEventPhaseEnded || event.phase == NSEventPhaseCancelled) {
+            if (_swipeDistance < -60) [self.state switchSpaceBy:1];
+            else if (_swipeDistance > 60) [self.state switchSpaceBy:-1];
+            _swipeHorizontal = NO;
+            _swallowMomentum = YES;
+        }
+        return YES;
+    }
+    if (_swallowMomentum && event.momentumPhase != NSEventPhaseNone) {
+        if (event.momentumPhase == NSEventPhaseEnded) _swallowMomentum = NO;
+        return YES;
+    }
+    return NO;
+}
 
 // MARK: Build
 
@@ -231,7 +268,7 @@ struct Row {
     _scrollView.automaticallyAdjustsContentInsets = NO;
     _scrollView.contentInsets = NSEdgeInsetsMake(0, 0, 8, 0);
     _scrollView.wantsLayer = YES;
-    _scrollView.onSwipe = ^(NSInteger delta) { [weakSelf.state switchSpaceBy:delta]; };
+    _scrollView.swipeHandler = ^BOOL(NSEvent *event) { return [weakSelf handleSpaceSwipe:event]; };
     _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
     [self addSubview:_scrollView];
 
@@ -360,7 +397,8 @@ struct Row {
     _fireButton.hidden = rail;
     _addSpaceButton.hidden = rail;
     _spaceStack.orientation = rail ? NSUserInterfaceLayoutOrientationVertical : NSUserInterfaceLayoutOrientationHorizontal;
-    _bottomHeight.constant = !showBottom ? 0 : rail ? std::max<CGFloat>(28, 22 * (CGFloat)self.state.spaces.count) : 28;
+    _bottomHeight.constant = showBottom ? 28 : 0;
+    [self rebuildSpaceDots];   // the rail shows only the current space
     // Rows are cheap to rebuild; tab style, fonts and the rest are read when a cell is configured.
     _rowDensity = Settings.tabDensity;
     _rowFontSize = Settings.tabFontSize;
@@ -431,6 +469,19 @@ struct Row {
     BrowserState *state = self.state;
     __weak SidebarView *weakSelf = self;
     NSArray<Space *> *spaces = state.spaces;
+    // The rail has room for one: the current space, which lists the rest when clicked.
+    if (Settings.sidebarIconsOnly) {
+        Space *current = state.currentSpace;
+        if (!current) return;
+        SpaceDot *dot = [[SpaceDot alloc] initWithSpace:current];
+        dot.isCurrent = YES;
+        dot.toolTip = spaces.count > 1 ? [current.name stringByAppendingString:@" · Switch Space"] : current.name;
+        __weak SpaceDot *weakDot = dot;
+        dot.onClick = ^{ [weakSelf showSpacesMenuFrom:weakDot]; };
+        dot.menu = self.browser.spacesMenu;
+        [_spaceStack addArrangedSubview:dot];
+        return;
+    }
     for (NSInteger i = 0; i < (NSInteger)spaces.count; i++) {
         Space *space = spaces[i];
         SpaceDot *dot = [[SpaceDot alloc] initWithSpace:space];
@@ -439,6 +490,15 @@ struct Row {
         dot.menu = [self.browser menuForSpace:space];
         [_spaceStack addArrangedSubview:dot];
     }
+}
+
+/// The spaces menu beside the rail's space button, on the page side.
+- (void)showSpacesMenuFrom:(NSView *)anchor {
+    NSMenu *menu = self.browser.spacesMenu;
+    if (!anchor || !menu) return;
+    BOOL onRight = Settings.sidebarPosition == SidebarPositionRight;
+    CGFloat x = onRight ? -menu.size.width - 4 : NSWidth(anchor.bounds) + 4;
+    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(x, NSHeight(anchor.bounds)) inView:anchor];
 }
 
 - (NSInteger)rowIndexOfTab:(BrowserTab *)tab {

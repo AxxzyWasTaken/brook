@@ -460,33 +460,10 @@
 
 @end
 
-@implementation SidebarScrollView {
-    BOOL _horizontal;
-    CGFloat _accumulated;
-    BOOL _swallowMomentum;
-}
+@implementation SidebarScrollView
 
 - (void)scrollWheel:(NSEvent *)event {
-    if (!event.hasPreciseScrollingDeltas || !Settings.swipeSwitchesSpaces) { [super scrollWheel:event]; return; }
-    if (event.phase == NSEventPhaseBegan) {
-        _horizontal = std::abs(event.scrollingDeltaX) > std::abs(event.scrollingDeltaY) * 1.3;
-        _accumulated = 0;
-        _swallowMomentum = NO;
-    }
-    if (_horizontal) {
-        if (event.phase == NSEventPhaseChanged || event.phase == NSEventPhaseBegan) _accumulated += event.scrollingDeltaX;
-        if (event.phase == NSEventPhaseEnded || event.phase == NSEventPhaseCancelled) {
-            if (_accumulated < -60) { if (self.onSwipe) self.onSwipe(1); }
-            else if (_accumulated > 60) { if (self.onSwipe) self.onSwipe(-1); }
-            _horizontal = NO;
-            _swallowMomentum = YES;
-        }
-        return;
-    }
-    if (_swallowMomentum && event.momentumPhase != NSEventPhaseNone) {
-        if (event.momentumPhase == NSEventPhaseEnded) _swallowMomentum = NO;
-        return;
-    }
+    if (self.swipeHandler && self.swipeHandler(event)) return;
     [super scrollWheel:event];
 }
 

@@ -661,7 +661,7 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
     [f row:@"Swipe on the page" view:[Controls popupWithTitles:EnumTitles(PageSwipeCount, ^(NSInteger i) { return PageSwipeTitle((PageSwipe)i); })
                                                  selectedIndex:Settings.pageSwipe
                                                       onChange:^(NSInteger i) { Settings.pageSwipe = (PageSwipe)i; }]];
-    [f row:@"" view:[Controls check:@"Swipe across the tab list to switch spaces" on:Settings.swipeSwitchesSpaces
+    [f row:@"" view:[Controls check:@"Swipe sideways on the sidebar to switch spaces" on:Settings.swipeSwitchesSpaces
                            onChange:^(BOOL on) { Settings.swipeSwitchesSpaces = on; }]];
     [f note:@"Spaces can also override pinned-tab closing and archiving: right-click a space dot → Edit Space."];
 

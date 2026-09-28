@@ -39,7 +39,8 @@
 @property (copy) void (^onMiddleClick)(NSInteger row);
 @end
 
-/// Scroll view that turns a horizontal two-finger swipe into a space switch (+1 / -1).
+/// The tab list's scroll view. Scroll events go to `swipeHandler` first, which takes the sideways
+/// two-finger swipes that switch spaces (returning YES); the rest scroll the list.
 @interface SidebarScrollView : NSScrollView
-@property (copy) void (^onSwipe)(NSInteger delta);
+@property (copy) BOOL (^swipeHandler)(NSEvent *event);
 @end

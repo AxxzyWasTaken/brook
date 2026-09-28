@@ -860,14 +860,6 @@ static const CGFloat kTabGap = 2;
 
 // MARK: - Space switcher
 
-static NSImage *SpaceDotImage(NSColor *color) {
-    return [NSImage imageWithSize:NSMakeSize(12, 12) flipped:NO drawingHandler:^BOOL(NSRect rect) {
-        [color setFill];
-        [[NSBezierPath bezierPathWithOvalInRect:NSInsetRect(rect, 1.5, 1.5)] fill];
-        return YES;
-    }];
-}
-
 /// The current space's colour and name at the start of the strip. Click for the list of spaces.
 @interface SpaceChip : HoverControl
 @property (weak) BrowserWindowController *browser;
@@ -914,7 +906,7 @@ static NSImage *SpaceDotImage(NSColor *color) {
         self.onClick = ^{
             SpaceChip *self_ = weakSelf;
             if (!self_) return;
-            [[self_ spacesMenu] popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, -4) inView:self_];
+            [self_.browser.spacesMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, -4) inView:self_];
         };
     }
     return self;
@@ -925,34 +917,7 @@ static NSImage *SpaceDotImage(NSColor *color) {
     _label.stringValue = space.name ?: @"";
 }
 
-- (NSMenu *)menuForEvent:(NSEvent *)event { return [self spacesMenu]; }
-
-- (NSMenu *)spacesMenu {
-    BrowserState *state = BrowserState.shared;
-    BrowserWindowController *browser = self.browser;
-    NSMenu *m = [NSMenu new];
-    NSArray<Space *> *spaces = state.spaces;
-    for (NSInteger i = 0; i < (NSInteger)spaces.count; i++) {
-        Space *space = spaces[(NSUInteger)i];
-        NSString *key = i < 9 ? [NSString stringWithFormat:@"%ld", (long)(i + 1)] : @"";
-        ClosureMenuItem *item = [[ClosureMenuItem alloc] initWithTitle:space.name key:key
-                                                             modifiers:NSEventModifierFlagControl
-                                                               handler:^{ [BrowserState.shared switchToSpace:i]; }];
-        [item brook_setVisibleImage:SpaceDotImage(space.color)];
-        item.state = i == state.currentSpaceIndex ? NSControlStateValueOn : NSControlStateValueOff;
-        [m addItem:item];
-    }
-    [m addItem:NSMenuItem.separatorItem];
-    __weak BrowserWindowController *weakBrowser = browser;
-    [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"New Space…" handler:^{ [weakBrowser promptNewSpace]; }]];
-    NSMenu *current = [browser menuForSpace:state.currentSpace];
-    if (current.numberOfItems) [m addItem:NSMenuItem.separatorItem];
-    for (NSMenuItem *item in [current.itemArray copy]) {
-        [current removeItem:item];
-        [m addItem:item];
-    }
-    return m;
-}
+- (NSMenu *)menuForEvent:(NSEvent *)event { return self.browser.spacesMenu; }
 
 @end
 

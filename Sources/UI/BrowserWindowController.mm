@@ -1375,6 +1375,40 @@ static const CGFloat kFullScreenLightsInset = 10;
     return m;
 }
 
+static NSImage *SpaceDotImage(NSColor *color) {
+    return [NSImage imageWithSize:NSMakeSize(12, 12) flipped:NO drawingHandler:^BOOL(NSRect rect) {
+        [color setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSInsetRect(rect, 1.5, 1.5)] fill];
+        return YES;
+    }];
+}
+
+- (NSMenu *)spacesMenu {
+    BrowserState *state = _state;
+    NSMenu *m = [NSMenu new];
+    NSArray<Space *> *spaces = state.spaces;
+    for (NSInteger i = 0; i < (NSInteger)spaces.count; i++) {
+        Space *space = spaces[(NSUInteger)i];
+        NSString *key = i < 9 ? [NSString stringWithFormat:@"%ld", (long)(i + 1)] : @"";
+        ClosureMenuItem *item = [[ClosureMenuItem alloc] initWithTitle:space.name key:key
+                                                             modifiers:NSEventModifierFlagControl
+                                                               handler:^{ [BrowserState.shared switchToSpace:i]; }];
+        [item brook_setVisibleImage:SpaceDotImage(space.color)];
+        item.state = i == state.currentSpaceIndex ? NSControlStateValueOn : NSControlStateValueOff;
+        [m addItem:item];
+    }
+    [m addItem:NSMenuItem.separatorItem];
+    __weak BrowserWindowController *weakSelf = self;
+    [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"New Space…" handler:^{ [weakSelf promptNewSpace]; }]];
+    NSMenu *current = [self menuForSpace:state.currentSpace];
+    if (current.numberOfItems) [m addItem:NSMenuItem.separatorItem];
+    for (NSMenuItem *item in [current.itemArray copy]) {
+        [current removeItem:item];
+        [m addItem:item];
+    }
+    return m;
+}
+
 - (NSMenu *)menuForSpace:(Space *)space {
     BrowserState *state = _state;
     __weak BrowserWindowController *weakSelf = self;
