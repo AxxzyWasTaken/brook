@@ -109,12 +109,14 @@
         _siteButton.toolTip = nil;
         _siteButton.accessibilityValue = nil;
         _label.stringValue = @"Search or enter address";
+        _label.textColor = NSColor.secondaryLabelColor;   // a prompt, like the placeholder in the address fields
         [self setCookieShown:NO];
         [self updateAdsForHost:nil];
         return;
     }
     BOOL secure = [url.scheme isEqualToString:@"https"];
     BOOL http = [url.scheme isEqualToString:@"http"];
+    _label.textColor = NSColor.labelColor;
     [_siteButton setSymbol:secure ? @"lock.fill" : (http ? @"exclamationmark.triangle" : @"globe") size:10];
     _siteButton.tint = http ? NSColor.systemOrangeColor : NSColor.tertiaryLabelColor;
     BOOL hasHost = BrookHost(url) != nil;
