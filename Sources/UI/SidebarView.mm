@@ -199,6 +199,7 @@ struct Row {
     [self addSubview:_titleRow];
     ToolbarButtons *navStack = _navStack;
     navStack.translatesAutoresizingMaskIntoConstraints = NO;
+    navStack.overflows = YES;
     [_titleRow addSubview:_toggleButton];
     [_titleRow addSubview:navStack];
 
@@ -291,6 +292,8 @@ struct Row {
         [_toggleButton.leadingAnchor constraintEqualToAnchor:_titleRow.leadingAnchor],
         [_toggleButton.centerYAnchor constraintEqualToAnchor:_titleRow.centerYAnchor],
         [navStack.trailingAnchor constraintEqualToAnchor:_titleRow.trailingAnchor],
+        // Everything between the toggle and the edge; what doesn't fit goes into "»".
+        [navStack.leadingAnchor constraintEqualToAnchor:_toggleButton.trailingAnchor constant:4],
         [navStack.centerYAnchor constraintEqualToAnchor:_titleRow.centerYAnchor],
 
         [_urlPill.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10],

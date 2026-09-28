@@ -353,14 +353,64 @@ static const CGFloat kGap = 8;
 
 @implementation ToolbarButtons {
     std::vector<std::pair<ToolbarItem, IconButton *>> _buttons;
+    IconButton *_moreButton;
+    NSUInteger _shown;   // with `overflows`, how many buttons fit before "»"
 }
+
+static const CGFloat kToolbarButtonSize = 28;
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
     if ((self = [super initWithFrame:frameRect])) {
         self.spacing = 2;
+        self.detachesHiddenViews = YES;
+        __weak ToolbarButtons *weakSelf = self;
+        _moreButton = [[IconButton alloc] initWithSymbol:@"chevron.right.2" size:12 tooltip:@"More"
+                                               dimension:kToolbarButtonSize onClick:^{ [weakSelf showMoreMenu]; }];
+        _shown = NSUIntegerMax;
         [self rebuild];
     }
     return self;
+}
+
+- (void)setOverflows:(BOOL)overflows {
+    _overflows = overflows;
+    // The row's width comes from outside; the buttons keep to its trailing end, and may be cut
+    // off (then moved into "»" by -layout) rather than push the row wider.
+    [self setHuggingPriority:overflows ? NSLayoutPriorityDefaultLow - 1 : NSLayoutPriorityDefaultHigh
+              forOrientation:NSLayoutConstraintOrientationHorizontal];
+    [self setClippingResistancePriority:overflows ? NSLayoutPriorityDefaultLow : NSLayoutPriorityRequired
+                         forOrientation:NSLayoutConstraintOrientationHorizontal];
+    self.needsLayout = YES;
+}
+
+- (void)layout {
+    [super layout];
+    if (!_overflows || _columns) return;
+    // Every button if they fit, else as many as fit beside "»".
+    CGFloat step = kToolbarButtonSize + self.spacing;
+    NSUInteger fit = (NSUInteger)std::max<CGFloat>(0, floor((NSWidth(self.bounds) + self.spacing) / step));
+    NSUInteger count = _buttons.size();
+    NSUInteger shown = fit >= count ? count : (fit > 0 ? fit - 1 : 0);
+    if (shown == _shown) return;
+    _shown = shown;
+    for (NSUInteger i = 0; i < count; i++) _buttons[i].second.hidden = i >= shown;
+    _moreButton.hidden = shown == count;
+}
+
+- (void)showMoreMenu {
+    NSMenu *menu = [NSMenu new];
+    menu.autoenablesItems = NO;
+    for (auto &[item, button] : _buttons) {
+        if (!button.isHidden) continue;
+        IconButton *b = button;
+        ClosureMenuItem *mi = [[ClosureMenuItem alloc] initWithTitle:ToolbarItemTitle(item) handler:^{
+            if (b.onClick) b.onClick();
+        }];
+        [mi brook_setVisibleImage:[NSImage brook_symbol:ToolbarItemSymbol(item) size:13]];
+        mi.enabled = b.isEnabled;
+        [menu addItem:mi];
+    }
+    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, -4) inView:_moreButton];
 }
 
 static NSString *ToolbarItemTooltip(ToolbarItem item) {
@@ -394,7 +444,12 @@ static NSString *ToolbarItemTooltip(ToolbarItem item) {
                 case ToolbarItemBack: [b goBack]; break;
                 case ToolbarItemForward: [b goForward]; break;
                 case ToolbarItemReload: [b reloadOrStop]; break;
-                case ToolbarItemShare: [b shareFromView:[self_ buttonForItem:ToolbarItemShare] ?: self_]; break;
+                case ToolbarItemShare: {
+                    // From "»" when the button itself is crowded out.
+                    NSView *anchor = [self_ buttonForItem:ToolbarItemShare];
+                    [b shareFromView:anchor.window ? anchor : self_->_moreButton.window ? self_->_moreButton : self_];
+                    break;
+                }
                 case ToolbarItemCopyLink: [b copyURL]; break;
                 case ToolbarItemReader: [b toggleReader]; break;
                 case ToolbarItemNewTab: [b newTab]; break;
@@ -403,7 +458,7 @@ static NSString *ToolbarItemTooltip(ToolbarItem item) {
         }];
         _buttons.emplace_back(item, button);
         if (_columns == 0) {
-            [self addArrangedSubview:button];
+            [self addView:button inGravity:NSStackViewGravityTrailing];
             continue;
         }
         // Rows of `columns`, leading-aligned, so a short last row lines up with the ones above.
@@ -414,6 +469,10 @@ static NSString *ToolbarItemTooltip(ToolbarItem item) {
         }
         [row addArrangedSubview:button];
     }
+    _moreButton.hidden = YES;
+    _shown = NSUIntegerMax;   // worked out afresh on the next layout
+    if (_columns == 0) [self addView:_moreButton inGravity:NSStackViewGravityTrailing];
+    self.needsLayout = YES;
     [self updateWithTab:BrowserState.shared.selectedTab];
 }
 

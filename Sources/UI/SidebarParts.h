@@ -66,6 +66,9 @@
 /// order. Shared by the sidebar and the top bar.
 @interface ToolbarButtons : NSStackView
 @property (weak) BrowserWindowController *browser;
+/// For a row given its width from outside: buttons that don't fit move, from the end, into a "»"
+/// menu after the rest (the sidebar's nav row, which the toggle and sidebar edge bound).
+@property (nonatomic) BOOL overflows;
 /// Buttons per row (the icon rail's grid); set before -rebuild. 0 lays them out in one line.
 @property (nonatomic) NSUInteger columns;
 /// Adds site settings when it isn't one of the chosen items (the rail has no address pill).
