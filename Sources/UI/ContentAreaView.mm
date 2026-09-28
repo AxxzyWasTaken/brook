@@ -151,6 +151,8 @@
                                            onClick:^{ [weakSelf searchForward:YES]; }];
         _done = [[IconButton alloc] initWithSymbol:@"xmark" size:11 tooltip:@"Done (esc)" dimension:24
                                            onClick:^{ [weakSelf close]; }];
+        // Round, concentric with the capsule's ends (18 − 6 inset), like buttons in the top bar's capsules.
+        for (IconButton *b in @[_prev, _next, _done]) b.cornerRadius = 12;
 
         _glass.cornerRadius = 18;
         _glass.translatesAutoresizingMaskIntoConstraints = NO;
@@ -170,7 +172,7 @@
         NSStackView *stack = [NSStackView stackViewWithViews:@[_field, _status, _prev, _next, _done]];
         stack.spacing = 4;
         [stack setCustomSpacing:8 afterView:_status];
-        stack.edgeInsets = NSEdgeInsetsMake(4, 8, 4, 6);
+        stack.edgeInsets = NSEdgeInsetsMake(4, 6, 4, 6);
         [_field.widthAnchor constraintEqualToConstant:200].active = YES;
         _glass.contentView = stack;
         [stack brook_pinEdgesTo:self];
