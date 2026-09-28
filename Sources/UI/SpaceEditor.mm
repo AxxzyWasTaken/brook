@@ -211,6 +211,7 @@ static NSString *ArchiveTitle(NSInteger hours) {
         overrides.columnSpacing = 8;
         [overrides columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
         for (NSInteger r = 0; r < overrides.numberOfRows; r++) {
+            [overrides rowAtIndex:r].rowAlignment = NSGridRowAlignmentFirstBaseline;
             NSTextField *label = (NSTextField *)[overrides cellAtColumnIndex:0 rowIndex:r].contentView;
             label.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
             label.textColor = NSColor.secondaryLabelColor;
