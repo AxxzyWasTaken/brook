@@ -627,7 +627,12 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
     }
     grid.rowSpacing = 6;
     grid.columnSpacing = 14;
-    [f row:@"Toolbar buttons" view:grid];
+    // A nested grid has no text baseline, so first-baseline alignment would put the label's
+    // baseline at the grid's top edge. The label and the checkboxes share a font and height,
+    // so top-aligning them lines up their text.
+    NSGridRow *toolbarRow = [f row:@"Toolbar buttons" view:grid];
+    toolbarRow.rowAlignment = NSGridRowAlignmentNone;
+    toolbarRow.yPlacement = NSGridCellPlacementTop;
     [f note:@"Shown in the order you turn them on, beside the traffic lights."];
     return [f view];
 }
