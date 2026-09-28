@@ -73,7 +73,7 @@ static void *kTabKVOContext = &kTabKVOContext;
     wv.tab = self;
     wv.navigationDelegate = self;
     wv.UIDelegate = self;
-    wv.allowsBackForwardNavigationGestures = YES;
+    wv.allowsBackForwardNavigationGestures = Settings.pageSwipe == PageSwipeBackForward;
     wv.allowsMagnification = YES;
     wv.inspectable = YES;
     wv.underPageBackgroundColor = NSColor.textBackgroundColor;
@@ -225,8 +225,26 @@ static void *kTabKVOContext = &kTabKVOContext;
     NSString *host = BrookHost(navigationAction.request.URL);
     if (policy == WKNavigationActionPolicyAllow && mainFrame && host) {
         preferences.allowsContentJavaScript = [SiteSettings javascriptForHost:host];
+        [self applySitePreferences:preferences host:host];
     }
     decisionHandler(policy, preferences);
+}
+
+/// Per-site user agent and content blocking. WebKit only exposes these per navigation through
+/// the same preferences Safari uses; skipped (site gets the defaults) if WebKit ever drops them.
+/// An empty user agent means WebKit's own.
+- (void)applySitePreferences:(WKWebpagePreferences *)preferences host:(NSString *)host {
+    static SEL setUA = NSSelectorFromString(@"_setCustomUserAgent:");
+    static SEL setBlockers = NSSelectorFromString(@"_setContentBlockersEnabled:");
+    if ([preferences respondsToSelector:setUA]) {
+        NSString *ua = UserAgentString([SiteSettings userAgentForHost:host]) ?: @"";
+        ((void (*)(id, SEL, NSString *))objc_msgSend)(preferences, setUA, ua);
+    }
+    if ([preferences respondsToSelector:setBlockers]) {
+        // Only an explicit "off" for this site turns blocking off; the global switch works on the lists.
+        NSNumber *v = [SiteSettings overrideForHost:host].blockAds;
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(preferences, setBlockers, v ? v.boolValue : YES);
+    }
 }
 
 - (WKNavigationActionPolicy)decidePolicyFor:(WKNavigationAction *)navigationAction {
@@ -244,10 +262,11 @@ static void *kTabKVOContext = &kTabKVOContext;
         return WKNavigationActionPolicyCancel;
     }
 
-    // ⌘-click or middle-click opens a background tab, like every other browser.
+    // ⌘-click or middle-click opens a new tab: in the background by default (⇧ flips it).
     BOOL isMainFrameLink = navigationAction.navigationType == WKNavigationTypeLinkActivated;
     if (isMainFrameLink && ((navigationAction.modifierFlags & NSEventModifierFlagCommand) || navigationAction.buttonNumber == 2)) {
-        BOOL foreground = (navigationAction.modifierFlags & NSEventModifierFlagShift) != 0;
+        BOOL shift = (navigationAction.modifierFlags & NSEventModifierFlagShift) != 0;
+        BOOL foreground = Settings.linksOpenInBackground ? shift : !shift;
         [_state openTabWithURL:url inSpace:nil after:self select:foreground loadNow:YES];
         return WKNavigationActionPolicyCancel;
     }

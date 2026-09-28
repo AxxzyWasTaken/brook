@@ -17,6 +17,8 @@
         _label = [NSTextField labelWithString:@""];
         _cookie = [NSImageView new];
         if (withExtensions) _extensionsBar = [[ExtensionsBar alloc] initWithButtonSize:22];
+        else _reloadButton = [[IconButton alloc] initWithSymbol:@"arrow.clockwise" size:12 tooltip:@"Reload (⌘R)"
+                                                      dimension:24 onClick:nil];
 
         self.cornerRadius = 10;
         self.baseColor = Palette.pill;
@@ -36,8 +38,11 @@
         _cookieWidth = [_cookie.widthAnchor constraintEqualToConstant:0];
         for (NSView *v in @[_siteButton, _label, _cookie]) [self addSubview:v];
 
+        // Both give way when the pill is collapsed to nothing (address bar off, or the icon rail).
+        NSLayoutConstraint *height = [self.heightAnchor constraintEqualToConstant:34];
+        height.priority = NSLayoutPriorityRequired - 1;
         [NSLayoutConstraint activateConstraints:@[
-            [self.heightAnchor constraintEqualToConstant:34],
+            height,
             [_siteButton.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:6],
             [_siteButton.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             [_label.leadingAnchor constraintEqualToAnchor:_siteButton.trailingAnchor constant:2],
@@ -51,15 +56,25 @@
             // default sidebar width, more as it widens) and the rest move into "…".
             bar.translatesAutoresizingMaskIntoConstraints = NO;
             [self addSubview:bar];
+            NSLayoutConstraint *minLabel = [_label.widthAnchor constraintGreaterThanOrEqualToConstant:110];
+            minLabel.priority = NSLayoutPriorityRequired - 1;
             [NSLayoutConstraint activateConstraints:@[
-                [_label.widthAnchor constraintGreaterThanOrEqualToConstant:110],
+                minLabel,
                 [_cookie.trailingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:-2],
                 [bar.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-5],
                 [bar.topAnchor constraintEqualToAnchor:self.topAnchor],
                 [bar.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
             ]];
         } else {
-            [_cookie.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10].active = YES;
+            IconButton *reload = _reloadButton;
+            reload.translatesAutoresizingMaskIntoConstraints = NO;
+            reload.cornerRadius = 7;
+            [self addSubview:reload];
+            [NSLayoutConstraint activateConstraints:@[
+                [_cookie.trailingAnchor constraintEqualToAnchor:reload.leadingAnchor constant:-4],
+                [reload.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-5],
+                [reload.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+            ]];
         }
     }
     return self;
@@ -67,6 +82,10 @@
 
 - (void)updateWithTab:(BrowserTab *)tab {
     _extensionsBar.tab = tab;
+    BOOL loading = tab.isLoading == YES;
+    _reloadButton.enabled = tab != nil;
+    [_reloadButton setSymbol:loading ? @"xmark" : @"arrow.clockwise" size:12];
+    _reloadButton.toolTip = loading ? @"Stop (⌘.)" : @"Reload (⌘R)";
     NSURL *url = tab.url;
     if (!tab || !url) {
         [_siteButton setSymbol:@"magnifyingglass" size:11];
@@ -86,7 +105,12 @@
     _siteButton.enabled = hasHost;
     _siteButton.imageView.alphaValue = 1;
     _siteButton.toolTip = hasHost ? @"Settings for this website" : nil;
-    _label.stringValue = [URLParser display:url];
+    // Settings → Layout → Address shows.
+    switch (Settings.addressDisplay) {
+        case AddressDisplayFull: _label.stringValue = url.absoluteString ?: @""; break;
+        case AddressDisplayPageTitle: _label.stringValue = tab.displayTitle.length ? tab.displayTitle : [URLParser display:url]; break;
+        default: _label.stringValue = [URLParser display:url]; break;
+    }
     NSString *cmp = tab.consentCMP;
     [self setCookieShown:cmp != nil];
     if (cmp) _cookie.toolTip = [NSString stringWithFormat:@"Cookie popup declined for you (%@)", cmp];
@@ -314,6 +338,84 @@ static const CGFloat kGap = 8;
     _dot.borderWidth = self.isCurrent ? 2 : 0;
     _dot.borderColor = [self brook_cg:[NSColor brook_dynamicLight:[NSColor colorWithWhite:1 alpha:0.9]
                                                              dark:[NSColor colorWithWhite:1 alpha:0.35]]];
+}
+
+@end
+
+// MARK: - Toolbar buttons
+
+@implementation ToolbarButtons {
+    std::vector<std::pair<ToolbarItem, IconButton *>> _buttons;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    if ((self = [super initWithFrame:frameRect])) {
+        self.spacing = 2;
+        [self rebuild];
+    }
+    return self;
+}
+
+static NSString *ToolbarItemTooltip(ToolbarItem item) {
+    switch (item) {
+        case ToolbarItemBack: return @"Back (⌘[)";
+        case ToolbarItemForward: return @"Forward (⌘])";
+        case ToolbarItemReload: return @"Reload (⌘R)";
+        case ToolbarItemCopyLink: return @"Copy Link (⇧⌘C)";
+        case ToolbarItemNewTab: return @"New Tab (⌘T)";
+        default: return ToolbarItemTitle(item);
+    }
+}
+
+- (void)rebuild {
+    for (NSView *v in [self.arrangedSubviews copy]) [v removeFromSuperview];
+    _buttons.clear();
+    __weak ToolbarButtons *weakSelf = self;
+    for (NSNumber *n in Settings.toolbarItems) {
+        ToolbarItem item = (ToolbarItem)n.integerValue;
+        __block IconButton *button = nil;
+        button = [[IconButton alloc] initWithSymbol:ToolbarItemSymbol(item) tooltip:ToolbarItemTooltip(item) onClick:^{
+            ToolbarButtons *self_ = weakSelf;
+            BrowserWindowController *b = self_.browser;
+            if (!b) return;
+            switch (item) {
+                case ToolbarItemBack: [b goBack]; break;
+                case ToolbarItemForward: [b goForward]; break;
+                case ToolbarItemReload: [b reloadOrStop]; break;
+                case ToolbarItemShare: [b shareFromView:[self_ buttonForItem:ToolbarItemShare] ?: self_]; break;
+                case ToolbarItemCopyLink: [b copyURL]; break;
+                case ToolbarItemReader: [b toggleReader]; break;
+                case ToolbarItemNewTab: [b newTab]; break;
+                case ToolbarItemSiteSettings: [b showSiteInfo]; break;
+            }
+        }];
+        _buttons.emplace_back(item, button);
+        [self addArrangedSubview:button];
+    }
+    [self updateWithTab:BrowserState.shared.selectedTab];
+}
+
+- (IconButton *)buttonForItem:(ToolbarItem)item {
+    for (auto &[i, b] : _buttons) if (i == item) return b;
+    return nil;
+}
+
+- (void)updateWithTab:(BrowserTab *)tab {
+    WKWebView *wv = tab.webView;
+    BOOL loading = tab.isLoading == YES;
+    for (auto &[item, b] : _buttons) {
+        switch (item) {
+            case ToolbarItemBack: b.enabled = wv ? wv.canGoBack : NO; break;
+            case ToolbarItemForward: b.enabled = wv ? wv.canGoForward : NO; break;
+            case ToolbarItemReload:
+                b.enabled = tab != nil;
+                [b setSymbol:loading ? @"xmark" : @"arrow.clockwise"];
+                b.toolTip = loading ? @"Stop (⌘.)" : @"Reload (⌘R)";
+                break;
+            case ToolbarItemNewTab: break;
+            default: b.enabled = tab.url != nil; break;
+        }
+    }
 }
 
 @end

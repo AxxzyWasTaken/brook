@@ -304,6 +304,9 @@
     __weak BrowserTab *_tab;
     float _shadowStrength;
     double _lastProgress;
+    NSTextField *_linkLabel;
+    NSLayoutConstraint *_linkLeading;
+    NSLayoutConstraint *_linkTrailing;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -360,14 +363,48 @@
             [_toast.centerXAnchor constraintEqualToAnchor:_clip.centerXAnchor],
             [_toast.bottomAnchor constraintEqualToAnchor:_clip.bottomAnchor constant:-18]
         ]];
+        _linkLabel = [NSTextField labelWithString:@""];
+        _linkLabel.font = [NSFont systemFontOfSize:11];
+        _linkLabel.textColor = NSColor.secondaryLabelColor;
+        _linkLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        _linkLabel.drawsBackground = YES;
+        _linkLabel.wantsLayer = YES;
+        _linkLabel.layer.cornerRadius = 6;
+        _linkLabel.layer.masksToBounds = YES;
+        _linkLabel.hidden = YES;
+        _linkLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        [_linkLabel setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                             forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [_clip addSubview:_linkLabel];
+        _linkLeading = [_linkLabel.leadingAnchor constraintEqualToAnchor:_clip.leadingAnchor constant:6];
+        _linkTrailing = [_clip.trailingAnchor constraintEqualToAnchor:_linkLabel.trailingAnchor constant:6];
+        [NSLayoutConstraint activateConstraints:@[
+            [_linkLabel.bottomAnchor constraintEqualToAnchor:_clip.bottomAnchor constant:-6],
+            [_linkLabel.widthAnchor constraintLessThanOrEqualToAnchor:_clip.widthAnchor multiplier:0.6],
+            [_linkLabel.heightAnchor constraintEqualToConstant:20],
+        ]];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(hoveredLink:)
+                                                   name:BrookHoveredLinkNotification object:nil];
         [self updateColors];
     }
     return self;
 }
 
+/// Settings → Layout → Link previews: the address of the link under the pointer, in a corner.
+- (void)hoveredLink:(NSNotification *)note {
+    if (note.object != _webView) return;
+    NSString *url = note.userInfo[@"url"];
+    LinkPreview where = Settings.linkPreview;
+    if (where == LinkPreviewOff || url.length == 0) { _linkLabel.hidden = YES; return; }
+    _linkLeading.active = where == LinkPreviewLeft;
+    _linkTrailing.active = where == LinkPreviewRight;
+    _linkLabel.stringValue = [NSString stringWithFormat:@" %@ ", url];
+    _linkLabel.hidden = NO;
+}
+
 - (void)setAccentColor:(NSColor *)accentColor {
     _accentColor = accentColor;
-    _progress.backgroundColor = accentColor.CGColor;
+    _progress.backgroundColor = BrookAccentColor().CGColor;
     _empty.accent = accentColor;
 }
 
@@ -376,7 +413,7 @@
     _clip.layer.cornerRadius = cornerRadius;
     // Edge-to-edge (no rounding) drops the card border and shadow too.
     _clip.layer.borderWidth = cornerRadius == 0 ? 0 : 0.5;
-    self.layer.shadowOpacity = cornerRadius == 0 ? 0 : _shadowStrength;
+    [self updateColors];
     self.needsLayout = YES;
 }
 
@@ -399,8 +436,20 @@
     _clip.layer.backgroundColor = [self brook_cg:NSColor.textBackgroundColor];
     _clip.layer.borderColor = [self brook_cg:[NSColor brook_dynamicLight:[NSColor colorWithWhite:0 alpha:0.08]
                                                                      dark:[NSColor colorWithWhite:1 alpha:0.1]]];
-    _shadowStrength = BrookIsDark(self.effectiveAppearance) ? 0.35f : 0.14f;
+    _linkLabel.backgroundColor = NSColor.windowBackgroundColor;
+    // Settings → Appearance → Page shadow.
+    BOOL dark = BrookIsDark(self.effectiveAppearance);
+    CardShadow shadow = Settings.cardShadow;
+    _shadowStrength = shadow == CardShadowNone ? 0 : shadow == CardShadowStrong ? (dark ? 0.55f : 0.28f) : (dark ? 0.35f : 0.14f);
+    self.layer.shadowRadius = shadow == CardShadowStrong ? 14 : 6;
+    self.layer.shadowOffset = CGSizeMake(0, shadow == CardShadowStrong ? -4 : -1);
     self.layer.shadowOpacity = _cornerRadius == 0 ? 0 : _shadowStrength;
+}
+
+- (void)applySettings {
+    [self updateColors];
+    _progress.backgroundColor = BrookAccentColor().CGColor;
+    [self updateProgress];
 }
 
 // MARK: Showing tabs
@@ -409,6 +458,7 @@
     _tab = tab;
     WKWebView *current = _webView;
     if (current && current != tab.webView) [current removeFromSuperview];
+    _linkLabel.hidden = YES;
     _empty.spaceName = spaceName;
     if (!tab) {
         _webView = nil;
@@ -456,6 +506,11 @@
     BrowserTab *tab = _tab;
     if (!tab) return;
     double p = tab.isLoading ? std::max(0.08, tab.progress) : 1;
+    if (tab.isLoading && Settings.loadingIndicator != LoadingIndicatorBar) {
+        _progress.opacity = 0;   // the tab's icon spins instead, or nothing shows
+        _lastProgress = 0;
+        return;
+    }
     if (tab.isLoading) {
         _progress.opacity = 1;
         if (p < _lastProgress) _lastProgress = 0;

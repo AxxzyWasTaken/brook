@@ -14,12 +14,39 @@ static NSArray<NSString *> *const kNewTabPositionRaw = @[@"top", @"bottom", @"ne
 static NSArray<NSString *> *const kNewTabPageRaw = @[@"commandBar", @"blank", @"custom"];
 static NSArray<NSString *> *const kPinnedCloseRaw = @[@"resetToHome", @"unloadOnly", @"unpin"];
 static NSArray<NSString *> *const kAutoplayRaw = @[@"allow", @"blockAudio", @"blockAll"];
+static NSArray<NSString *> *const kTabStyleRaw = @[@"card", @"flat", @"outline", @"accentBar", @"tinted"];
+static NSArray<NSString *> *const kAccentRaw = @[@"system", @"space", @"custom"];
+static NSArray<NSString *> *const kMaterialRaw = @[@"glass", @"clear", @"solid"];
+static NSArray<NSString *> *const kShadowRaw = @[@"none", @"soft", @"strong"];
+static NSArray<NSString *> *const kFontRaw = @[@"system", @"rounded", @"serif", @"mono"];
+static NSArray<NSString *> *const kCloseRaw = @[@"hover", @"always", @"never"];
+static NSArray<NSString *> *const kLoadingRaw = @[@"bar", @"spinner", @"none"];
+static NSArray<NSString *> *const kAppIconRaw = @[@"default", @"mono", @"night", @"space"];
+static NSArray<NSString *> *const kAutoHideRaw = @[@"never", @"always", @"fullScreen"];
+static NSArray<NSString *> *const kAddressRaw = @[@"full", @"domain", @"title"];
+static NSArray<NSString *> *const kLinkPreviewRaw = @[@"off", @"left", @"right"];
+static NSArray<NSString *> *const kCloseSelectsRaw = @[@"below", @"above", @"lastUsed"];
+static NSArray<NSString *> *const kLaunchRaw = @[@"restore", @"fresh", @"startPage"];
+static NSArray<NSString *> *const kSwipeRaw = @[@"backForward", @"off"];
+static NSArray<NSString *> *const kCommandBarPositionRaw = @[@"upperThird", @"top"];
+static NSArray<NSString *> *const kToolbarRaw = @[@"back", @"forward", @"reload", @"share", @"copyLink", @"reader",
+                                                  @"newTab", @"siteSettings"];
+static NSArray<NSString *> *const kUserAgentRaw = @[@"safari", @"chrome", @"firefox", @"mobile"];
 
 const NSInteger ThemeModeCount = 3, SidebarPositionCount = 2, TabLayoutCount = 3, TabDensityCount = 3,
-    NewTabPositionCount = 3, NewTabPageCount = 3, PinnedCloseBehaviorCount = 3, AutoplayPolicyCount = 3;
+    NewTabPositionCount = 3, NewTabPageCount = 3, PinnedCloseBehaviorCount = 3, AutoplayPolicyCount = 3,
+    TabStyleCount = 5, AccentSourceCount = 3, ChromeMaterialCount = 3, CardShadowCount = 3, UIFontStyleCount = 4,
+    CloseButtonVisibilityCount = 3, LoadingIndicatorCount = 3, AppIconStyleCount = 4, ChromeAutoHideCount = 3,
+    AddressDisplayCount = 3, LinkPreviewCount = 3, CloseSelectsCount = 3, LaunchBehaviorCount = 3, PageSwipeCount = 2,
+    CommandBarPositionCount = 2, ToolbarItemCount = 8, UserAgentChoiceCount = 4;
 
 static NSString *BrookPick(NSArray<NSString *> *list, NSInteger i) {
     return (i >= 0 && i < (NSInteger)list.count) ? list[(NSUInteger)i] : list.firstObject;
+}
+
+static NSInteger BrookIndex(NSArray<NSString *> *list, NSString *raw) {
+    NSUInteger i = [raw isKindOfClass:NSString.class] ? [list indexOfObject:raw] : NSNotFound;
+    return i == NSNotFound ? -1 : (NSInteger)i;
 }
 
 NSString *ThemeModeTitle(ThemeMode v) { return BrookPick(@[@"System", @"Light", @"Dark"], v); }
@@ -50,6 +77,42 @@ NSInteger AutoplayPolicyFromRaw(NSString *raw) {
     NSUInteger i = raw ? [kAutoplayRaw indexOfObject:raw] : NSNotFound;
     return i == NSNotFound ? -1 : (NSInteger)i;
 }
+NSString *TabStyleTitle(TabStyle v) { return BrookPick(@[@"Card", @"Flat", @"Outline", @"Accent bar", @"Tinted"], v); }
+NSString *AccentSourceTitle(AccentSource v) { return BrookPick(@[@"System", @"Space colour", @"Custom"], v); }
+NSString *ChromeMaterialTitle(ChromeMaterial v) { return BrookPick(@[@"Glass", @"Clear glass", @"Solid"], v); }
+NSString *CardShadowTitle(CardShadow v) { return BrookPick(@[@"None", @"Soft", @"Strong"], v); }
+NSString *UIFontStyleTitle(UIFontStyle v) { return BrookPick(@[@"System", @"Rounded", @"Serif", @"Monospaced"], v); }
+NSString *CloseButtonVisibilityTitle(CloseButtonVisibility v) { return BrookPick(@[@"On hover", @"Always", @"Never"], v); }
+NSString *LoadingIndicatorTitle(LoadingIndicator v) { return BrookPick(@[@"Bar", @"Spinning icon", @"None"], v); }
+NSString *AppIconStyleTitle(AppIconStyle v) { return BrookPick(@[@"Default", @"Mono", @"Night", @"Space colour"], v); }
+NSString *ChromeAutoHideTitle(ChromeAutoHide v) { return BrookPick(@[@"Never", @"Always", @"In full screen"], v); }
+NSString *AddressDisplayTitle(AddressDisplay v) { return BrookPick(@[@"Full address", @"Domain only", @"Page title"], v); }
+NSString *LinkPreviewTitle(LinkPreview v) { return BrookPick(@[@"Off", @"Bottom left", @"Bottom right"], v); }
+NSString *CloseSelectsTitle(CloseSelects v) {
+    return BrookPick(@[@"The tab below", @"The tab above", @"The last tab you used"], v);
+}
+NSString *LaunchBehaviorTitle(LaunchBehavior v) {
+    return BrookPick(@[@"Reopen your tabs", @"Start fresh (keep pinned tabs)", @"Open a start page"], v);
+}
+NSString *PageSwipeTitle(PageSwipe v) { return BrookPick(@[@"Back and forward", @"Off"], v); }
+NSString *CommandBarPositionTitle(CommandBarPosition v) { return BrookPick(@[@"Upper third", @"Near the top"], v); }
+NSString *ToolbarItemTitle(ToolbarItem v) {
+    return BrookPick(@[@"Back", @"Forward", @"Reload", @"Share", @"Copy Link", @"Reader", @"New Tab", @"Site Settings"], v);
+}
+NSString *ToolbarItemSymbol(ToolbarItem v) {
+    return BrookPick(@[@"arrow.left", @"arrow.right", @"arrow.clockwise", @"square.and.arrow.up", @"link",
+                       @"doc.plaintext", @"plus", @"slider.horizontal.3"], v);
+}
+NSString *ToolbarItemRaw(ToolbarItem v) { return BrookPick(kToolbarRaw, v); }
+NSString *UserAgentChoiceTitle(UserAgentChoice v) { return BrookPick(@[@"Safari", @"Chrome", @"Firefox", @"Mobile Safari"], v); }
+NSString *UserAgentChoiceRaw(UserAgentChoice v) { return BrookPick(kUserAgentRaw, v); }
+NSInteger UserAgentChoiceFromRaw(NSString *raw) { return BrookIndex(kUserAgentRaw, raw); }
+NSString *ThemeModeRaw(ThemeMode v) { return BrookPick(kThemeRaw, v); }
+NSInteger ThemeModeFromRaw(NSString *raw) { return BrookIndex(kThemeRaw, raw); }
+NSString *TabLayoutRaw(TabLayout v) { return BrookPick(kTabLayoutRaw, v); }
+NSInteger TabLayoutFromRaw(NSString *raw) { return BrookIndex(kTabLayoutRaw, raw); }
+NSString *PinnedCloseBehaviorRaw(PinnedCloseBehavior v) { return BrookPick(kPinnedCloseRaw, v); }
+NSInteger PinnedCloseBehaviorFromRaw(NSString *raw) { return BrookIndex(kPinnedCloseRaw, raw); }
 
 // MARK: - Settings
 
@@ -57,13 +120,24 @@ NSInteger AutoplayPolicyFromRaw(NSString *raw) {
 
 static NSUserDefaults *D(void) { return NSUserDefaults.standardUserDefaults; }
 
++ (NSArray<NSString *> *)appearanceKeys {
+    return @[@"theme", @"tabLayout", @"sidebarPosition", @"pageMargin", @"cornerRadius", @"spaceTint", @"tabDensity",
+             @"tabFontSize", @"showAddressBar", @"showFavorites", @"showBottomBar", @"favoritesColumns", @"topTabsShrink",
+             @"tabStyle", @"accentSource", @"accentColor", @"chromeMaterial", @"chromeOpacity", @"cardShadow", @"uiFont",
+             @"closeButtons", @"tabSubtitles", @"sidebarIconsOnly", @"loadingIndicator", @"autoHide", @"addressDisplay",
+             @"linkPreview", @"toolbarItems"];
+}
+
 + (NSArray<NSString *> *)exportedKeys {
-    return @[@"theme", @"tabLayout", @"sidebarPosition", @"pageMargin", @"cornerRadius", @"spaceTint", @"tabDensity", @"tabFontSize",
-             @"showAddressBar", @"showFavorites", @"showBottomBar", @"favoritesColumns", @"topTabsShrink",
-             @"newTabPosition", @"newTabPage", @"newTabURL", @"pinnedClose", @"archiveHours", @"hibernateMinutes",
-             @"externalLinksSpace", @"downloadFolder", @"askDownloadLocation",
-             @"defaultZoom", @"javascriptEnabled", @"autoplay", @"blockCookiePopups", @"blockAds",
-             @"defaultSearchEngine", @"searchEngines", @"siteSettings", @"boosts"];
+    NSArray *rest = @[@"appIcon", @"newTabPosition", @"newTabPage", @"newTabURL", @"pinnedClose", @"archiveHours",
+                      @"hibernateMinutes", @"externalLinksSpace", @"closeSelects", @"linksOpenInBackground",
+                      @"middleClickCloses", @"pageSwipe", @"swipeSwitchesSpaces", @"launchBehavior", @"startPageURL",
+                      @"quitWarningTabs", @"commandBarTabs", @"commandBarHistory", @"commandBarSuggestions",
+                      @"commandBarRows", @"commandBarPosition", @"downloadFolder", @"askDownloadLocation",
+                      @"defaultZoom", @"javascriptEnabled", @"autoplay", @"blockCookiePopups", @"blockAds",
+                      @"defaultSearchEngine", @"searchEngines", @"siteSettings", @"boosts", @"shortcuts",
+                      @"appearancePresets"];
+    return [self.appearanceKeys arrayByAddingObjectsFromArray:rest];
 }
 
 + (void)notify:(NSString *)key {
@@ -155,6 +229,67 @@ static const double kLegacyTintScale = 1.5;
 + (BOOL)topTabsShrink { return flag(@"topTabsShrink", NO); }
 + (void)setTopTabsShrink:(BOOL)v { [self store:@(v) key:@"topTabsShrink"]; }
 
+// One line per enum-backed setting: getter reads the raw string, setter stores it.
+#define BROOK_CHOICE(TYPE, GETTER, SETTER, KEY, RAWS, FALLBACK)                              \
+    +(TYPE)GETTER { return (TYPE)choice(KEY, RAWS, FALLBACK); }                              \
+    +(void)SETTER:(TYPE)v { [self store:BrookPick(RAWS, v) key:KEY]; }
+#define BROOK_FLAG(GETTER, SETTER, KEY, FALLBACK)                                            \
+    +(BOOL)GETTER { return flag(KEY, FALLBACK); }                                            \
+    +(void)SETTER:(BOOL)v { [self store:@(v) key:KEY]; }
+
+BROOK_CHOICE(TabStyle, tabStyle, setTabStyle, @"tabStyle", kTabStyleRaw, TabStyleCard)
+BROOK_CHOICE(AccentSource, accentSource, setAccentSource, @"accentSource", kAccentRaw, AccentSourceSpace)
+BROOK_CHOICE(ChromeMaterial, chromeMaterial, setChromeMaterial, @"chromeMaterial", kMaterialRaw, ChromeMaterialGlass)
+BROOK_CHOICE(CardShadow, cardShadow, setCardShadow, @"cardShadow", kShadowRaw, CardShadowSoft)
+BROOK_CHOICE(UIFontStyle, uiFont, setUiFont, @"uiFont", kFontRaw, UIFontStyleSystem)
+BROOK_CHOICE(CloseButtonVisibility, closeButtons, setCloseButtons, @"closeButtons", kCloseRaw, CloseButtonVisibilityHover)
+BROOK_CHOICE(LoadingIndicator, loadingIndicator, setLoadingIndicator, @"loadingIndicator", kLoadingRaw, LoadingIndicatorBar)
+BROOK_CHOICE(AppIconStyle, appIcon, setAppIcon, @"appIcon", kAppIconRaw, AppIconStyleDefault)
+BROOK_CHOICE(ChromeAutoHide, autoHide, setAutoHide, @"autoHide", kAutoHideRaw, ChromeAutoHideNever)
+BROOK_CHOICE(AddressDisplay, addressDisplay, setAddressDisplay, @"addressDisplay", kAddressRaw, AddressDisplayDomain)
+BROOK_CHOICE(LinkPreview, linkPreview, setLinkPreview, @"linkPreview", kLinkPreviewRaw, LinkPreviewLeft)
+BROOK_CHOICE(CloseSelects, closeSelects, setCloseSelects, @"closeSelects", kCloseSelectsRaw, CloseSelectsBelow)
+BROOK_CHOICE(LaunchBehavior, launchBehavior, setLaunchBehavior, @"launchBehavior", kLaunchRaw, LaunchBehaviorRestore)
+BROOK_CHOICE(PageSwipe, pageSwipe, setPageSwipe, @"pageSwipe", kSwipeRaw, PageSwipeBackForward)
+BROOK_CHOICE(CommandBarPosition, commandBarPosition, setCommandBarPosition, @"commandBarPosition", kCommandBarPositionRaw,
+             CommandBarPositionUpperThird)
+BROOK_FLAG(tabSubtitles, setTabSubtitles, @"tabSubtitles", NO)
+BROOK_FLAG(sidebarIconsOnly, setSidebarIconsOnly, @"sidebarIconsOnly", NO)
+BROOK_FLAG(linksOpenInBackground, setLinksOpenInBackground, @"linksOpenInBackground", YES)
+BROOK_FLAG(middleClickCloses, setMiddleClickCloses, @"middleClickCloses", YES)
+BROOK_FLAG(swipeSwitchesSpaces, setSwipeSwitchesSpaces, @"swipeSwitchesSpaces", YES)
+BROOK_FLAG(commandBarTabs, setCommandBarTabs, @"commandBarTabs", YES)
+BROOK_FLAG(commandBarHistory, setCommandBarHistory, @"commandBarHistory", YES)
+BROOK_FLAG(commandBarSuggestions, setCommandBarSuggestions, @"commandBarSuggestions", YES)
+
+#undef BROOK_CHOICE
+#undef BROOK_FLAG
+
++ (NSString *)accentColorHex {
+    NSString *s = [D() stringForKey:@"accentColor"];
+    return [NSColor brook_colorWithHex:s] ? s : @"#007AFF";
+}
++ (void)setAccentColorHex:(NSString *)v { [self store:v key:@"accentColor"]; }
+
++ (CGFloat)chromeOpacity { return clampD(number(@"chromeOpacity", 0.85), 0.3, 1); }
++ (void)setChromeOpacity:(CGFloat)v { [self store:@(v) key:@"chromeOpacity"]; }
+
++ (NSArray<NSNumber *> *)toolbarItems {
+    id raw = [D() objectForKey:@"toolbarItems"];
+    if (![raw isKindOfClass:NSArray.class]) return @[@(ToolbarItemBack), @(ToolbarItemForward), @(ToolbarItemReload)];
+    NSMutableArray *items = [NSMutableArray array];
+    for (id s in raw) {
+        NSInteger i = BrookIndex(kToolbarRaw, s);
+        if (i >= 0 && ![items containsObject:@(i)]) [items addObject:@(i)];
+    }
+    return items;
+}
++ (void)setToolbarItems:(NSArray<NSNumber *> *)v {
+    NSMutableArray *raw = [NSMutableArray array];
+    for (NSNumber *n in v) [raw addObject:ToolbarItemRaw((ToolbarItem)n.integerValue)];
+    [self store:raw key:@"toolbarItems"];
+}
+
 // Tabs
 
 + (NewTabPosition)newTabPosition { return (NewTabPosition)choice(@"newTabPosition", kNewTabPositionRaw, NewTabPositionTop); }
@@ -182,6 +317,15 @@ static const double kLegacyTintScale = 1.5;
     return s ? [[NSUUID alloc] initWithUUIDString:s] : nil;
 }
 + (void)setExternalLinksSpace:(NSUUID *)v { [self store:v.UUIDString key:@"externalLinksSpace"]; }
+
++ (NSString *)startPageURL { return [D() stringForKey:@"startPageURL"] ?: @""; }
++ (void)setStartPageURL:(NSString *)v { [self store:v key:@"startPageURL"]; }
+
++ (NSInteger)quitWarningTabs { return MAX(0, integer(@"quitWarningTabs", 0)); }
++ (void)setQuitWarningTabs:(NSInteger)v { [self store:@(v) key:@"quitWarningTabs"]; }
+
++ (NSInteger)commandBarRows { return (NSInteger)clampD(integer(@"commandBarRows", 8), 4, 12); }
++ (void)setCommandBarRows:(NSInteger)v { [self store:@(v) key:@"commandBarRows"]; }
 
 // Downloads
 
@@ -239,6 +383,39 @@ static const double kLegacyTintScale = 1.5;
 
 + (BOOL)sidebarHidden { return [D() boolForKey:@"sidebarHidden"]; }
 + (void)setSidebarHidden:(BOOL)v { [D() setBool:v forKey:@"sidebarHidden"]; }
+
++ (NSDictionary<NSString *, NSString *> *)shortcuts {
+    id v = [D() objectForKey:@"shortcuts"];
+    return [v isKindOfClass:NSDictionary.class] ? v : @{};
+}
++ (void)setShortcuts:(NSDictionary<NSString *, NSString *> *)v { [self store:v.count ? v : nil key:@"shortcuts"]; }
+
+// Appearance presets
+
++ (NSDictionary<NSString *, NSDictionary *> *)appearancePresets {
+    id v = [D() objectForKey:@"appearancePresets"];
+    return [v isKindOfClass:NSDictionary.class] ? v : @{};
+}
++ (void)setAppearancePresets:(NSDictionary<NSString *, NSDictionary *> *)v {
+    [self store:v.count ? v : nil key:@"appearancePresets"];
+}
+
++ (NSDictionary *)currentAppearance {
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    for (NSString *key in self.appearanceKeys) {
+        if (id v = [D() objectForKey:key]) d[key] = v;
+    }
+    return d;
+}
+
++ (void)applyAppearance:(NSDictionary *)values {
+    for (NSString *key in self.appearanceKeys) {
+        id v = values[key];
+        if (v && v != NSNull.null) [D() setObject:v forKey:key]; else [D() removeObjectForKey:key];
+    }
+    [D() removeObjectForKey:kLegacyTintKey];
+    [self notify:@"*"];
+}
 
 // Export / import
 
@@ -427,6 +604,19 @@ static char kControlActionKey;
     objc_setAssociatedObject(self, &kControlActionKey, action, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     self.target = action;
     self.action = @selector(run:);
+}
+
+@end
+
+@implementation NSMenuItem (BrookAction)
+
++ (instancetype)brook_itemWithTitle:(NSString *)title action:(void (^)(void))handler {
+    NSMenuItem *item = [[self alloc] initWithTitle:title action:@selector(run:) keyEquivalent:@""];
+    BrookControlAction *action = [BrookControlAction new];
+    action.handler = ^(id) { handler(); };
+    objc_setAssociatedObject(item, &kControlActionKey, action, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    item.target = action;
+    return item;
 }
 
 @end

@@ -66,6 +66,16 @@
 @end
 
 FOUNDATION_EXPORT BOOL BrookIsDark(NSAppearance *appearance);
+/// The chrome's font (Settings → Appearance → Font) at this size and weight.
+FOUNDATION_EXPORT NSFont *BrookUIFont(CGFloat size, NSFontWeight weight);
+/// The accent (Settings → Appearance → Accent): system, the current space's colour, or a custom one.
+FOUNDATION_EXPORT NSColor *BrookAccentColor(void);
+/// Shortcut strings ("⌘⇧k"): the modifier symbols in ⌃⌥⇧⌘ order, then the menu key equivalent.
+FOUNDATION_EXPORT NSString *BrookShortcutString(NSString *key, NSEventModifierFlags mods);
+/// Splits a shortcut string back up. NO for "" or garbage.
+FOUNDATION_EXPORT BOOL BrookParseShortcut(NSString *shortcut, NSString **key, NSEventModifierFlags *mods);
+/// For display: arrows, tab and delete as symbols, letters upper-case ("⌘⇧K").
+FOUNDATION_EXPORT NSString *BrookShortcutDisplay(NSString *shortcut);
 /// Trims spaces and tabs.
 FOUNDATION_EXPORT NSString *BrookTrim(NSString *s);
 /// Trims whitespace and newlines.

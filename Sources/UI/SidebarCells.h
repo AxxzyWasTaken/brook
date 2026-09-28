@@ -2,13 +2,16 @@
 
 @class BrowserTab;
 
-/// One tab row in the sidebar: favicon, title, spinner, close button on hover.
+/// One tab row in the sidebar: favicon, title (and site), spinner, close button.
+/// Reads the tab style, close-button, subtitle, loading and font settings when configured.
 @interface TabCellView : NSTableCellView
 /// Reuse identifier ("TabCell").
 @property (class, readonly) NSUserInterfaceItemIdentifier reuseID;
 @property (nonatomic, readonly, weak) BrowserTab *tab;
 @property (copy) void (^onClose)(BrowserTab *tab);
 @property (nonatomic) CGFloat fontSize;   // default 13
+/// The icon-only sidebar rail: just the favicon, centred.
+@property (nonatomic) BOOL iconOnly;
 - (void)configureWithTab:(BrowserTab *)tab selected:(BOOL)selected;
 /// Refreshes title/icon/spinner from the tab.
 - (void)updateWithTab:(BrowserTab *)tab;
@@ -19,6 +22,7 @@
 @interface NewTabCellView : NSTableCellView
 @property (class, readonly) NSUserInterfaceItemIdentifier reuseID;   // "NewTabCell"
 @property (nonatomic) CGFloat fontSize;   // default 13
+@property (nonatomic) BOOL iconOnly;
 @end
 
 /// Hairline between pinned and regular tabs.

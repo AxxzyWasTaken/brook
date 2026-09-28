@@ -14,6 +14,15 @@
 @property (copy) NSString *searchEngineID;
 /// When set, the space keeps its own cookies, logins and site data in this store.
 @property (strong) NSUUID *profileID;
+/// Per-space overrides of global settings (nil = use the global one).
+@property (strong) NSNumber *themeMode;        // ThemeMode
+@property (strong) NSNumber *tabLayout;        // TabLayout
+@property (strong) NSNumber *archiveHours;     // 0 = never
+@property (strong) NSNumber *pinnedClose;      // PinnedCloseBehavior
+@property (readonly) ThemeMode effectiveTheme;
+@property (readonly) TabLayout effectiveTabLayout;
+@property (readonly) NSInteger effectiveArchiveHours;
+@property (readonly) PinnedCloseBehavior effectivePinnedClose;
 @property (readonly) NSColor *color;
 @end
 

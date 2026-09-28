@@ -46,6 +46,10 @@
 - (void)showError:(NSError *)error;
 - (void)showFind;
 - (void)copyURL;
+/// The share menu for the current page, under anchor.
+- (void)shareFromView:(NSView *)anchor;
+/// Shows the page's article in a clean reading view, or goes back to the page.
+- (void)toggleReader;
 /// Steps to the next/previous zoom level and remembers it for the site, like Safari.
 - (void)zoomBy:(CGFloat)delta;
 /// Back to the default zoom.

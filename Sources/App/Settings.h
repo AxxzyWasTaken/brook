@@ -17,11 +17,45 @@ typedef NS_ENUM(NSInteger, PinnedCloseBehavior) {
     PinnedCloseBehaviorResetToHome, PinnedCloseBehaviorUnloadOnly, PinnedCloseBehaviorUnpin
 };
 typedef NS_ENUM(NSInteger, AutoplayPolicy) { AutoplayPolicyAllow, AutoplayPolicyBlockAudio, AutoplayPolicyBlockAll };
+/// How the selected and hovered tab are drawn. Every style shares one row layout.
+typedef NS_ENUM(NSInteger, TabStyle) { TabStyleCard, TabStyleFlat, TabStyleOutline, TabStyleAccentBar, TabStyleTinted };
+/// Where the accent (loading bar, accent-bar tabs, outlines, active downloads) comes from.
+typedef NS_ENUM(NSInteger, AccentSource) { AccentSourceSystem, AccentSourceSpace, AccentSourceCustom };
+typedef NS_ENUM(NSInteger, ChromeMaterial) { ChromeMaterialGlass, ChromeMaterialClear, ChromeMaterialSolid };
+typedef NS_ENUM(NSInteger, CardShadow) { CardShadowNone, CardShadowSoft, CardShadowStrong };
+typedef NS_ENUM(NSInteger, UIFontStyle) { UIFontStyleSystem, UIFontStyleRounded, UIFontStyleSerif, UIFontStyleMono };
+typedef NS_ENUM(NSInteger, CloseButtonVisibility) {
+    CloseButtonVisibilityHover, CloseButtonVisibilityAlways, CloseButtonVisibilityNever
+};
+typedef NS_ENUM(NSInteger, LoadingIndicator) { LoadingIndicatorBar, LoadingIndicatorSpinner, LoadingIndicatorNone };
+typedef NS_ENUM(NSInteger, AppIconStyle) { AppIconStyleDefault, AppIconStyleMono, AppIconStyleNight, AppIconStyleSpace };
+/// When the sidebar (or top bar) gets out of the way. Hidden chrome slides back in from the edge.
+typedef NS_ENUM(NSInteger, ChromeAutoHide) { ChromeAutoHideNever, ChromeAutoHideAlways, ChromeAutoHideFullScreen };
+typedef NS_ENUM(NSInteger, AddressDisplay) { AddressDisplayFull, AddressDisplayDomain, AddressDisplayPageTitle };
+typedef NS_ENUM(NSInteger, LinkPreview) { LinkPreviewOff, LinkPreviewLeft, LinkPreviewRight };
+/// Which tab is selected after the selected one closes.
+typedef NS_ENUM(NSInteger, CloseSelects) { CloseSelectsBelow, CloseSelectsAbove, CloseSelectsLastUsed };
+typedef NS_ENUM(NSInteger, LaunchBehavior) { LaunchBehaviorRestore, LaunchBehaviorFresh, LaunchBehaviorStartPage };
+typedef NS_ENUM(NSInteger, PageSwipe) { PageSwipeBackForward, PageSwipeOff };
+typedef NS_ENUM(NSInteger, CommandBarPosition) { CommandBarPositionUpperThird, CommandBarPositionTop };
+/// Buttons the toolbar row can show (Settings → Layout → Toolbar), stored by raw id in order.
+typedef NS_ENUM(NSInteger, ToolbarItem) {
+    ToolbarItemBack, ToolbarItemForward, ToolbarItemReload, ToolbarItemShare, ToolbarItemCopyLink,
+    ToolbarItemReader, ToolbarItemNewTab, ToolbarItemSiteSettings
+};
+/// A user agent a site can be shown with (Websites → per-site). Default = Brook's Safari UA.
+typedef NS_ENUM(NSInteger, UserAgentChoice) {
+    UserAgentChoiceSafari, UserAgentChoiceChrome, UserAgentChoiceFirefox, UserAgentChoiceMobile
+};
 
 /// Raw values ("system", "left", "nextToCurrent", "blockAudio", …) and display titles.
 /// Every enum's cases run 0..<count, so `for (NSInteger i = 0; i < count; i++)` lists them all.
 FOUNDATION_EXPORT const NSInteger ThemeModeCount, SidebarPositionCount, TabLayoutCount, TabDensityCount,
-    NewTabPositionCount, NewTabPageCount, PinnedCloseBehaviorCount, AutoplayPolicyCount;
+    NewTabPositionCount, NewTabPageCount, PinnedCloseBehaviorCount, AutoplayPolicyCount, TabStyleCount,
+    AccentSourceCount, ChromeMaterialCount, CardShadowCount, UIFontStyleCount, CloseButtonVisibilityCount,
+    LoadingIndicatorCount, AppIconStyleCount, ChromeAutoHideCount, AddressDisplayCount, LinkPreviewCount,
+    CloseSelectsCount, LaunchBehaviorCount, PageSwipeCount, CommandBarPositionCount, ToolbarItemCount,
+    UserAgentChoiceCount;
 FOUNDATION_EXPORT NSString *ThemeModeTitle(ThemeMode v);
 FOUNDATION_EXPORT NSString *SidebarPositionTitle(SidebarPosition v);
 FOUNDATION_EXPORT NSString *TabLayoutTitle(TabLayout v);
@@ -35,6 +69,35 @@ FOUNDATION_EXPORT NSString *AutoplayPolicyShortTitle(AutoplayPolicy v);
 FOUNDATION_EXPORT NSString *AutoplayPolicyRaw(AutoplayPolicy v);
 /// -1 when the string isn't a known policy.
 FOUNDATION_EXPORT NSInteger AutoplayPolicyFromRaw(NSString *raw);
+FOUNDATION_EXPORT NSString *TabStyleTitle(TabStyle v);
+FOUNDATION_EXPORT NSString *AccentSourceTitle(AccentSource v);
+FOUNDATION_EXPORT NSString *ChromeMaterialTitle(ChromeMaterial v);
+FOUNDATION_EXPORT NSString *CardShadowTitle(CardShadow v);
+FOUNDATION_EXPORT NSString *UIFontStyleTitle(UIFontStyle v);
+FOUNDATION_EXPORT NSString *CloseButtonVisibilityTitle(CloseButtonVisibility v);
+FOUNDATION_EXPORT NSString *LoadingIndicatorTitle(LoadingIndicator v);
+FOUNDATION_EXPORT NSString *AppIconStyleTitle(AppIconStyle v);
+FOUNDATION_EXPORT NSString *ChromeAutoHideTitle(ChromeAutoHide v);
+FOUNDATION_EXPORT NSString *AddressDisplayTitle(AddressDisplay v);
+FOUNDATION_EXPORT NSString *LinkPreviewTitle(LinkPreview v);
+FOUNDATION_EXPORT NSString *CloseSelectsTitle(CloseSelects v);
+FOUNDATION_EXPORT NSString *LaunchBehaviorTitle(LaunchBehavior v);
+FOUNDATION_EXPORT NSString *PageSwipeTitle(PageSwipe v);
+FOUNDATION_EXPORT NSString *CommandBarPositionTitle(CommandBarPosition v);
+FOUNDATION_EXPORT NSString *ToolbarItemTitle(ToolbarItem v);
+FOUNDATION_EXPORT NSString *ToolbarItemSymbol(ToolbarItem v);
+FOUNDATION_EXPORT NSString *ToolbarItemRaw(ToolbarItem v);
+FOUNDATION_EXPORT NSString *UserAgentChoiceTitle(UserAgentChoice v);
+FOUNDATION_EXPORT NSString *UserAgentChoiceRaw(UserAgentChoice v);
+/// -1 when the string isn't a known raw value.
+FOUNDATION_EXPORT NSInteger UserAgentChoiceFromRaw(NSString *raw);
+/// Theme / tab layout / pinned-close raw strings, for per-space overrides. -1 when unknown or nil.
+FOUNDATION_EXPORT NSString *ThemeModeRaw(ThemeMode v);
+FOUNDATION_EXPORT NSInteger ThemeModeFromRaw(NSString *raw);
+FOUNDATION_EXPORT NSString *TabLayoutRaw(TabLayout v);
+FOUNDATION_EXPORT NSInteger TabLayoutFromRaw(NSString *raw);
+FOUNDATION_EXPORT NSString *PinnedCloseBehaviorRaw(PinnedCloseBehavior v);
+FOUNDATION_EXPORT NSInteger PinnedCloseBehaviorFromRaw(NSString *raw);
 
 // MARK: - Settings
 
@@ -61,6 +124,26 @@ FOUNDATION_EXPORT NSInteger AutoplayPolicyFromRaw(NSString *raw);
 @property (class) NSInteger favoritesColumns;  // 2…6, default 4
 /// Top tabs squeeze down to icons to fit, instead of keeping readable titles and scrolling.
 @property (class) BOOL topTabsShrink;          // default NO
+@property (class) TabStyle tabStyle;
+@property (class) AccentSource accentSource;
+@property (class, copy) NSString *accentColorHex;   // AccentSourceCustom; default system blue
+/// Sidebar / top bar surface, and how opaque it is (0.3…1, only for Solid).
+@property (class) ChromeMaterial chromeMaterial;
+@property (class) CGFloat chromeOpacity;       // default 0.85
+@property (class) CardShadow cardShadow;
+@property (class) UIFontStyle uiFont;
+@property (class) CloseButtonVisibility closeButtons;
+/// Sidebar tabs show the site under the title.
+@property (class) BOOL tabSubtitles;           // default NO
+/// The sidebar shrinks to a rail of icons.
+@property (class) BOOL sidebarIconsOnly;       // default NO
+@property (class) LoadingIndicator loadingIndicator;
+@property (class) AppIconStyle appIcon;
+@property (class) ChromeAutoHide autoHide;
+@property (class) AddressDisplay addressDisplay;
+@property (class) LinkPreview linkPreview;     // default left
+/// Toolbar buttons beside the traffic lights, in order (ToolbarItem values).
+@property (class, copy) NSArray<NSNumber *> *toolbarItems;
 
 // Tabs
 @property (class) NewTabPosition newTabPosition;
@@ -71,6 +154,25 @@ FOUNDATION_EXPORT NSInteger AutoplayPolicyFromRaw(NSString *raw);
 @property (class) NSInteger hibernateMinutes;  // default 30, 0 = never
 /// Space that links from other apps open in. nil = the current space.
 @property (class, copy) NSUUID *externalLinksSpace;
+@property (class) CloseSelects closeSelects;
+/// ⌘-click opens links in a background tab (⇧ flips it). NO = foreground.
+@property (class) BOOL linksOpenInBackground;  // default YES
+/// Middle-clicking a tab closes it.
+@property (class) BOOL middleClickCloses;      // default YES
+@property (class) PageSwipe pageSwipe;
+/// Two-finger swipe across the tab list switches spaces.
+@property (class) BOOL swipeSwitchesSpaces;    // default YES
+@property (class) LaunchBehavior launchBehavior;
+@property (class, copy) NSString *startPageURL;
+/// Ask before quitting with at least this many open tabs. 0 = never.
+@property (class) NSInteger quitWarningTabs;   // default 0
+
+// Command bar
+@property (class) BOOL commandBarTabs;         // default YES
+@property (class) BOOL commandBarHistory;      // default YES
+@property (class) BOOL commandBarSuggestions;  // default YES
+@property (class) NSInteger commandBarRows;    // 4…12, default 8
+@property (class) CommandBarPosition commandBarPosition;
 
 // Downloads
 @property (class, copy) NSURL *downloadFolder;
@@ -94,6 +196,18 @@ FOUNDATION_EXPORT NSInteger AutoplayPolicyFromRaw(NSString *raw);
 // Window state (not exported, no notification)
 @property (class) CGFloat sidebarWidth;        // default 250
 @property (class) BOOL sidebarHidden;
+
+/// Menu shortcut overrides: menu action selector name → "⌘⇧K"-style string ("" = no shortcut).
+@property (class, copy) NSDictionary<NSString *, NSString *> *shortcuts;
+
+// Appearance presets
+/// The keys a preset captures (everything under Appearance).
+@property (class, readonly) NSArray<NSString *> *appearanceKeys;
+/// Saved presets, name → values of appearanceKeys.
+@property (class, copy) NSDictionary<NSString *, NSDictionary *> *appearancePresets;
+@property (class, readonly) NSDictionary *currentAppearance;
+/// Sets every appearance key from the dictionary (missing ones go back to default).
++ (void)applyAppearance:(NSDictionary *)values;
 
 // Export / import
 + (NSData *)exportData:(NSError **)error;
@@ -137,4 +251,9 @@ FOUNDATION_EXPORT NSInteger AutoplayPolicyFromRaw(NSString *raw);
 @interface NSControl (BrookAction)
 /// Sets the control's target/action to a block (retained by the control).
 - (void)brook_onAction:(void (^)(id sender))handler;
+@end
+
+@interface NSMenuItem (BrookAction)
+/// A menu item that runs a block (retained by the item).
++ (instancetype)brook_itemWithTitle:(NSString *)title action:(void (^)(void))handler;
 @end

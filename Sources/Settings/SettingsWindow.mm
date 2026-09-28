@@ -8,6 +8,9 @@
 @interface AppearancePane : RebuildingPane
 @end
 
+@interface LayoutPane : RebuildingPane
+@end
+
 @interface TabsPane : RebuildingPane <NSTableViewDataSource, NSTableViewDelegate>
 @end
 
@@ -23,6 +26,9 @@
 @interface AdvancedPane : RebuildingPane
 @end
 
+@interface ShortcutsPane : RebuildingPane
+@end
+
 /// Titles of every case of an enum that runs 0..<count.
 static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInteger)) {
     NSMutableArray *a = [NSMutableArray arrayWithCapacity:(NSUInteger)count];
@@ -34,10 +40,148 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
 
 /// Resizes the window itself, animated and as soon as a pane is picked, keeping the top edge put.
 /// NSTabViewController's own resize waits for the crossfade to finish and then jumps.
-@interface SettingsTabViewController : NSTabViewController
+@interface SettingsTabViewController : NSTabViewController <NSSearchFieldDelegate>
 @end
 
-@implementation SettingsTabViewController
+static NSToolbarItemIdentifier const kSettingsSearchItem = @"BrookSettingsSearch";
+
+/// One place a search hit: the pane it's in and the control or label that matched.
+struct SettingsMatch {
+    NSInteger pane;
+    __weak NSView *view;
+};
+
+@implementation SettingsTabViewController {
+    NSSearchToolbarItem *_searchItem;
+    std::vector<SettingsMatch> _matches;
+    size_t _matchIndex;
+    NSMutableArray<NSView *> *_highlighted;
+}
+
+// MARK: Search
+
+// The tab view controller is the toolbar's delegate; the search field goes at the trailing end.
+- (NSArray<NSToolbarItemIdentifier> *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar {
+    return [[super toolbarDefaultItemIdentifiers:toolbar]
+        arrayByAddingObjectsFromArray:@[NSToolbarFlexibleSpaceItemIdentifier, kSettingsSearchItem]];
+}
+
+- (NSArray<NSToolbarItemIdentifier> *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar {
+    return [[super toolbarAllowedItemIdentifiers:toolbar]
+        arrayByAddingObjectsFromArray:@[NSToolbarFlexibleSpaceItemIdentifier, kSettingsSearchItem]];
+}
+
+- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar itemForItemIdentifier:(NSToolbarItemIdentifier)identifier
+    willBeInsertedIntoToolbar:(BOOL)flag {
+    if (![identifier isEqualToString:kSettingsSearchItem]) {
+        return [super toolbar:toolbar itemForItemIdentifier:identifier willBeInsertedIntoToolbar:flag];
+    }
+    if (!_searchItem) {
+        _searchItem = [[NSSearchToolbarItem alloc] initWithItemIdentifier:kSettingsSearchItem];
+        _searchItem.searchField.placeholderString = @"Search settings";
+        _searchItem.searchField.delegate = self;
+        _searchItem.searchField.sendsWholeSearchString = NO;
+        _searchItem.preferredWidthForSearchField = 160;
+    }
+    return _searchItem;
+}
+
+/// Every piece of text a person might search for in a view: labels, checkbox and popup titles,
+/// segment labels.
+static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text)) {
+    if (view.isHidden) return;
+    if ([view isKindOfClass:NSPopUpButton.class]) {
+        NSPopUpButton *p = (NSPopUpButton *)view;
+        found(view, [p.itemTitles componentsJoinedByString:@" "]);
+        return;
+    }
+    if ([view isKindOfClass:NSSegmentedControl.class]) {
+        NSSegmentedControl *c = (NSSegmentedControl *)view;
+        NSMutableArray *labels = [NSMutableArray array];
+        for (NSInteger i = 0; i < c.segmentCount; i++) if (NSString *l = [c labelForSegment:i]) [labels addObject:l];
+        found(view, [labels componentsJoinedByString:@" "]);
+        return;
+    }
+    if ([view isKindOfClass:NSButton.class]) { found(view, ((NSButton *)view).title); return; }
+    if ([view isKindOfClass:NSTextField.class]) {
+        NSTextField *f = (NSTextField *)view;
+        if (!f.isEditable) found(view, f.stringValue);
+        return;
+    }
+    if ([view isKindOfClass:NSTableView.class]) return;   // data rows, not settings
+    for (NSView *sub in view.subviews) CollectText(sub, found);
+}
+
+- (void)controlTextDidChange:(NSNotification *)note { [self search:NO]; }
+
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)command {
+    if (command == @selector(insertNewline:)) { [self search:YES]; return YES; }
+    if (command == @selector(cancelOperation:)) {
+        _searchItem.searchField.stringValue = @"";
+        [self search:NO];
+        return NO;
+    }
+    return NO;
+}
+
+/// Highlights what matches in the best pane; Return steps through the matches, pane by pane.
+- (void)search:(BOOL)next {
+    for (NSView *v in _highlighted) v.layer.backgroundColor = nil;
+    _highlighted = [NSMutableArray array];
+    NSString *query = BrookTrim(_searchItem.searchField.stringValue);
+    if (!next) {
+        _matches.clear();
+        _matchIndex = 0;
+        if (query.length == 0) return;
+        NSArray<NSTabViewItem *> *items = self.tabViewItems;
+        NSArray<NSString *> *words = [query componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        for (NSInteger i = 0; i < (NSInteger)items.count; i++) {
+            NSViewController *vc = items[(NSUInteger)i].viewController;
+            NSString *paneTitle = items[(NSUInteger)i].label;
+            CollectText(vc.view, ^(NSView *view, NSString *text) {
+                NSString *haystack = [paneTitle stringByAppendingFormat:@" %@", text];
+                for (NSString *w in words) {
+                    if (w.length && [haystack rangeOfString:w options:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch].location == NSNotFound) return;
+                }
+                // The text itself has to match something typed, not just the pane's name.
+                BOOL own = NO;
+                for (NSString *w in words) own = own || (w.length && [text rangeOfString:w options:NSCaseInsensitiveSearch].location != NSNotFound);
+                if (own) self->_matches.push_back({i, view});
+            });
+        }
+        // Stay on the current pane when it has a match.
+        NSInteger current = self.selectedTabViewItemIndex;
+        for (size_t m = 0; m < _matches.size(); m++) {
+            if (_matches[m].pane == current) { _matchIndex = m; break; }
+        }
+    } else if (!_matches.empty()) {
+        // Next pane that has matches.
+        NSInteger pane = _matches[_matchIndex].pane;
+        size_t m = _matchIndex;
+        do { m = (m + 1) % _matches.size(); } while (_matches[m].pane == pane && m != _matchIndex);
+        _matchIndex = m;
+    }
+    if (_matches.empty()) { if (query.length) NSBeep(); return; }
+    NSInteger pane = _matches[_matchIndex].pane;
+    if (self.selectedTabViewItemIndex != pane) {
+        self.selectedTabViewItemIndex = pane;
+        NSSearchField *field = _searchItem.searchField;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [field.window makeFirstResponder:field];
+            field.currentEditor.selectedRange = NSMakeRange(field.stringValue.length, 0);
+        });
+    }
+    NSColor *accent = [NSColor.controlAccentColor colorWithAlphaComponent:0.22];
+    for (const SettingsMatch &m : _matches) {
+        NSView *v = m.view;
+        if (m.pane != pane || !v) continue;
+        v.wantsLayer = YES;
+        v.layer.cornerRadius = 5;
+        v.layer.backgroundColor = accent.CGColor;
+        [_highlighted addObject:v];
+    }
+    [_matches[_matchIndex].view scrollRectToVisible:_matches[_matchIndex].view.bounds];
+}
 
 - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item {
     [super tabView:tabView didSelectTabViewItem:item];
@@ -87,10 +231,12 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
     NSArray<NSArray *> *panes = @[
         @[@"General", @"gearshape", [GeneralPane new]],
         @[@"Appearance", @"paintbrush", [AppearancePane new]],
+        @[@"Layout", @"sidebar.left", [LayoutPane new]],
         @[@"Tabs", @"square.on.square", [TabsPane new]],
         @[@"Search", @"magnifyingglass", [SearchPane new]],
         @[@"Websites", @"globe", [WebsitesPane new]],
         @[@"Boosts", @"wand.and.stars", [BoostsPane new]],
+        @[@"Shortcuts", @"command", [ShortcutsPane new]],
         @[@"Advanced", @"gearshape.2", [AdvancedPane new]]
     ];
     for (NSArray *p in panes) {
@@ -138,10 +284,31 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
 
 - (NSView *)makeContent {
     SettingsForm *f = [SettingsForm new];
-    [f row:@"Appearance" view:[Controls segmentedWithTitles:EnumTitles(ThemeModeCount, ^(NSInteger i) { return ThemeModeTitle((ThemeMode)i); })
-                                              selectedIndex:Settings.theme
-                                                   onChange:^(NSInteger i) { Settings.theme = (ThemeMode)i; }]];
+    NSTextField *startURL = [Controls field:Settings.startPageURL placeholder:@"https://example.com" width:260
+                                   onCommit:^(NSString *v) { Settings.startPageURL = v; }];
+    startURL.enabled = Settings.launchBehavior == LaunchBehaviorStartPage;
+    __weak NSTextField *weakStart = startURL;
+    [f row:@"On launch" views:@[
+        [Controls popupWithTitles:EnumTitles(LaunchBehaviorCount, ^(NSInteger i) { return LaunchBehaviorTitle((LaunchBehavior)i); })
+                    selectedIndex:Settings.launchBehavior
+                         onChange:^(NSInteger i) {
+            Settings.launchBehavior = (LaunchBehavior)i;
+            weakStart.enabled = i == LaunchBehaviorStartPage;
+        }],
+        startURL
+    ]];
+    [f note:@"Pinned tabs and favorites always come back."];
+    static const std::vector<NSInteger> quitOptions = {0, 2, 5, 10, 20, 50};
+    NSMutableArray<NSString *> *quitTitles = [NSMutableArray array];
+    for (NSInteger n : quitOptions) {
+        [quitTitles addObject:n == 0 ? @"Never" : [NSString stringWithFormat:@"With %ld or more tabs open", (long)n]];
+    }
+    auto quitIt = std::find(quitOptions.begin(), quitOptions.end(), Settings.quitWarningTabs);
+    [f row:@"Ask before quitting" view:[Controls popupWithTitles:quitTitles
+                                                   selectedIndex:quitIt == quitOptions.end() ? 0 : quitIt - quitOptions.begin()
+                                                        onChange:^(NSInteger i) { Settings.quitWarningTabs = quitOptions[(size_t)i]; }]];
 
+    [f separator];
     NSTextField *customURL = [Controls field:Settings.newTabURL placeholder:@"https://example.com" width:260
                                     onCommit:^(NSString *v) { Settings.newTabURL = v; }];
     // Disabled rather than hidden, so picking an option doesn't resize the window.
@@ -218,7 +385,162 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
 
 // MARK: - Appearance
 
+/// A small colour well that reports its colour as hex while it's being picked.
+static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
+    NSColorWell *well = [NSColorWell colorWellWithStyle:NSColorWellStyleMinimal];
+    well.color = [NSColor brook_colorWithHex:hex] ?: NSColor.controlAccentColor;
+    [well.widthAnchor constraintEqualToConstant:44].active = YES;
+    [well brook_onAction:^(id c) { onChange(((NSColorWell *)c).color.brook_hexString); }];
+    return well;
+}
+
 @implementation AppearancePane
+
+- (instancetype)initWithNibName:(NSNibName)nib bundle:(NSBundle *)bundle {
+    if ((self = [super initWithNibName:nib bundle:bundle])) self.rebuildKeys = [NSSet setWithObjects:@"*", @"appearancePresets", nil];
+    return self;
+}
+
+- (NSView *)makeContent {
+    SettingsForm *f = [SettingsForm new];
+    [f row:@"Appearance" view:[Controls segmentedWithTitles:EnumTitles(ThemeModeCount, ^(NSInteger i) { return ThemeModeTitle((ThemeMode)i); })
+                                              selectedIndex:Settings.theme
+                                                   onChange:^(NSInteger i) { Settings.theme = (ThemeMode)i; }]];
+    [f note:@"A space can have its own: right-click its dot and choose Edit Space."];
+
+    // Presets: every look-related setting in one go.
+    NSDictionary<NSString *, NSDictionary *> *presets = Settings.appearancePresets;
+    NSArray<NSString *> *names = [presets.allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+    NSPopUpButton *presetMenu = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
+    [presetMenu addItemWithTitle:@"Presets"];
+    NSMenu *menu = presetMenu.menu;
+    __weak AppearancePane *weakSelf = self;
+    for (NSString *name in names) {
+        NSDictionary *values = presets[name];
+        [menu addItem:[NSMenuItem brook_itemWithTitle:name action:^{ [Settings applyAppearance:values]; }]];
+    }
+    if (names.count) [menu addItem:NSMenuItem.separatorItem];
+    [menu addItem:[NSMenuItem brook_itemWithTitle:@"Save Current Look…" action:^{ [weakSelf promptSavePreset]; }]];
+    [menu addItem:[NSMenuItem brook_itemWithTitle:@"Copy Current Look" action:^{
+        NSData *json = [NSJSONSerialization dataWithJSONObject:Settings.currentAppearance options:NSJSONWritingSortedKeys error:nil];
+        [NSPasteboard.generalPasteboard clearContents];
+        [NSPasteboard.generalPasteboard setString:[[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]
+                                          forType:NSPasteboardTypeString];
+    }]];
+    [menu addItem:[NSMenuItem brook_itemWithTitle:@"Paste Look" action:^{
+        NSString *s = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
+        id v = s ? [NSJSONSerialization JSONObjectWithData:[s dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
+        if ([v isKindOfClass:NSDictionary.class]) [Settings applyAppearance:v]; else NSBeep();
+    }]];
+    if (names.count) {
+        NSMenu *remove = [NSMenu new];
+        for (NSString *name in names) {
+            [remove addItem:[NSMenuItem brook_itemWithTitle:name action:^{
+                NSMutableDictionary *all = [Settings.appearancePresets mutableCopy];
+                [all removeObjectForKey:name];
+                Settings.appearancePresets = all;
+            }]];
+        }
+        NSMenuItem *removeItem = [[NSMenuItem alloc] initWithTitle:@"Delete Preset" action:nil keyEquivalent:@""];
+        removeItem.submenu = remove;
+        [menu addItem:removeItem];
+    }
+    [f row:@"Look" view:presetMenu];
+    [f note:@"Save the current look to switch back later, or copy it to share."];
+
+    [f separator];
+    [f row:@"Tab style" view:[Controls popupWithTitles:EnumTitles(TabStyleCount, ^(NSInteger i) { return TabStyleTitle((TabStyle)i); })
+                                         selectedIndex:Settings.tabStyle
+                                              onChange:^(NSInteger i) { Settings.tabStyle = (TabStyle)i; }]];
+    NSColorWell *accentWell = HexWell(Settings.accentColorHex, ^(NSString *hex) { Settings.accentColorHex = hex; });
+    accentWell.enabled = Settings.accentSource == AccentSourceCustom;
+    __weak NSColorWell *weakWell = accentWell;
+    NSSegmentedControl *accent = [Controls segmentedWithTitles:EnumTitles(AccentSourceCount, ^(NSInteger i) { return AccentSourceTitle((AccentSource)i); })
+                                                 selectedIndex:Settings.accentSource
+                                                      onChange:^(NSInteger i) {
+        Settings.accentSource = (AccentSource)i;
+        weakWell.enabled = i == AccentSourceCustom;
+    }];
+    NSStackView *accentRow = [NSStackView stackViewWithViews:@[accent, accentWell]];
+    accentRow.spacing = 8;
+    [f row:@"Accent" view:accentRow];
+    [f note:@"Used for the loading bar, outlines and accent-bar tabs."];
+    [f row:@"Font" view:[Controls popupWithTitles:EnumTitles(UIFontStyleCount, ^(NSInteger i) { return UIFontStyleTitle((UIFontStyle)i); })
+                                    selectedIndex:Settings.uiFont
+                                         onChange:^(NSInteger i) { Settings.uiFont = (UIFontStyle)i; }]];
+    [f row:@"Space colour strength" view:[Controls sliderWithMin:0 max:1.5 value:(double)Settings.tintStrength width:220 ticks:0
+                                                          format:^NSString *(double v) {
+        return [NSString stringWithFormat:@"%ld%%", (long)round(v * 100)];
+    } onChange:^(double v) { Settings.tintStrength = (CGFloat)v; }]];
+
+    [f separator];
+    NSView *opacity = [Controls sliderWithMin:0.3 max:1 value:(double)Settings.chromeOpacity width:160 ticks:0
+                                       format:^NSString *(double v) { return [NSString stringWithFormat:@"%ld%%", (long)round(v * 100)]; }
+                                     onChange:^(double v) { Settings.chromeOpacity = (CGFloat)v; }];
+    for (NSView *v in opacity.subviews) if ([v isKindOfClass:NSControl.class]) ((NSControl *)v).enabled = Settings.chromeMaterial == ChromeMaterialSolid;
+    __weak NSView *weakOpacity = opacity;
+    [f row:@"Sidebar material" views:@[
+        [Controls segmentedWithTitles:EnumTitles(ChromeMaterialCount, ^(NSInteger i) { return ChromeMaterialTitle((ChromeMaterial)i); })
+                        selectedIndex:Settings.chromeMaterial
+                             onChange:^(NSInteger i) {
+            Settings.chromeMaterial = (ChromeMaterial)i;
+            for (NSView *v in weakOpacity.subviews) if ([v isKindOfClass:NSControl.class]) ((NSControl *)v).enabled = i == ChromeMaterialSolid;
+        }],
+        opacity
+    ]];
+    [f row:@"Window margin" view:[Controls sliderWithMin:0 max:20 value:(double)Settings.pageMargin width:220 ticks:11
+                                                  format:^NSString *(double v) {
+        return v == 0 ? @"None" : [NSString stringWithFormat:@"%ld pt", (long)v];
+    } onChange:^(double v) { Settings.pageMargin = (CGFloat)v; }]];
+    [f row:@"Corner radius" view:[Controls sliderWithMin:0 max:24 value:(double)Settings.cornerRadius width:220 ticks:13
+                                                  format:^NSString *(double v) {
+        return v == 0 ? @"Square" : [NSString stringWithFormat:@"%ld pt", (long)v];
+    } onChange:^(double v) { Settings.cornerRadius = (CGFloat)v; }]];
+    [f row:@"Page shadow" view:[Controls segmentedWithTitles:EnumTitles(CardShadowCount, ^(NSInteger i) { return CardShadowTitle((CardShadow)i); })
+                                               selectedIndex:Settings.cardShadow
+                                                    onChange:^(NSInteger i) { Settings.cardShadow = (CardShadow)i; }]];
+    [f note:@"Set margin and radius to zero for an edge-to-edge page with no floating card."];
+
+    [f separator];
+    [f row:@"App icon" view:[Controls popupWithTitles:EnumTitles(AppIconStyleCount, ^(NSInteger i) { return AppIconStyleTitle((AppIconStyle)i); })
+                                        selectedIndex:Settings.appIcon
+                                             onChange:^(NSInteger i) { Settings.appIcon = (AppIconStyle)i; }]];
+    return [f view];
+}
+
+- (void)promptSavePreset {
+    NSWindow *window = self.view.window;
+    if (!window) return;
+    NSAlert *alert = [NSAlert new];
+    alert.messageText = @"Save the current look";
+    alert.informativeText = @"Saves everything under Appearance and Layout. A preset with the same name is replaced.";
+    NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 240, 24)];
+    field.placeholderString = @"Name";
+    alert.accessoryView = field;
+    [alert addButtonWithTitle:@"Save"];
+    [alert addButtonWithTitle:@"Cancel"];
+    alert.window.initialFirstResponder = field;
+    [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse r) {
+        NSString *name = BrookTrim(field.stringValue);
+        if (r != NSAlertFirstButtonReturn || name.length == 0) return;
+        NSMutableDictionary *all = [Settings.appearancePresets mutableCopy];
+        all[name] = Settings.currentAppearance;
+        Settings.appearancePresets = all;
+    }];
+}
+
+@end
+
+// MARK: - Layout
+
+@implementation LayoutPane {
+    NSPopUpButton *_hidePopup;
+    id<NSObject> _hideObserver;
+}
+
+- (void)dealloc {
+    if (_hideObserver) [NSNotificationCenter.defaultCenter removeObserver:_hideObserver];
+}
 
 - (NSView *)makeContent {
     SettingsForm *f = [SettingsForm new];
@@ -228,24 +550,28 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
     [f note:@"Top puts the address bar and tabs above the page, with favorites beside the address bar. Compact fits it all in one row: click the selected tab to see and edit its address."];
     [f row:@"Many top tabs" view:[Controls check:@"Shrink to fit instead of scrolling" on:Settings.topTabsShrink
                                          onChange:^(BOOL on) { Settings.topTabsShrink = on; }]];
-    [f note:@"Off keeps every title readable and scrolls the tab bar sideways. On squeezes tabs down to just their icons."];
     [f row:@"Sidebar" view:[Controls segmentedWithTitles:EnumTitles(SidebarPositionCount, ^(NSInteger i) { return SidebarPositionTitle((SidebarPosition)i); })
                                            selectedIndex:Settings.sidebarPosition
                                                 onChange:^(NSInteger i) { Settings.sidebarPosition = (SidebarPosition)i; }]];
-    [f row:@"Window margin" view:[Controls sliderWithMin:0 max:20 value:(double)Settings.pageMargin width:220 ticks:11
-                                                  format:^NSString *(double v) {
-        return v == 0 ? @"None" : [NSString stringWithFormat:@"%ld pt", (long)v];
-    } onChange:^(double v) { Settings.pageMargin = (CGFloat)v; }]];
-    [f row:@"Corner radius" view:[Controls sliderWithMin:0 max:24 value:(double)Settings.cornerRadius width:220 ticks:13
-                                                  format:^NSString *(double v) {
-        return v == 0 ? @"Square" : [NSString stringWithFormat:@"%ld pt", (long)v];
-    } onChange:^(double v) { Settings.cornerRadius = (CGFloat)v; }]];
-    [f note:@"Set both to zero for an edge-to-edge page with no floating card."];
-    [f row:@"Space colour strength" view:[Controls sliderWithMin:0 max:1.5 value:(double)Settings.tintStrength width:220 ticks:0
-                                                          format:^NSString *(double v) {
-        return [NSString stringWithFormat:@"%ld%%", (long)round(v * 100)];
-    } onChange:^(double v) { Settings.tintStrength = (CGFloat)v; }]];
-    [f note:@"Each space's colour can be any colour — right-click a space dot and choose Edit Space."];
+    _hidePopup = [Controls popupWithTitles:EnumTitles(ChromeAutoHideCount, ^(NSInteger i) { return ChromeAutoHideTitle((ChromeAutoHide)i); })
+                             selectedIndex:Settings.autoHide
+                                  onChange:^(NSInteger i) { Settings.autoHide = (ChromeAutoHide)i; }];
+    [f row:@"Hide sidebar" view:_hidePopup];
+    [f note:@"Same as View → Hide Sidebar (⌘S). A hidden sidebar slides back when the pointer reaches the window's edge."];
+    // ⌘S changes this setting too; keep the menu in step without rebuilding the pane.
+    if (!_hideObserver) {
+        __weak LayoutPane *weakSelf = self;
+        _hideObserver = [NSNotificationCenter.defaultCenter addObserverForName:BrookSettingsDidChangeNotification
+                                                                        object:nil
+                                                                         queue:NSOperationQueue.mainQueue
+                                                                    usingBlock:^(NSNotification *note) {
+            if (![note.userInfo[@"key"] isEqual:@"autoHide"]) return;
+            LayoutPane *self_ = weakSelf;
+            if (self_) [self_->_hidePopup selectItemAtIndex:Settings.autoHide];
+        }];
+    }
+    [f row:@"" view:[Controls check:@"Icons only (a narrow rail)" on:Settings.sidebarIconsOnly
+                           onChange:^(BOOL on) { Settings.sidebarIconsOnly = on; }]];
 
     [f separator];
     [f row:@"Tab rows" view:[Controls segmentedWithTitles:EnumTitles(TabDensityCount, ^(NSInteger i) { return TabDensityTitle((TabDensity)i); })
@@ -255,16 +581,56 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
                                                   format:^NSString *(double v) {
         return [NSString stringWithFormat:@"%ld pt", (long)v];
     } onChange:^(double v) { Settings.tabFontSize = (CGFloat)v; }]];
+    [f row:@"" view:[Controls check:@"Show the site under each tab's title" on:Settings.tabSubtitles
+                           onChange:^(BOOL on) { Settings.tabSubtitles = on; }]];
+    [f row:@"Close buttons" view:[Controls segmentedWithTitles:EnumTitles(CloseButtonVisibilityCount, ^(NSInteger i) { return CloseButtonVisibilityTitle((CloseButtonVisibility)i); })
+                                                 selectedIndex:Settings.closeButtons
+                                                      onChange:^(NSInteger i) { Settings.closeButtons = (CloseButtonVisibility)i; }]];
+    [f row:@"While loading" view:[Controls segmentedWithTitles:EnumTitles(LoadingIndicatorCount, ^(NSInteger i) { return LoadingIndicatorTitle((LoadingIndicator)i); })
+                                                 selectedIndex:Settings.loadingIndicator
+                                                      onChange:^(NSInteger i) { Settings.loadingIndicator = (LoadingIndicator)i; }]];
+
+    [f separator];
     [f row:@"Show in sidebar" views:@[
         [Controls check:@"Address bar" on:Settings.showAddressBar onChange:^(BOOL on) { Settings.showAddressBar = on; }],
         [Controls check:@"Favorites" on:Settings.showFavorites onChange:^(BOOL on) { Settings.showFavorites = on; }],
         [Controls check:@"Spaces and tools bar" on:Settings.showBottomBar onChange:^(BOOL on) { Settings.showBottomBar = on; }]
     ]];
-    [f note:@"With the address bar hidden, press ⌘L to see or edit the address."];
     [f row:@"Favorites per row" view:[Controls sliderWithMin:2 max:6 value:(double)Settings.favoritesColumns width:220 ticks:5
                                                       format:^NSString *(double v) {
         return [NSString stringWithFormat:@"%ld", (long)v];
     } onChange:^(double v) { Settings.favoritesColumns = (NSInteger)v; }]];
+    [f row:@"Address shows" view:[Controls popupWithTitles:EnumTitles(AddressDisplayCount, ^(NSInteger i) { return AddressDisplayTitle((AddressDisplay)i); })
+                                             selectedIndex:Settings.addressDisplay
+                                                  onChange:^(NSInteger i) { Settings.addressDisplay = (AddressDisplay)i; }]];
+    [f row:@"Link previews" view:[Controls segmentedWithTitles:EnumTitles(LinkPreviewCount, ^(NSInteger i) { return LinkPreviewTitle((LinkPreview)i); })
+                                                 selectedIndex:Settings.linkPreview
+                                                      onChange:^(NSInteger i) { Settings.linkPreview = (LinkPreview)i; }]];
+    [f note:@"Where a link's address shows while the pointer is over it."];
+
+    // Toolbar: a checkbox per button, in its saved order; the rest follow in their default order.
+    NSArray<NSNumber *> *items = Settings.toolbarItems;
+    NSMutableArray<NSNumber *> *order = [items mutableCopy];
+    for (NSInteger i = 0; i < ToolbarItemCount; i++) if (![order containsObject:@(i)]) [order addObject:@(i)];
+    NSMutableArray<NSView *> *checks = [NSMutableArray array];
+    for (NSNumber *n in order) {
+        ToolbarItem item = (ToolbarItem)n.integerValue;
+        [checks addObject:[Controls check:ToolbarItemTitle(item) on:[items containsObject:n] onChange:^(BOOL on) {
+            NSMutableArray *now = [Settings.toolbarItems mutableCopy];
+            if (on) [now addObject:@(item)]; else [now removeObject:@(item)];
+            Settings.toolbarItems = now;
+        }]];
+    }
+    NSGridView *grid = [NSGridView gridViewWithNumberOfColumns:4 rows:0];
+    for (NSUInteger i = 0; i < checks.count; i += 4) {
+        NSMutableArray *row = [NSMutableArray array];
+        for (NSUInteger j = i; j < i + 4; j++) [row addObject:j < checks.count ? checks[j] : NSGridCell.emptyContentView];
+        [grid addRowWithViews:row];
+    }
+    grid.rowSpacing = 6;
+    grid.columnSpacing = 14;
+    [f row:@"Toolbar buttons" view:grid];
+    [f note:@"Shown in the order you turn them on, beside the traffic lights."];
     return [f view];
 }
 
@@ -284,7 +650,24 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
     [f row:@"Closing a pinned tab" view:[Controls popupWithTitles:EnumTitles(PinnedCloseBehaviorCount, ^(NSInteger i) { return PinnedCloseBehaviorTitle((PinnedCloseBehavior)i); })
                                                     selectedIndex:Settings.pinnedClose
                                                          onChange:^(NSInteger i) { Settings.pinnedClose = (PinnedCloseBehavior)i; }]];
+    [f row:@"After closing a tab, go to" view:[Controls popupWithTitles:EnumTitles(CloseSelectsCount, ^(NSInteger i) { return CloseSelectsTitle((CloseSelects)i); })
+                                                          selectedIndex:Settings.closeSelects
+                                                               onChange:^(NSInteger i) { Settings.closeSelects = (CloseSelects)i; }]];
+    [f row:@"Links" views:@[
+        [Controls check:@"⌘-click opens links in the background" on:Settings.linksOpenInBackground
+               onChange:^(BOOL on) { Settings.linksOpenInBackground = on; }],
+        [Controls check:@"Middle-click closes a tab" on:Settings.middleClickCloses
+               onChange:^(BOOL on) { Settings.middleClickCloses = on; }]
+    ]];
+    [f note:@"Hold ⇧ to do the opposite. Middle-clicking a link always opens it in a new tab."];
+    [f row:@"Swipe on the page" view:[Controls popupWithTitles:EnumTitles(PageSwipeCount, ^(NSInteger i) { return PageSwipeTitle((PageSwipe)i); })
+                                                 selectedIndex:Settings.pageSwipe
+                                                      onChange:^(NSInteger i) { Settings.pageSwipe = (PageSwipe)i; }]];
+    [f row:@"" view:[Controls check:@"Swipe across the tab list to switch spaces" on:Settings.swipeSwitchesSpaces
+                           onChange:^(BOOL on) { Settings.swipeSwitchesSpaces = on; }]];
+    [f note:@"Spaces can also override pinned-tab closing and archiving: right-click a space dot → Edit Space."];
 
+    [f separator];
     static const std::vector<NSInteger> unloadOptions = {0, 15, 30, 60, 240};
     NSMutableArray<NSString *> *unloadTitles = [NSMutableArray array];
     for (NSInteger m : unloadOptions) {
@@ -454,6 +837,19 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
     _list = l;
     [f row:@"Search engines" view:l.container];
     [f note:@"Type a keyword and a space in the command bar to search with that engine, e.g. “yt cats”. Double-click a cell to edit it."];
+
+    [f separator];
+    [f row:@"Command bar shows" views:@[
+        [Controls check:@"Open tabs" on:Settings.commandBarTabs onChange:^(BOOL on) { Settings.commandBarTabs = on; }],
+        [Controls check:@"History" on:Settings.commandBarHistory onChange:^(BOOL on) { Settings.commandBarHistory = on; }],
+        [Controls check:@"Search suggestions" on:Settings.commandBarSuggestions onChange:^(BOOL on) { Settings.commandBarSuggestions = on; }]
+    ]];
+    [f row:@"Results" view:[Controls sliderWithMin:4 max:12 value:(double)Settings.commandBarRows width:220 ticks:9
+                                            format:^NSString *(double v) { return [NSString stringWithFormat:@"%ld", (long)v]; }
+                                          onChange:^(double v) { Settings.commandBarRows = (NSInteger)v; }]];
+    [f row:@"Position" view:[Controls segmentedWithTitles:EnumTitles(CommandBarPositionCount, ^(NSInteger i) { return CommandBarPositionTitle((CommandBarPosition)i); })
+                                            selectedIndex:Settings.commandBarPosition
+                                                 onChange:^(NSInteger i) { Settings.commandBarPosition = (CommandBarPosition)i; }]];
     return [f viewWithWidth:740];
 }
 
@@ -707,7 +1103,7 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
         BoostsPane *self = weakSelf;
         if (!self || row < 0 || row >= (NSInteger)self->_boosts.count) return;
         [Boosts deleteID:self->_boosts[(NSUInteger)row].identifier];
-        [WebViewFactory reloadBoosts];
+        [WebViewFactory reloadSiteScripts];
         self->_boosts = Boosts.all;
         self->_selectedID = self->_boosts.firstObject.identifier;
         [self rebuild];
@@ -738,7 +1134,7 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
     [form.grid columnAtIndex:0].width = 70;
     NSButton *apply = [Controls button:@"Apply & Reload Page" action:^{
         [weakSelf saveEditor];
-        [WebViewFactory reloadBoosts];
+        [WebViewFactory reloadSiteScripts];
         [BrowserState.shared.selectedTab reload];
     }];
     apply.keyEquivalent = @"\r";
@@ -840,7 +1236,7 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
     NSInteger row = _list ? _list.table.selectedRow : -1;
     if (row >= 0) [_list.table reloadDataForRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row]
                                          columnIndexes:[NSIndexSet indexSetWithIndex:0]];
-    [_saveDebounce call:^{ [WebViewFactory reloadBoosts]; }];
+    [_saveDebounce call:^{ [WebViewFactory reloadSiteScripts]; }];
 }
 
 - (void)textDidChange:(NSNotification *)notification { [self saveEditor]; }
@@ -947,6 +1343,180 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
     [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse r) {
         if (r == NSAlertFirstButtonReturn) [Settings resetAll];
     }];
+}
+
+@end
+
+// MARK: - Shortcuts
+
+/// A button that records the next key combination pressed while it's active.
+@interface ShortcutRecorder : NSButton
+@property (nonatomic, copy) NSString *shortcut;            // "" = none
+@property (copy) BOOL (^onRecord)(NSString *shortcut);     // NO = refused (already used)
+@end
+
+@implementation ShortcutRecorder {
+    id _monitor;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    if ((self = [super initWithFrame:frameRect])) {
+        self.bezelStyle = NSBezelStyleFlexiblePush;
+        self.controlSize = NSControlSizeSmall;
+        self.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        self.target = self;
+        self.action = @selector(startRecording);
+        [self.widthAnchor constraintEqualToConstant:110].active = YES;
+    }
+    return self;
+}
+
+- (void)setShortcut:(NSString *)shortcut {
+    _shortcut = [shortcut copy];
+    NSString *display = BrookShortcutDisplay(shortcut);
+    self.title = display.length ? display : @"None";
+}
+
+- (void)startRecording {
+    if (_monitor) { [self stopRecording]; return; }
+    self.title = @"Type shortcut…";
+    __weak ShortcutRecorder *weakSelf = self;
+    _monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+        ShortcutRecorder *self_ = weakSelf;
+        if (!self_) return event;
+        NSEventModifierFlags mods = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagOption |
+                                                            NSEventModifierFlagShift | NSEventModifierFlagControl);
+        NSString *key = [event charactersByApplyingModifiers:0].lowercaseString;
+        if (event.keyCode == 53 && mods == 0) { [self_ stopRecording]; return nil; }                // esc: cancel
+        if ((event.keyCode == 51 || event.keyCode == 117) && mods == 0) { [self_ finish:@""]; return nil; }   // delete: clear
+        unichar c = key.length ? [key characterAtIndex:0] : 0;
+        BOOL functionKey = c >= 0xF700 && c <= 0xF8FF;
+        if (!key.length || (!(mods & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) && !functionKey)) {
+            NSBeep();   // needs ⌘, ⌃ or ⌥ so it can't swallow typing
+            return nil;
+        }
+        [self_ finish:BrookShortcutString(key, mods)];
+        return nil;
+    }];
+}
+
+- (void)finish:(NSString *)shortcut {
+    [self stopRecording];
+    if (self.onRecord && !self.onRecord(shortcut)) { NSBeep(); return; }
+    self.shortcut = shortcut;
+}
+
+- (void)stopRecording {
+    if (_monitor) [NSEvent removeMonitor:_monitor];
+    _monitor = nil;
+    self.shortcut = _shortcut;
+}
+
+- (void)viewWillMoveToWindow:(NSWindow *)newWindow {
+    if (!newWindow) [self stopRecording];
+    [super viewWillMoveToWindow:newWindow];
+}
+
+@end
+
+@implementation ShortcutsPane
+
+- (instancetype)initWithNibName:(NSNibName)nib bundle:(NSBundle *)bundle {
+    if ((self = [super initWithNibName:nib bundle:bundle])) self.rebuildKeys = [NSSet setWithObjects:@"*", @"shortcuts", nil];
+    return self;
+}
+
+- (NSView *)makeContent {
+    NSGridView *grid = [NSGridView gridViewWithNumberOfColumns:3 rows:0];
+    grid.rowSpacing = 6;
+    grid.columnSpacing = 10;
+    NSDictionary<NSString *, NSString *> *overrides = Settings.shortcuts;
+    NSString *section = nil;
+    for (NSArray *pair in AppDelegate.shortcutItems) {
+        NSString *menu = pair[0];
+        NSMenuItem *item = pair[1];
+        if (![menu isEqualToString:section]) {
+            section = menu;
+            NSTextField *header = [NSTextField labelWithString:menu];
+            header.font = [NSFont boldSystemFontOfSize:NSFont.smallSystemFontSize];
+            NSGridRow *r = [grid addRowWithViews:@[header, NSGridCell.emptyContentView, NSGridCell.emptyContentView]];
+            r.topPadding = grid.numberOfRows > 1 ? 10 : 0;
+        }
+        NSString *identifier = [AppDelegate shortcutIDForItem:item];
+        NSString *fallback = [AppDelegate defaultShortcutForItem:item];
+        ShortcutRecorder *recorder = [ShortcutRecorder new];
+        recorder.shortcut = overrides[identifier] ?: fallback;
+        recorder.onRecord = ^BOOL(NSString *shortcut) {
+            // Refuse a combination another command already uses.
+            if (shortcut.length) {
+                NSDictionary *now = Settings.shortcuts;
+                for (NSArray *other in AppDelegate.shortcutItems) {
+                    NSString *otherID = [AppDelegate shortcutIDForItem:other[1]];
+                    if ([otherID isEqualToString:identifier]) continue;
+                    NSString *used = now[otherID] ?: [AppDelegate defaultShortcutForItem:other[1]];
+                    if ([used isEqualToString:shortcut]) return NO;
+                }
+            }
+            NSMutableDictionary *all = [Settings.shortcuts mutableCopy];
+            if ([shortcut isEqualToString:fallback]) [all removeObjectForKey:identifier]; else all[identifier] = shortcut;
+            Settings.shortcuts = all;
+            return YES;
+        };
+        NSButton *reset = [Controls button:@"Default" action:^{
+            NSMutableDictionary *all = [Settings.shortcuts mutableCopy];
+            [all removeObjectForKey:identifier];
+            Settings.shortcuts = all;
+        }];
+        reset.controlSize = NSControlSizeSmall;
+        reset.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        NSTextField *label = [NSTextField labelWithString:item.title];
+        // Only changed shortcuts get a Default button (NSGridView ignores `hidden` on its cells).
+        NSView *third = overrides[identifier] ? reset : NSGridCell.emptyContentView;
+        NSGridRow *r = [grid addRowWithViews:@[label, recorder, third]];
+        r.rowAlignment = NSGridRowAlignmentFirstBaseline;
+    }
+    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+    grid.translatesAutoresizingMaskIntoConstraints = NO;
+
+    NSView *document = [NSView new];
+    document.translatesAutoresizingMaskIntoConstraints = NO;
+    [document addSubview:grid];
+    NSScrollView *scroll = [NSScrollView new];
+    scroll.hasVerticalScroller = YES;
+    scroll.drawsBackground = NO;
+    scroll.documentView = document;
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    NSTextField *note = [NSTextField wrappingLabelWithString:
+        @"Click a shortcut, then press the new keys. Delete removes it, Esc cancels. A combination already in use is refused."];
+    note.font = [NSFont systemFontOfSize:11];
+    note.textColor = NSColor.secondaryLabelColor;
+    note.translatesAutoresizingMaskIntoConstraints = NO;
+    NSButton *resetAll = [Controls button:@"Restore All Defaults" action:^{ Settings.shortcuts = @{}; }];
+    resetAll.translatesAutoresizingMaskIntoConstraints = NO;
+    resetAll.enabled = overrides.count > 0;
+
+    NSView *v = [NSView new];
+    for (NSView *sub in @[scroll, note, resetAll]) [v addSubview:sub];
+    [NSLayoutConstraint activateConstraints:@[
+        [v.widthAnchor constraintEqualToConstant:620],
+        [scroll.topAnchor constraintEqualToAnchor:v.topAnchor constant:16],
+        [scroll.leadingAnchor constraintEqualToAnchor:v.leadingAnchor constant:24],
+        [scroll.trailingAnchor constraintEqualToAnchor:v.trailingAnchor constant:-24],
+        [scroll.heightAnchor constraintEqualToConstant:440],
+        [document.topAnchor constraintEqualToAnchor:scroll.contentView.topAnchor],
+        [document.leadingAnchor constraintEqualToAnchor:scroll.contentView.leadingAnchor],
+        [document.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor],
+        [grid.topAnchor constraintEqualToAnchor:document.topAnchor constant:8],
+        [grid.bottomAnchor constraintEqualToAnchor:document.bottomAnchor constant:-8],
+        [grid.centerXAnchor constraintEqualToAnchor:document.centerXAnchor constant:-20],
+        [note.topAnchor constraintEqualToAnchor:scroll.bottomAnchor constant:12],
+        [note.leadingAnchor constraintEqualToAnchor:scroll.leadingAnchor],
+        [note.trailingAnchor constraintLessThanOrEqualToAnchor:resetAll.leadingAnchor constant:-12],
+        [resetAll.trailingAnchor constraintEqualToAnchor:scroll.trailingAnchor],
+        [resetAll.firstBaselineAnchor constraintEqualToAnchor:note.firstBaselineAnchor],
+        [note.bottomAnchor constraintEqualToAnchor:v.bottomAnchor constant:-20],
+    ]];
+    return v;
 }
 
 @end

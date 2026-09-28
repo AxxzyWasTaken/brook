@@ -231,6 +231,7 @@ struct LightDefault {
     NSLayoutConstraint *_contentTop;
     NSArray<NSLayoutConstraint *> *_positional;
     BOOL _peeking;
+    BOOL _autoHideSuspended;
     BOOL _trafficLightsPlacementQueued;
     id _peekMonitor;
     /// Bumped on every sidebar show/hide so a stale fade can't undo a newer one.
@@ -275,12 +276,16 @@ struct LightDefault {
         _fullScreenLights = [FullScreenLights new];
         _sidebarWidth = Settings.sidebarWidth;
         _positional = @[];
-        _sidebarHidden = Settings.sidebarHidden;
+        // Older builds saved ⌘S separately from Settings → Layout → Hide sidebar; fold it in.
+        if (Settings.sidebarHidden) {
+            if (Settings.autoHide == ChromeAutoHideNever) Settings.autoHide = ChromeAutoHideAlways;
+            Settings.sidebarHidden = NO;
+        }
         _peeking = NO;
         _lightsGeneration = 0;
         _inset = Settings.pageMargin;
         _onRight = Settings.sidebarPosition == SidebarPositionRight;
-        _tabsOnTop = Settings.tabLayout != TabLayoutSidebar;
+        _tabsOnTop = _state.currentSpace.effectiveTabLayout != TabLayoutSidebar;
         _chrome = _sidebar;
 
         window.delegate = self;
@@ -299,6 +304,9 @@ struct LightDefault {
 }
 
 // MARK: Layout
+
+/// The icon-only rail's narrowest width; it grows so the traffic lights above the icons fit.
+static const CGFloat kRailWidth = 72;
 
 /// Width of the strip at the window edge that reveals a hidden sidebar.
 static const CGFloat kHotZoneWidth = 24;
@@ -357,7 +365,7 @@ static const CGFloat kFullScreenLightsInset = 10;
     _fullScreenLights.translatesAutoresizingMaskIntoConstraints = NO;
     _fullScreenLights.hidden = YES;
 
-    _sidebarWidthConstraint = [_sidebarGlass.widthAnchor constraintEqualToConstant:_sidebarWidth];
+    _sidebarWidthConstraint = [_sidebarGlass.widthAnchor constraintEqualToConstant:self.effectiveSidebarWidth];
     [NSLayoutConstraint activateConstraints:@[
         _sidebarWidthConstraint,
         [_handle.topAnchor constraintEqualToAnchor:_sidebarGlass.topAnchor],
@@ -377,7 +385,7 @@ static const CGFloat kFullScreenLightsInset = 10;
 
 /// Shows the sidebar or the top bar, following Settings → Appearance → Tab layout.
 - (void)applyTabLayout {
-    TabLayout layout = Settings.tabLayout;
+    TabLayout layout = _state.currentSpace.effectiveTabLayout;
     BOOL top = layout != TabLayoutSidebar;
     _topBar.compact = layout == TabLayoutCompact;
     if (top == _tabsOnTop && _positional.count) return;   // built, and nothing changed
@@ -472,9 +480,13 @@ static const CGFloat kFullScreenLightsInset = 10;
 
 /// The page meets the sidebar only while the sidebar is showing (peeking floats over the page).
 - (void)updateContentEdge {
-    BOOL besideSidebar = !_tabsOnTop && !_sidebarHidden;
-    _contentToSidebar.active = besideSidebar;
-    _contentToEdge.active = !besideSidebar;
+    BOOL besideSidebar = !_tabsOnTop && !self.sidebarHidden;
+    // Switch off the old edge before switching on the new one: for a moment both would pin the
+    // page, and AppKit settles that clash by dropping the sidebar's width constraint.
+    NSLayoutConstraint *on = besideSidebar ? _contentToSidebar : _contentToEdge;
+    NSLayoutConstraint *off = besideSidebar ? _contentToEdge : _contentToSidebar;
+    off.active = NO;
+    on.active = YES;
 }
 
 // MARK: Settings
@@ -482,7 +494,7 @@ static const CGFloat kFullScreenLightsInset = 10;
 - (void)settingsChanged:(NSNotification *)note {
     id rawKey = note.userInfo[@"key"];
     NSString *key = [rawKey isKindOfClass:NSString.class] ? rawKey : @"*";
-    if ([@[@"*", @"tabLayout"] containsObject:key]) [self applyTabLayout];
+    if ([@[@"*", @"tabLayout", @"spaces"] containsObject:key]) [self applyTabLayout];
     NSSet<NSString *> *layoutKeys = [NSSet setWithArray:@[@"*", @"sidebarPosition", @"pageMargin"]];
     if ([layoutKeys containsObject:key]) {
         BOOL right = Settings.sidebarPosition == SidebarPositionRight;
@@ -496,13 +508,34 @@ static const CGFloat kFullScreenLightsInset = 10;
         }
     }
     // Only redo the work a key actually affects: Boost edits save on every keystroke.
-    NSSet<NSString *> *appearanceKeys = [NSSet setWithArray:@[@"*", @"theme", @"cornerRadius", @"spaceTint"]];
+    NSSet<NSString *> *appearanceKeys = [NSSet setWithArray:@[@"*", @"theme", @"cornerRadius", @"spaceTint", @"chromeMaterial",
+                                                              @"chromeOpacity", @"accentSource", @"accentColor", @"spaces"]];
     NSSet<NSString *> *sidebarKeys = [NSSet setWithArray:@[@"*", @"showAddressBar", @"showFavorites", @"showBottomBar",
-                                                           @"favoritesColumns", @"tabDensity", @"tabFontSize", @"topTabsShrink"]];
+                                                           @"favoritesColumns", @"tabDensity", @"tabFontSize", @"topTabsShrink",
+                                                           @"tabStyle", @"accentSource", @"accentColor", @"uiFont", @"closeButtons",
+                                                           @"tabSubtitles", @"sidebarIconsOnly", @"loadingIndicator",
+                                                           @"toolbarItems", @"addressDisplay", @"spaceTint", @"sidebarPosition"]];
     if ([appearanceKeys containsObject:key]) [self applyAppearanceSettings];
     if ([sidebarKeys containsObject:key]) [_chrome applySettings];
+    if ([@[@"*", @"cardShadow", @"accentSource", @"accentColor", @"loadingIndicator", @"linkPreview"] containsObject:key]) {
+        [_content applySettings];
+    }
+    if ([@[@"*", @"sidebarIconsOnly", @"pageMargin", @"cornerRadius"] containsObject:key]) {
+        _sidebarWidthConstraint.constant = self.effectiveSidebarWidth;
+    }
+    if ([@[@"*", @"autoHide", @"sidebarIconsOnly"] containsObject:key]) {
+        _autoHideSuspended = NO;
+        if (_peeking) [self endPeek];
+        [self applySidebarVisibilityAnimated:YES];
+    }
+    if ([@[@"*", @"pageSwipe"] containsObject:key]) {
+        for (BrowserTab *tab in _state.allTabs) {
+            tab.webView.allowsBackForwardNavigationGestures = Settings.pageSwipe == PageSwipeBackForward;
+        }
+    }
     // Traffic lights (and the row beside them) follow the layout, margin and corner radius.
-    if ([@[@"*", @"tabLayout", @"sidebarPosition", @"pageMargin", @"cornerRadius"] containsObject:key]) {
+    if ([@[@"*", @"tabLayout", @"sidebarPosition", @"pageMargin", @"cornerRadius", @"sidebarIconsOnly", @"spaces"]
+            containsObject:key]) {
         [_root layoutSubtreeIfNeeded];
         [self alignNavRow];
     }
@@ -516,8 +549,52 @@ static const CGFloat kFullScreenLightsInset = 10;
     }
 }
 
+- (CGFloat)effectiveSidebarWidth { return Settings.sidebarIconsOnly ? self.railWidth : _sidebarWidth; }
+
+/// The icon rail sits under the traffic lights, so it's as wide as they are plus the same
+/// padding either side that -placeTrafficLights gives them.
+- (CGFloat)railWidth {
+    NSButton *close = [self.window standardWindowButton:NSWindowCloseButton];
+    NSButton *zoom = [self.window standardWindowButton:NSWindowZoomButton];
+    if (!close || !zoom) return kRailWidth;
+    // macOS's own spots, before -placeTrafficLights moves them (it records them the first time).
+    auto closeIt = _lightDefaults.find(NSWindowCloseButton), zoomIt = _lightDefaults.find(NSWindowZoomButton);
+    BOOL recorded = closeIt != _lightDefaults.end() && zoomIt != _lightDefaults.end();
+    CGFloat closeX = recorded ? closeIt->second.x : NSMinX(close.frame);
+    CGFloat zoomMaxX = (recorded ? zoomIt->second.x : NSMinX(zoom.frame)) + NSWidth(zoom.frame);
+    CGFloat r = Settings.cornerRadius == 0 ? 0 : Settings.cornerRadius + 2;
+    CGFloat pad = std::max<CGFloat>(closeX, _inset + std::max<CGFloat>(closeX - 8, r * 0.55)) - _inset;
+    return std::max<CGFloat>(kRailWidth, std::ceil(zoomMaxX - closeX + pad * 2));
+}
+
+/// Sidebar/top bar surface: glass, clearer glass, or a solid colour at the chosen opacity.
+- (void)applyChromeMaterial {
+    ChromeMaterial material = Settings.chromeMaterial;
+    NSColor *color = _state.currentSpace.color;
+    CGFloat strength = Settings.tintStrength;
+    NSColor *glassTint = nil;
+    switch (material) {
+        case ChromeMaterialClear: glassTint = [color colorWithAlphaComponent:0.06 * strength]; break;
+        case ChromeMaterialSolid: {
+            // A solid panel: the window background, lightly coloured by the space.
+            NSColor *base = [NSColor.windowBackgroundColor blendedColorWithFraction:std::min<CGFloat>(0.25, 0.12 * strength)
+                                                                             ofColor:color] ?: NSColor.windowBackgroundColor;
+            glassTint = [base colorWithAlphaComponent:Settings.chromeOpacity];
+            break;
+        }
+        default: glassTint = [color colorWithAlphaComponent:0.15 * strength]; break;
+    }
+    _sidebarGlass.tintColor = glassTint;
+    _topGlass.tintColor = glassTint;
+    if (@available(macOS 26.1, *)) {
+        NSGlassEffectViewStyle style = material == ChromeMaterialClear ? NSGlassEffectViewStyleClear : NSGlassEffectViewStyleRegular;
+        _sidebarGlass.style = style;
+        _topGlass.style = style;
+    }
+}
+
 - (void)applyAppearanceSettings {
-    switch (Settings.theme) {
+    switch (_state.currentSpace.effectiveTheme) {
         case ThemeModeSystem: NSApp.appearance = nil; break;
         case ThemeModeLight: NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua]; break;
         case ThemeModeDark: NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]; break;
@@ -540,12 +617,15 @@ static const CGFloat kFullScreenLightsInset = 10;
 }
 - (void)windowDidEnterFullScreen:(NSNotification *)notification {
     _fullScreenLights.hidden = NO;
+    _autoHideSuspended = NO;
+    if (Settings.autoHide == ChromeAutoHideFullScreen) [self applySidebarVisibilityAnimated:YES];
     [self alignNavRow];
 }
 - (void)windowDidExitFullScreen:(NSNotification *)notification {
     // AppKit re-applies the toolbar state it saved on entry after willExit, so set it again.
     self.window.toolbar.visible = YES;
     _fullScreenLights.hidden = YES;
+    _autoHideSuspended = NO;
     [self.window.contentView layoutSubtreeIfNeeded];
     // AppKit also un-hides the traffic lights on exit; re-apply ours (hidden with the sidebar).
     [self applySidebarVisibilityAnimated:NO];
@@ -558,7 +638,7 @@ static const CGFloat kFullScreenLightsInset = 10;
 /// Left edge of the sidebar (or top panel) at rest, in window coordinates. The traffic lights live
 /// in its top-left corner on either side, like Arc, so the page never has to make room for them.
 - (CGFloat)sidebarRestingMinX {
-    return _onRight && !_tabsOnTop ? _root.bounds.size.width - _inset - _sidebarWidth : _inset;
+    return _onRight && !_tabsOnTop ? _root.bounds.size.width - _inset - self.effectiveSidebarWidth : _inset;
 }
 
 /// Moves the traffic lights into the sidebar's top-left corner however big the window margin
@@ -688,8 +768,7 @@ static const CGFloat kFullScreenLightsInset = 10;
         ctx.allowsImplicitAnimation = YES;
         tint.layer.backgroundColor = [color colorWithAlphaComponent:0.33 * Settings.tintStrength].CGColor;
     }];
-    _sidebarGlass.tintColor = [color colorWithAlphaComponent:0.15 * Settings.tintStrength];
-    _topGlass.tintColor = _sidebarGlass.tintColor;
+    [self applyChromeMaterial];
     _content.accentColor = color;
 }
 
@@ -716,25 +795,48 @@ static const CGFloat kFullScreenLightsInset = 10;
 }
 
 - (void)browserStateDidSwitchSpace:(BOOL)forward {
-    [self applySpaceColors];
+    // A space may bring its own theme and tab layout.
+    [self applyTabLayout];
+    [self applyAppearanceSettings];
     [_chrome reloadAllWithSpaceTransition:forward];
+    [_root layoutSubtreeIfNeeded];
+    [self alignNavRow];
 }
 
 // MARK: Sidebar
 
+/// Settings → Layout → Hide sidebar: always (it peeks from the edge), or only in full screen.
+- (BOOL)autoHidden {
+    if (_autoHideSuspended) return NO;
+    switch (Settings.autoHide) {
+        case ChromeAutoHideAlways: return YES;
+        case ChromeAutoHideFullScreen: return (self.window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+        default: return NO;
+    }
+}
+
+- (BOOL)sidebarHidden { return self.autoHidden; }
+
+/// ⌘S flips Settings → Layout → Hide sidebar between Never and Always, so the menu and the
+/// setting always agree. "In full screen" stays set: there ⌘S just shows or hides the sidebar
+/// until you leave full screen.
 - (void)toggleSidebar {
     if (_tabsOnTop) return;
-    _sidebarHidden = !_sidebarHidden;
-    Settings.sidebarHidden = _sidebarHidden;
-    _peeking = NO;
-    [self applySidebarVisibilityAnimated:YES];
+    if (Settings.autoHide == ChromeAutoHideFullScreen && (self.window.styleMask & NSWindowStyleMaskFullScreen)) {
+        _autoHideSuspended = !_autoHideSuspended;
+        _peeking = NO;
+        [self applySidebarVisibilityAnimated:YES];
+        return;
+    }
+    // Applied by -settingsChanged: like a change made in Settings.
+    Settings.autoHide = self.sidebarHidden ? ChromeAutoHideNever : ChromeAutoHideAlways;
 }
 
 - (void)applySidebarVisibilityAnimated:(BOOL)animated {
-    BOOL hidden = _tabsOnTop || (_sidebarHidden && !_peeking);
+    BOOL hidden = _tabsOnTop || (self.sidebarHidden && !_peeking);
     // The traffic lights ride in the sidebar's corner, so they come and go with it. With tabs on
     // top they stay put.
-    BOOL lightsHidden = !_tabsOnTop && _sidebarHidden && !_peeking;
+    BOOL lightsHidden = !_tabsOnTop && self.sidebarHidden && !_peeking;
     NSMutableArray<NSButton *> *lightsM = [NSMutableArray array];
     for (NSWindowButton t : {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
         NSButton *b = [self.window standardWindowButton:t];
@@ -777,8 +879,8 @@ static const CGFloat kFullScreenLightsInset = 10;
         }
     }
     [self updateContentEdge];
-    _handle.hidden = _tabsOnTop || _sidebarHidden;
-    _hotZone.hidden = _tabsOnTop || !_sidebarHidden || _peeking;
+    _handle.hidden = _tabsOnTop || self.sidebarHidden || Settings.sidebarIconsOnly;
+    _hotZone.hidden = _tabsOnTop || !self.sidebarHidden || _peeking;
     if (_peeking) {
         NSShadow *s = [NSShadow new];
         s.shadowBlurRadius = 20;
@@ -787,7 +889,7 @@ static const CGFloat kFullScreenLightsInset = 10;
     } else {
         _sidebarGlass.shadow = nil;
     }
-    CGFloat leading = hidden ? -(_sidebarWidth + _inset * 2 + 24) : _inset;
+    CGFloat leading = hidden ? -(self.effectiveSidebarWidth + _inset * 2 + 24) : _inset;
     NSLayoutConstraint *sidebarEdge = _sidebarEdge;
     NSView *root = _root;
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
@@ -814,7 +916,7 @@ static const CGFloat kFullScreenLightsInset = 10;
 }
 
 - (void)peekSidebar {
-    if (_tabsOnTop || !_sidebarHidden || _peeking) return;
+    if (_tabsOnTop || !self.sidebarHidden || _peeking) return;
     _peeking = YES;
     [self applySidebarVisibilityAnimated:YES];
     __weak BrowserWindowController *weakSelf = self;
@@ -905,6 +1007,30 @@ static const CGFloat kFullScreenLightsInset = 10;
     [self showToast:@"Link copied"];
 }
 
+- (void)shareFromView:(NSView *)anchor {
+    NSURL *url = _state.selectedTab.url;
+    if (!url) return;
+    NSSharingServicePicker *picker = [[NSSharingServicePicker alloc] initWithItems:@[url]];
+    [picker showRelativeToRect:anchor.bounds ofView:anchor preferredEdge:NSRectEdgeMinY];
+}
+
+- (void)toggleReader {
+    WKWebView *wv = _state.selectedTab.webView;
+    if (!wv) return;
+    static NSString *source;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSURL *file = [NSBundle.mainBundle URLForResource:@"reader" withExtension:@"js"];
+        source = file ? [NSString stringWithContentsOfURL:file encoding:NSUTF8StringEncoding error:nil] : nil;
+    });
+    if (!source) return;
+    static WKContentWorld *world = [WKContentWorld worldWithName:@"BrookReader"];
+    __weak BrowserWindowController *weakSelf = self;
+    [wv evaluateJavaScript:source inFrame:nil inContentWorld:world completionHandler:^(id result, NSError *error) {
+        if ([result isEqual:@"none"]) [weakSelf showToast:@"No article found on this page"];
+    }];
+}
+
 - (void)zoomBy:(CGFloat)delta { [self zoomWithDelta:delta]; }
 - (void)resetZoom { [self zoomWithDelta:std::nullopt]; }
 
@@ -944,7 +1070,7 @@ static const CGFloat kFullScreenLightsInset = 10;
 
 /// Whether the address pill is on screen to anchor popovers to. The top bar always shows it.
 - (BOOL)urlPillVisible {
-    return _tabsOnTop || ((!_sidebarHidden || _peeking) && Settings.showAddressBar);
+    return _tabsOnTop || ((!self.sidebarHidden || _peeking) && Settings.showAddressBar);
 }
 
 /// Popovers from the pill open towards the page: below the top bar, or beside the sidebar.
@@ -1138,12 +1264,28 @@ static const CGFloat kFullScreenLightsInset = 10;
 
 - (void)promptEditSpace:(Space *)space {
     SpaceDraft draft = {space.name, space.colorHex, space.searchEngineID, space.profileID != nil};
+    draft.theme = space.themeMode ? space.themeMode.integerValue : -1;
+    draft.tabLayout = space.tabLayout ? space.tabLayout.integerValue : -1;
+    draft.pinnedClose = space.pinnedClose ? space.pinnedClose.integerValue : -1;
+    draft.archiveHours = space.archiveHours ? space.archiveHours.integerValue : -1;
     __weak BrowserWindowController *weakSelf = self;
     [self showSpaceEditorWithTitle:@"Edit Space" draft:draft completion:^(SpaceDraft d) {
         BrowserWindowController *self_ = weakSelf;
         if (!self_) return;
+        auto number = [](NSInteger v) { return v < 0 ? nil : @(v); };
+        space.themeMode = number(d.theme);
+        space.tabLayout = number(d.tabLayout);
+        space.pinnedClose = number(d.pinnedClose);
+        space.archiveHours = number(d.archiveHours);
         [self_->_state updateSpace:space name:d.name.length == 0 ? space.name : d.name colorHex:d.colorHex
                     searchEngineID:d.searchEngineID separateProfile:d.separateProfile];
+        // A changed theme or tab layout applies straight away.
+        if (space == self_->_state.currentSpace) {
+            [self_ applyTabLayout];
+            [self_ applyAppearanceSettings];
+            [self_->_root layoutSubtreeIfNeeded];
+            [self_ alignNavRow];
+        }
     }];
 }
 

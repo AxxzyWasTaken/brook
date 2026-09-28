@@ -46,6 +46,80 @@ BOOL BrookIsDark(NSAppearance *appearance) {
                isEqualToString:NSAppearanceNameDarkAqua];
 }
 
+NSFont *BrookUIFont(CGFloat size, NSFontWeight weight) {
+    NSFont *base = [NSFont systemFontOfSize:size weight:weight];
+    NSFontDescriptorSystemDesign design = nil;
+    switch (Settings.uiFont) {
+        case UIFontStyleRounded: design = NSFontDescriptorSystemDesignRounded; break;
+        case UIFontStyleSerif: design = NSFontDescriptorSystemDesignSerif; break;
+        case UIFontStyleMono: design = NSFontDescriptorSystemDesignMonospaced; break;
+        default: return base;
+    }
+    NSFontDescriptor *d = [base.fontDescriptor fontDescriptorWithDesign:design];
+    return (d ? [NSFont fontWithDescriptor:d size:size] : nil) ?: base;
+}
+
+NSColor *BrookAccentColor(void) {
+    switch (Settings.accentSource) {
+        case AccentSourceSystem: return NSColor.controlAccentColor;
+        case AccentSourceCustom: return [NSColor brook_colorWithHex:Settings.accentColorHex] ?: NSColor.controlAccentColor;
+        default: return BrowserState.shared.currentSpace.color ?: NSColor.controlAccentColor;
+    }
+}
+
+static const std::pair<unichar, NSEventModifierFlags> kShortcutMods[] = {
+    {0x2303, NSEventModifierFlagControl}, {0x2325, NSEventModifierFlagOption},
+    {0x21E7, NSEventModifierFlagShift}, {0x2318, NSEventModifierFlagCommand},
+};
+
+NSString *BrookShortcutString(NSString *key, NSEventModifierFlags mods) {
+    if (key.length == 0) return @"";
+    NSMutableString *s = [NSMutableString string];
+    for (auto [symbol, flag] : kShortcutMods) if (mods & flag) [s appendFormat:@"%C", symbol];
+    [s appendString:key.lowercaseString];
+    return s;
+}
+
+BOOL BrookParseShortcut(NSString *shortcut, NSString **key, NSEventModifierFlags *mods) {
+    *key = nil;
+    *mods = 0;
+    NSUInteger i = 0;
+    for (; i < shortcut.length; i++) {
+        unichar c = [shortcut characterAtIndex:i];
+        NSEventModifierFlags flag = 0;
+        for (auto [symbol, f] : kShortcutMods) if (c == symbol) flag = f;
+        if (!flag || i == shortcut.length - 1) break;   // the last character is always the key
+        *mods |= flag;
+    }
+    if (i >= shortcut.length) return NO;
+    *key = [shortcut substringFromIndex:i];
+    return YES;
+}
+
+NSString *BrookShortcutDisplay(NSString *shortcut) {
+    NSString *key = nil;
+    NSEventModifierFlags mods = 0;
+    if (!BrookParseShortcut(shortcut, &key, &mods)) return @"";
+    NSMutableString *s = [NSMutableString string];
+    for (auto [symbol, flag] : kShortcutMods) if (mods & flag) [s appendFormat:@"%C", symbol];
+    unichar c = [key characterAtIndex:0];
+    NSString *name = nil;
+    switch (c) {
+        case NSLeftArrowFunctionKey: name = @"←"; break;
+        case NSRightArrowFunctionKey: name = @"→"; break;
+        case NSUpArrowFunctionKey: name = @"↑"; break;
+        case NSDownArrowFunctionKey: name = @"↓"; break;
+        case '\t': name = @"⇥"; break;
+        case '\r': name = @"↩"; break;
+        case ' ': name = @"Space"; break;
+        case NSBackspaceCharacter: case NSDeleteCharacter: name = @"⌫"; break;
+        case 0x1b: name = @"⎋"; break;
+        default: name = key.uppercaseString;
+    }
+    [s appendString:name];
+    return s;
+}
+
 NSString *BrookTrim(NSString *s) {
     return [s ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
 }

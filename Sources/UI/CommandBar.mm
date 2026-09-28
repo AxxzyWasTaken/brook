@@ -339,7 +339,7 @@ NSInteger CharacterCount(NSString *s) {
     NSWindow *parent = _browser.window;
     NSView *anchor = _anchor, *bar = _bar ?: _anchor;
     if (!parent || !anchor.window) return;
-    NSInteger rows = std::min<NSInteger>((NSInteger)_suggestions.size(), 8);
+    NSInteger rows = std::min<NSInteger>((NSInteger)_suggestions.size(), Settings.commandBarRows);
     if (rows == 0) {
         [parent removeChildWindow:_panel];
         [_panel orderOut:nil];
@@ -416,11 +416,12 @@ NSInteger CharacterCount(NSString *s) {
 - (void)layoutPanel {
     NSWindow *parent = _browser.window;
     if (!parent) return;
-    NSInteger visibleRows = std::min<NSInteger>((NSInteger)_suggestions.size(), 8);
+    NSInteger visibleRows = std::min<NSInteger>((NSInteger)_suggestions.size(), Settings.commandBarRows);
     CGFloat height = 64 + (visibleRows > 0 ? (CGFloat)visibleRows * _rowHeight + 16 : 0);
     NSRect pf = parent.frame;
     CGFloat w = std::min(_width, NSWidth(pf) - 80);
-    CGFloat top = NSMaxY(pf) - NSHeight(pf) * 0.2;
+    // Settings → Search → Position: the upper third (Spotlight-like) or just under the toolbar.
+    CGFloat top = NSMaxY(pf) - (Settings.commandBarPosition == CommandBarPositionTop ? 60 : NSHeight(pf) * 0.2);
     [_panel setFrame:NSMakeRect(NSMidX(pf) - w / 2, top - height, w, height) display:YES];
     _separator.hidden = visibleRows == 0;
     // The window shadow is traced from the content's alpha. Retrace it once the glass has drawn
@@ -454,7 +455,9 @@ NSInteger CharacterCount(NSString *s) {
             // Descending by lastActive.
             return [b.lastActive compare:a.lastActive];
         }];
-        for (NSUInteger i = 0; i < recent.count && i < 6; i++) list.push_back(Suggestion::tabSuggestion(recent[i]));
+        if (Settings.commandBarTabs) {
+            for (NSUInteger i = 0; i < recent.count && i < 6; i++) list.push_back(Suggestion::tabSuggestion(recent[i]));
+        }
     } else {
         NSString *kwQuery = nil;
         SearchEngine *engine = [SearchEngines keywordMatch:text query:&kwQuery];
@@ -465,7 +468,7 @@ NSInteger CharacterCount(NSString *s) {
         NSString *q = text.lowercaseString;
         BrowserTab *selected = state.selectedTab;
         NSMutableArray<BrowserTab *> *tabs = [NSMutableArray array];
-        for (BrowserTab *t in state.allTabs) {
+        for (BrowserTab *t in Settings.commandBarTabs ? state.allTabs : @[]) {
             if (tabs.count >= 3) break;
             if (t == selected) continue;
             NSString *urlString = t.url.absoluteString.lowercaseString;
@@ -478,7 +481,7 @@ NSInteger CharacterCount(NSString *s) {
         for (BrowserTab *t in tabs) {
             if (t.url.absoluteString) [openURLs addObject:t.url.absoluteString];
         }
-        for (HistoryEntry *e in [HistoryStore.shared search:text limit:5]) {
+        for (HistoryEntry *e in Settings.commandBarHistory ? [HistoryStore.shared search:text limit:5] : @[]) {
             if (![openURLs containsObject:e.url]) list.push_back(Suggestion::historySuggestion(e));
         }
         std::vector<Suggestion> searchPhrases;
@@ -504,7 +507,7 @@ NSInteger CharacterCount(NSString *s) {
 - (void)fetchPhrases {
     [self cancelAutocomplete];
     NSString *text = BrookTrim(_input.stringValue);
-    if (!(CharacterCount(text) >= 2 && [URLParser urlFromInput:text] == nil)) {
+    if (!(Settings.commandBarSuggestions && CharacterCount(text) >= 2 && [URLParser urlFromInput:text] == nil)) {
         _phrases = @[];
         return;
     }

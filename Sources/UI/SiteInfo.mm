@@ -106,6 +106,23 @@ static NSStackView *BrookVerticalStack(NSStackView *stack) {
                                        selected:triIndex(o.cookiePopups) onChange:^(NSInteger i) {
         [SiteSettings updateHost:host change:^(SiteOverride *ov) { ov.cookiePopups = triValue(i); }];
     }]];
+    [form row:@"Ad blocking" view:[self popup:@[[NSString stringWithFormat:@"Default (%@)", Settings.blockAds ? @"On" : @"Off"],
+                                               @"On", @"Off for this site"]
+                                     selected:triIndex(o.blockAds) onChange:^(NSInteger i) {
+        [SiteSettings updateHost:host change:^(SiteOverride *ov) { ov.blockAds = triValue(i); }];
+    }]];
+    [form row:@"Dark mode" view:[self popup:@[@"As the site draws it", @"Force dark"]
+                                   selected:o.forceDark.boolValue ? 1 : 0 onChange:^(NSInteger i) {
+        [SiteSettings updateHost:host change:^(SiteOverride *ov) { ov.forceDark = i == 1 ? @YES : nil; }];
+    }]];
+    NSMutableArray<NSString *> *agents = [NSMutableArray array];
+    for (NSInteger a = 0; a < UserAgentChoiceCount; a++) [agents addObject:UserAgentChoiceTitle((UserAgentChoice)a)];
+    agents[0] = @"Safari (default)";
+    [form row:@"Identify as" view:[self popup:agents selected:[SiteSettings userAgentForHost:host] onChange:^(NSInteger i) {
+        [SiteSettings updateHost:host change:^(SiteOverride *ov) {
+            ov.userAgent = i == UserAgentChoiceSafari ? nil : UserAgentChoiceRaw((UserAgentChoice)i);
+        }];
+    }]];
     [form finish];
     [form.grid columnAtIndex:0].width = 96;
     // One width for every popup so the right edge lines up.
@@ -142,7 +159,7 @@ static NSStackView *BrookVerticalStack(NSStackView *stack) {
     NSStackView *buttons = [NSStackView stackViewWithViews:@[boost, [[NSView alloc] init], reload]];
     buttons.distribution = NSStackViewDistributionFill;
 
-    NSTextField *note = [NSTextField labelWithString:@"JavaScript and Autoplay changes apply on reload."];
+    NSTextField *note = [NSTextField labelWithString:@"Changes apply when the page reloads."];
     note.font = [NSFont systemFontOfSize:11];
     note.textColor = NSColor.secondaryLabelColor;
 

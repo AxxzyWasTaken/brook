@@ -103,6 +103,29 @@
     NSPopUpButton *_engine;
     NSButton *_profile;
     NSString *_colorHex;
+    NSPopUpButton *_theme;
+    NSPopUpButton *_layout;
+    NSPopUpButton *_pinnedClose;
+    NSPopUpButton *_archive;
+}
+
+static const NSInteger kArchiveChoices[] = {12, 24, 72, 168, 720};
+
+/// A popup whose first item is "Default (<global value>)" and the rest are titles; -1 = default.
+static NSPopUpButton *OverridePopup(NSString *defaultTitle, NSArray<NSString *> *titles, NSInteger selected) {
+    NSPopUpButton *p = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [p addItemWithTitle:[NSString stringWithFormat:@"Default (%@)", defaultTitle]];
+    for (NSString *t in titles) [p addItemWithTitle:t];
+    [p selectItemAtIndex:selected + 1];
+    p.controlSize = NSControlSizeSmall;
+    p.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    return p;
+}
+
+static NSString *ArchiveTitle(NSInteger hours) {
+    if (hours == 0) return @"Never";
+    if (hours % 24 == 0) return hours == 24 ? @"After a day" : [NSString stringWithFormat:@"After %ld days", (long)(hours / 24)];
+    return [NSString stringWithFormat:@"After %ld hours", (long)hours];
 }
 
 - (instancetype)initWithDraft:(SpaceDraft)draft {
@@ -160,7 +183,46 @@
         NSStackView *engineRow = [NSStackView stackViewWithViews:@[engineLabel, _engine]];
         engineRow.spacing = 8;
 
-        NSStackView *stack = [NSStackView stackViewWithViews:@[_nameField, swatchRow, engineRow, _profile, profileNote]];
+        // Per-space overrides of the global settings.
+        NSMutableArray<NSString *> *themes = [NSMutableArray array], *layouts = [NSMutableArray array],
+                                   *closes = [NSMutableArray array], *archives = [NSMutableArray arrayWithObject:@"Never"];
+        for (NSInteger i = 0; i < ThemeModeCount; i++) [themes addObject:ThemeModeTitle((ThemeMode)i)];
+        for (NSInteger i = 0; i < TabLayoutCount; i++) [layouts addObject:TabLayoutTitle((TabLayout)i)];
+        for (NSInteger i = 0; i < PinnedCloseBehaviorCount; i++) [closes addObject:PinnedCloseBehaviorTitle((PinnedCloseBehavior)i)];
+        NSInteger archiveIndex = draft.archiveHours == 0 ? 0 : -1;
+        for (size_t i = 0; i < std::size(kArchiveChoices); i++) {
+            [archives addObject:ArchiveTitle(kArchiveChoices[i])];
+            if (kArchiveChoices[i] == draft.archiveHours) archiveIndex = (NSInteger)i + 1;
+        }
+        _theme = OverridePopup(ThemeModeTitle(Settings.theme), themes, draft.theme);
+        _layout = OverridePopup(TabLayoutTitle(Settings.tabLayout), layouts, draft.tabLayout);
+        _pinnedClose = OverridePopup(PinnedCloseBehaviorTitle(Settings.pinnedClose), closes, draft.pinnedClose);
+        _archive = OverridePopup(ArchiveTitle(Settings.archiveHours), archives, archiveIndex);
+        NSGridView *overrides = [NSGridView gridViewWithViews:@[
+            @[[NSTextField labelWithString:@"Appearance"], _theme],
+            @[[NSTextField labelWithString:@"Tabs"], _layout],
+            @[[NSTextField labelWithString:@"Closing a pinned tab"], _pinnedClose],
+            @[[NSTextField labelWithString:@"Archive tabs"], _archive],
+        ]];
+        overrides.rowSpacing = 6;
+        overrides.columnSpacing = 8;
+        [overrides columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+        for (NSInteger r = 0; r < overrides.numberOfRows; r++) {
+            NSTextField *label = (NSTextField *)[overrides cellAtColumnIndex:0 rowIndex:r].contentView;
+            label.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+            label.textColor = NSColor.secondaryLabelColor;
+            // Labels keep their full width; the popups give way (with an ellipsis) instead.
+            [label setContentCompressionResistancePriority:NSLayoutPriorityRequired
+                                            forOrientation:NSLayoutConstraintOrientationHorizontal];
+        }
+        for (NSPopUpButton *p in @[_theme, _layout, _pinnedClose, _archive]) {
+            [p.cell setLineBreakMode:NSLineBreakByTruncatingTail];
+            [p setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                        forOrientation:NSLayoutConstraintOrientationHorizontal];
+            [p.widthAnchor constraintLessThanOrEqualToConstant:190].active = YES;
+        }
+
+        NSStackView *stack = [NSStackView stackViewWithViews:@[_nameField, swatchRow, engineRow, _profile, profileNote, overrides]];
         stack.orientation = NSUserInterfaceLayoutOrientationVertical;
         stack.alignment = NSLayoutAttributeLeading;
         stack.spacing = 10;
@@ -223,6 +285,11 @@
     d.colorHex = _colorHex;
     d.searchEngineID = [rep isKindOfClass:NSString.class] ? rep : nil;
     d.separateProfile = _profile.state == NSControlStateValueOn;
+    d.theme = _theme.indexOfSelectedItem - 1;
+    d.tabLayout = _layout.indexOfSelectedItem - 1;
+    d.pinnedClose = _pinnedClose.indexOfSelectedItem - 1;
+    NSInteger a = _archive.indexOfSelectedItem;   // 0 default, 1 never, then the choices
+    d.archiveHours = a <= 0 ? -1 : a == 1 ? 0 : kArchiveChoices[a - 2];
     return d;
 }
 

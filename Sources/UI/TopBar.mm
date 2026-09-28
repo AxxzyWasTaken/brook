@@ -8,9 +8,9 @@ const CGFloat kTabHeight = kTrackHeight - 2 * kTrackInset;
 const CGFloat kPinnedTabWidth = 40;
 const CGFloat kTabMinWidth = 200;                     // keeps about 16 characters of title readable
 const CGFloat kTabShrunkMinWidth = 36;                // "shrink to fit": down to just the icon
-const CGFloat kEditingMinWidth = 240;                 // compact: the tab fits its address while it's edited,
-const CGFloat kEditingMaxWidth = 560;                 // leaving room to type
+const CGFloat kEditingMaxWidth = 560;                 // compact: the selected tab grows to fit its address, up to this
 const CGFloat kEditingTextInset = 32;                 // favicon and padding before the address
+const CGFloat kReloadRoom = 28;                       // compact: the selected tab's reload button
 const CGFloat kEdgeFade = 24;                         // tabs fade out where the strip cuts them off
 const CGFloat kTitleFade = 18;                        // long titles fade out instead of ending in "…"
 const CGFloat kCloseRoom = 26;                        // kept free on both sides so titles stay centred
@@ -106,6 +106,52 @@ static NSColor *SelectedRimColor(void) {
 /// selected; selected gets the sidebar's raised fill with a hairline rim. The close button shows
 /// on hover. Pinned tabs show just the icon. Laid out with frames: a strip can hold a lot of tabs
 /// and they all resize together.
+/// A one-line label whose text fades out at its trailing end when it doesn't fit. The fade is
+/// sized from the label itself on every size change, so it stays right while the tab animates
+/// between widths (sizing it once from the tab's layout left it at the old width mid-animation).
+@interface FadingLabel : NSTextField
+/// Set when the text is wider than the label.
+@property (nonatomic) BOOL fades;
+@end
+
+@implementation FadingLabel {
+    CAGradientLayer *_mask;
+}
+
+- (void)setFades:(BOOL)fades {
+    if (fades == _fades) return;
+    _fades = fades;
+    [self updateMask];
+}
+
+- (void)setFrameSize:(NSSize)size {
+    [super setFrameSize:size];
+    if (_fades) [self updateMask];
+}
+
+- (void)updateMask {
+    self.wantsLayer = YES;
+    if (!_fades) {
+        self.layer.mask = nil;
+        return;
+    }
+    if (!_mask) {
+        _mask = [CAGradientLayer layer];
+        _mask.startPoint = CGPointMake(0, 0.5);
+        _mask.endPoint = CGPointMake(1, 0.5);
+        _mask.colors = @[(id)NSColor.blackColor.CGColor, (id)NSColor.blackColor.CGColor, (id)NSColor.clearColor.CGColor];
+    }
+    CGFloat w = NSWidth(self.bounds);
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _mask.frame = self.bounds;
+    _mask.locations = @[@0, @(std::max<CGFloat>(0, 1 - kTitleFade / std::max<CGFloat>(w, 1))), @1];
+    self.layer.mask = _mask;
+    [CATransaction commit];
+}
+
+@end
+
 @interface TopTabView : HoverControl <NSDraggingSource>
 - (instancetype)initWithTab:(BrowserTab *)tab;
 @property (readonly) BrowserTab *tab;
@@ -116,6 +162,12 @@ static NSColor *SelectedRimColor(void) {
 @property (copy) void (^onClose)(BrowserTab *tab);
 /// A click on the tab that was already selected (compact: edit its address).
 @property (copy) void (^onEdit)(BrowserTab *tab);
+/// Compact: the selected tab carries a reload button at its trailing end (set = shown).
+@property (nonatomic, copy) void (^onReload)(BrowserTab *tab);
+/// Compact: while selected, show the page's full address instead of its title.
+@property (nonatomic) BOOL addressWhenSelected;
+/// Compact: the width that fits the address (shown or being edited); 0 = no preference.
+@property (readonly) CGFloat addressWidth;
 /// The address field while it's being edited in this tab (compact); it replaces the title.
 @property (nonatomic, strong) NSTextField *editField;
 /// Hover changed; the strip hides the separators beside a hovered tab.
@@ -126,14 +178,16 @@ static NSColor *SelectedRimColor(void) {
 
 @implementation TopTabView {
     NSImageView *_icon;
-    NSTextField *_label;
+    FadingLabel *_label;
     CGFloat _labelWidth;
     CGFloat _labelHeight;
     IconButton *_closeButton;           // made the first time it's needed
+    IconButton *_reloadButton;          // compact, selected tab only; made the first time it's needed
     NSProgressIndicator *_spinner;      // made the first time a tab loads without a favicon
     NSPoint _dragStart;
     BOOL _mayDrag;
     BOOL _wasSelected;
+    BOOL _showingAddress;
     BOOL _iconOnly;
 }
 
@@ -145,10 +199,9 @@ static NSColor *SelectedRimColor(void) {
         _icon.imageScaling = NSImageScaleProportionallyUpOrDown;
         _icon.contentTintColor = NSColor.secondaryLabelColor;
         [self addSubview:_icon];
-        _label = [NSTextField labelWithString:@""];
+        _label = [FadingLabel labelWithString:@""];
         _label.lineBreakMode = NSLineBreakByClipping;   // faded out at the end instead, like Safari
         _label.textColor = NSColor.labelColor;
-        _label.wantsLayer = YES;
         [self addSubview:_label];
         self.fontSize = 13;
         self.accessibilityElement = YES;
@@ -159,10 +212,10 @@ static NSColor *SelectedRimColor(void) {
 }
 
 - (void)setFontSize:(CGFloat)fontSize {
-    if (fontSize == _fontSize) return;
     _fontSize = fontSize;
-    _label.font = [NSFont systemFontOfSize:fontSize weight:NSFontWeightMedium];
+    _label.font = BrookUIFont(fontSize, NSFontWeightMedium);
     [self measureLabel];
+    [self updateClose];
 }
 
 - (void)measureLabel {
@@ -177,7 +230,15 @@ static NSColor *SelectedRimColor(void) {
     if (pinnedStyle == _pinnedStyle) return;
     _pinnedStyle = pinnedStyle;
     self.needsLayout = YES;
+    if (_addressWhenSelected) [self refresh];   // pinned tabs stay icons
     [self updateClose];
+}
+
+- (CGFloat)addressWidth {
+    CGFloat text = _showingAddress ? _labelWidth : 0;
+    if (_editField) text = std::max(text, ceil(_editField.attributedStringValue.size.width) + 4);
+    if (text <= 0) return 0;
+    return kEditingTextInset + text + (_onReload ? kReloadRoom : 10);
 }
 
 - (void)setSelected:(BOOL)selected {
@@ -186,6 +247,65 @@ static NSColor *SelectedRimColor(void) {
     self.isHighlightedState = selected;
     self.accessibilityValue = @(selected);
     [self refreshTextColor];
+    self.needsLayout = YES;   // shows or hides the reload button
+    if (_addressWhenSelected) [self refresh];
+}
+
+- (void)setAddressWhenSelected:(BOOL)addressWhenSelected {
+    if (addressWhenSelected == _addressWhenSelected) return;
+    _addressWhenSelected = addressWhenSelected;
+    [self refresh];
+}
+
+/// An attributed label ignores the field's line break mode; without this a URL wraps at its
+/// slashes onto a second, invisible line instead of running on to the fade.
+static NSParagraphStyle *OneLine() {
+    static NSParagraphStyle *style;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableParagraphStyle *s = [NSMutableParagraphStyle new];
+        s.lineBreakMode = NSLineBreakByClipping;
+        style = [s copy];
+    });
+    return style;
+}
+
+/// The address as the selected compact tab shows it: the whole URL, set exactly like the field
+/// that replaces it on the second click, so editing doesn't shift anything.
+static NSAttributedString *AddressText(NSURL *url, CGFloat fontSize) {
+    return [[NSAttributedString alloc] initWithString:url.absoluteString ?: @""
+                                           attributes:@{NSFontAttributeName: BrookUIFont(fontSize, NSFontWeightRegular),
+                                                        NSForegroundColorAttributeName: NSColor.labelColor,
+                                                        NSParagraphStyleAttributeName: OneLine()}];
+}
+
+
+- (void)setOnReload:(void (^)(BrowserTab *))onReload {
+    _onReload = [onReload copy];
+    self.needsLayout = YES;
+}
+
+/// Compact: reload (stop while loading) at the selected tab's trailing end, like Safari's.
+- (void)updateReload {
+    BOOL show = _selected && _onReload && !_iconOnly;
+    if (show && !_reloadButton) {
+        __weak TopTabView *weakSelf = self;
+        _reloadButton = [[IconButton alloc] initWithSymbol:@"arrow.clockwise" size:11 tooltip:@"Reload (⌘R)" dimension:20
+                                                   onClick:^{
+            TopTabView *self_ = weakSelf;
+            if (self_ && self_.onReload) self_.onReload(self_.tab);
+        }];
+        _reloadButton.cornerRadius = 6;
+        _reloadButton.translatesAutoresizingMaskIntoConstraints = YES;
+        [self addSubview:_reloadButton];
+    }
+    _reloadButton.hidden = !show;
+    if (!show) return;
+    BOOL loading = _tab.isLoading == YES;
+    [_reloadButton setSymbol:loading ? @"xmark" : @"arrow.clockwise" size:11];
+    _reloadButton.toolTip = loading ? @"Stop (⌘.)" : @"Reload (⌘R)";
+    NSSize size = self.bounds.size;
+    [_reloadButton setFrameOrigin:NSMakePoint(size.width - 4 - 20, floor(size.height / 2) - 10)];
 }
 
 - (void)setEditField:(NSTextField *)editField {
@@ -197,44 +317,28 @@ static NSColor *SelectedRimColor(void) {
     [self updateClose];
 }
 
-/// A title too long for the tab fades out over its last few points.
-- (void)fadeLabel:(BOOL)fade {
-    CALayer *layer = _label.layer;
-    if (!fade) {
-        layer.mask = nil;
-        return;
-    }
-    CAGradientLayer *mask = [layer.mask isKindOfClass:CAGradientLayer.class] ? (CAGradientLayer *)layer.mask : nil;
-    if (!mask) {
-        mask = [CAGradientLayer layer];
-        mask.startPoint = CGPointMake(0, 0.5);
-        mask.endPoint = CGPointMake(1, 0.5);
-        mask.colors = @[(id)NSColor.blackColor.CGColor, (id)NSColor.blackColor.CGColor, (id)NSColor.clearColor.CGColor];
-        layer.mask = mask;
-    }
-    CGFloat w = NSWidth(_label.bounds);
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    mask.frame = _label.bounds;
-    mask.locations = @[@0, @(std::max<CGFloat>(0, 1 - kTitleFade / std::max<CGFloat>(w, 1))), @1];
-    [CATransaction commit];
-}
-
 - (void)refreshTextColor {
     BOOL dim = _tab.isPinned && !_tab.isLoaded;
     // Full-strength titles like the sidebar's: dimmed ones wash out over a strong space colour.
-    _label.textColor = dim && !_selected ? NSColor.secondaryLabelColor : NSColor.labelColor;
-    // In an icon-only tab the close button takes the icon's place on hover.
-    BOOL covered = _iconOnly && !_pinnedStyle && self.isHovering;
+    // (An address carries its own two colours.)
+    if (!_showingAddress) _label.textColor = dim && !_selected ? NSColor.secondaryLabelColor : NSColor.labelColor;
+    // In an icon-only tab (or one showing its address) the close button takes the icon's place on hover.
+    BOOL covered = ((_iconOnly && !_pinnedStyle) || (_showingAddress && !_editField)) && self.isHovering;
     _icon.alphaValue = covered ? 0 : (dim ? 0.6 : 1);
 }
 
 - (void)refresh {
     BrowserTab *tab = _tab;
     NSString *title = tab.displayTitle ?: @"";
+    _showingAddress = _addressWhenSelected && _selected && !_pinnedStyle && tab.url != nil;
+    NSAttributedString *text = _showingAddress
+        ? AddressText(tab.url, _fontSize ?: 13)
+        : [[NSAttributedString alloc] initWithString:title
+                                          attributes:@{NSFontAttributeName: _label.font, NSForegroundColorAttributeName: _label.textColor,
+                                                       NSParagraphStyleAttributeName: OneLine()}];
     // Skip no-op sets: titles and favicons are re-sent often while a page loads.
-    if (![_label.stringValue isEqualToString:title]) {
-        _label.stringValue = title;
+    if (![_label.attributedStringValue isEqualToAttributedString:text]) {
+        _label.attributedStringValue = text;
         self.toolTip = title;
         self.accessibilityLabel = title;
         [self measureLabel];
@@ -253,6 +357,7 @@ static NSColor *SelectedRimColor(void) {
     }
     if (spin) [_spinner startAnimation:nil]; else [_spinner stopAnimation:nil];
     _icon.hidden = spin;
+    [self updateReload];
 }
 
 - (void)updateLayer {
@@ -268,7 +373,10 @@ static NSColor *SelectedRimColor(void) {
 }
 
 - (void)updateClose {
-    BOOL show = !_pinnedStyle && self.isHovering && !_editField;
+    CloseButtonVisibility mode = Settings.closeButtons;
+    BOOL wanted = mode == CloseButtonVisibilityAlways ? (_selected || self.isHovering || !_iconOnly)
+                : mode == CloseButtonVisibilityHover && self.isHovering;
+    BOOL show = !_pinnedStyle && wanted && !_editField;
     [self refreshTextColor];
     if (show && !_closeButton) {
         __weak TopTabView *weakSelf = self;
@@ -295,14 +403,22 @@ static NSColor *SelectedRimColor(void) {
     // close button replaces on hover.
     CGFloat room = std::max<CGFloat>(0, size.width - 2 * kCloseRoom - 22);
     BOOL editing = _editField != nil;
-    BOOL iconOnly = !editing && (_pinnedStyle || room < 24);
+    BOOL iconOnly = !editing && !_showingAddress && (_pinnedStyle || room < 24);
     _label.hidden = iconOnly || editing;
+    CGFloat trailing = _onReload ? kReloadRoom : 10;
+    CGFloat addressRoom = std::max<CGFloat>(0, size.width - kEditingTextInset - trailing);
     if (editing) {
         // Favicon at the start, then the address across the rest of the tab.
         iconRect = NSMakeRect(10, cy - 8, 16, 16);
         CGFloat h = ceil(_editField.intrinsicContentSize.height);
-        _editField.frame = NSMakeRect(kEditingTextInset, floor(cy - h / 2),
-                                      std::max<CGFloat>(0, size.width - kEditingTextInset - 10), h);
+        _editField.frame = NSMakeRect(kEditingTextInset, floor(cy - h / 2), addressRoom, h);
+    } else if (_showingAddress) {
+        // Laid out exactly like the field above; a URL longer than the tab fades out.
+        iconRect = NSMakeRect(10, cy - 8, 16, 16);
+        CGFloat textWidth = std::min(_labelWidth, addressRoom);
+        _label.frame = NSMakeRect(kEditingTextInset, floor(cy - _labelHeight / 2), textWidth, _labelHeight);
+        _label.fades = textWidth < _labelWidth;
+        [_closeButton setFrameOrigin:NSMakePoint(9, cy - 9)];
     } else if (iconOnly) {
         iconRect = NSMakeRect(floor((size.width - 16) / 2), cy - 8, 16, 16);
         [_closeButton setFrameOrigin:NSMakePoint(floor((size.width - 18) / 2), cy - 9)];
@@ -312,13 +428,14 @@ static NSColor *SelectedRimColor(void) {
         CGFloat x = floor((size.width - 22 - textWidth) / 2);
         iconRect = NSMakeRect(x, cy - 8, 16, 16);
         _label.frame = NSMakeRect(x + 22, floor(cy - _labelHeight / 2), textWidth, _labelHeight);
-        [self fadeLabel:textWidth < _labelWidth];
+        _label.fades = textWidth < _labelWidth;
         [_closeButton setFrameOrigin:NSMakePoint(5, cy - 9)];
     }
     _icon.frame = iconRect;
     _spinner.frame = NSInsetRect(iconRect, 1, 1);
     _iconOnly = iconOnly;
     [self updateClose];
+    [self updateReload];
 }
 
 // Tabs select on mouse down, like Safari, and drag once the pointer moves a little.
@@ -398,6 +515,10 @@ static NSColor *SelectedRimColor(void) {
 - (void)refresh:(BrowserTab *)tab;
 /// A click on the selected tab (compact).
 @property (copy) void (^onEdit)(BrowserTab *tab);
+/// Compact: the selected tab shows a reload button that calls this (nil = no button).
+@property (nonatomic, copy) void (^onReload)(BrowserTab *tab);
+/// Compact: the selected tab shows its address instead of its title.
+@property (nonatomic) BOOL addressWhenSelected;
 /// Widens `tab` and puts `field` in it in place of the title; returns its view (nil if not shown).
 - (NSView *)beginEditing:(BrowserTab *)tab field:(NSTextField *)field;
 - (void)endEditing;
@@ -492,7 +613,20 @@ static const CGFloat kTabGap = 2;
         TabStripView *self_ = weakSelf;
         if (self_.onEdit) self_.onEdit(t);
     };
+    v.onReload = _onReload;
+    v.addressWhenSelected = _addressWhenSelected;
     return v;
+}
+
+- (void)setAddressWhenSelected:(BOOL)addressWhenSelected {
+    _addressWhenSelected = addressWhenSelected;
+    for (TopTabView *v in _tabViews) v.addressWhenSelected = addressWhenSelected;
+    self.needsLayout = YES;
+}
+
+- (void)setOnReload:(void (^)(BrowserTab *))onReload {
+    _onReload = [onReload copy];
+    for (TopTabView *v in _tabViews) v.onReload = _onReload;
 }
 
 - (NSView *)viewForTab:(BrowserTab *)tab { return tab ? [_byTab objectForKey:tab] : nil; }
@@ -563,12 +697,15 @@ static const CGFloat kTabGap = 2;
     if (previous) [_byTab objectForKey:previous].selected = NO;
     _selected = selected;
     if (selected) [_byTab objectForKey:selected].selected = YES;
+    if (_addressWhenSelected) [self animateLayout];   // the old tab shrinks back as the new one grows
     [self updateSeparators];
     [self scrollToSelected];
 }
 
 - (void)refresh:(BrowserTab *)tab {
-    [[_byTab objectForKey:tab] refresh];
+    TopTabView *v = [_byTab objectForKey:tab];
+    [v refresh];
+    if (_addressWhenSelected && v.selected) self.needsLayout = YES;   // its address may have changed length
 }
 
 - (void)scrollToSelected {
@@ -588,11 +725,14 @@ static const CGFloat kTabGap = 2;
     auto place = [](NSView *v, NSRect r) {
         if (!NSEqualRects(v.frame, r)) v.frame = r;
     };
-    // The tab whose address is being edited (compact) widens; the others share what's left.
+    // Compact: the selected tab (or the one being edited) grows to fit its address; the others
+    // share what's left. It never shrinks below an ordinary tab.
     TopTabView *editing = _editingTab ? [_byTab objectForKey:_editingTab] : nil;
-    // Wide enough for the address as it was when editing began, plus a little room to type.
-    CGFloat address = editing ? ceil(editing.editField.attributedStringValue.size.width) : 0;
-    CGFloat editWidth = std::min(width, std::clamp<CGFloat>(kEditingTextInset + address + 28, kEditingMinWidth, kEditingMaxWidth));
+    if (!editing && _addressWhenSelected && _selected) {
+        TopTabView *v = [_byTab objectForKey:_selected];
+        if (v.addressWidth > 0) editing = v;
+    }
+    CGFloat editWidth = std::min({width, editing.addressWidth, kEditingMaxWidth});
     CGFloat x = 0;
     for (NSUInteger i = 0; i < pinned; i++) {
         CGFloat w = _tabViews[i] == editing ? editWidth : kPinnedTabWidth;
@@ -1056,9 +1196,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     NSView *_toolbar;
     NSLayoutConstraint *_titleRowTop;
     NSLayoutConstraint *_titleRowLeading;
-    IconButton *_backButton;
-    IconButton *_forwardButton;
-    IconButton *_reloadButton;
+    ToolbarButtons *_nav;
     SpaceChip *_spaceChip;
     FavoritesCapsule *_favorites;
     NSGlassEffectView *_extensionsGlass;
@@ -1077,15 +1215,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     if ((self = [super initWithFrame:frameRect])) {
         __weak TopBarView *weakSelf = self;
         _toolbar = [NSView new];
-        _backButton = [[IconButton alloc] initWithSymbol:@"arrow.left" tooltip:@"Back (⌘[)" onClick:^{
-            [weakSelf.browser goBack];
-        }];
-        _forwardButton = [[IconButton alloc] initWithSymbol:@"arrow.right" tooltip:@"Forward (⌘])" onClick:^{
-            [weakSelf.browser goForward];
-        }];
-        _reloadButton = [[IconButton alloc] initWithSymbol:@"arrow.clockwise" tooltip:@"Reload (⌘R)" onClick:^{
-            [weakSelf.browser reloadOrStop];
-        }];
+        _nav = [ToolbarButtons new];
         _spaceChip = [SpaceChip new];
         _favorites = [FavoritesCapsule new];
         _urlPill = [[URLPillView alloc] initWithExtensions:NO];
@@ -1118,6 +1248,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     _spaceChip.browser = browser;
     _favorites.browser = browser;
     _strip.browser = browser;
+    _nav.browser = browser;
 }
 
 - (void)build {
@@ -1125,8 +1256,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     // Row 1, beside the traffic lights: navigation, space | favorites, address, new tab | tools.
     _toolbar.translatesAutoresizingMaskIntoConstraints = NO;
     [self addSubview:_toolbar];
-    NSStackView *nav = [NSStackView stackViewWithViews:@[_backButton, _forwardButton, _reloadButton]];
-    nav.spacing = 2;
+    NSStackView *nav = _nav;
     nav.translatesAutoresizingMaskIntoConstraints = NO;
     // Stack views drop hidden views from the layout, so Downloads takes no room until needed.
     NSStackView *tools = [NSStackView stackViewWithViews:@[_downloadsButton, _fireButton]];
@@ -1138,6 +1268,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     _urlPill.hoverColor = Palette.wellHover;
     _urlPill.onClick = ^{ [weakSelf.browser showCommandBarEditing:YES]; };
     _urlPill.siteButton.onClick = ^{ [weakSelf.browser showSiteInfo]; };
+    _urlPill.reloadButton.onClick = ^{ [weakSelf.browser reloadOrStop]; };
     _favorites.translatesAutoresizingMaskIntoConstraints = NO;
     _strip.onEdit = ^(BrowserTab *tab) { [weakSelf beginEditingAddress]; };
     // Extensions in a glass capsule on the pill's right, mirroring favorites on its left.
@@ -1223,7 +1354,13 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     [NSLayoutConstraint deactivateConstraints:compact ? _topLayout : _compactLayout];
     [NSLayoutConstraint activateConstraints:compact ? _compactLayout : _topLayout];
     _urlPill.hidden = compact;
+    // Reload lives in the address pill (Top) or in the selected tab (Compact).
+    __weak TopBarView *weakSelf = self;
+    if (compact) _strip.onReload = ^(BrowserTab *tab) { [weakSelf.browser reloadOrStop]; };
+    else _strip.onReload = nil;
+    _strip.addressWhenSelected = compact;   // select a tab to see its address, click again to edit
     [self reloadFavorites];
+    [self updateChrome];
 }
 
 // MARK: Compact address editing
@@ -1246,6 +1383,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
         f.cell.wraps = NO;
         _addressField = f;
     }
+    _addressField.font = [NSFont systemFontOfSize:_strip.fontSize ?: 13];   // matches the address shown in the tab
     _addressField.stringValue = tab.url.absoluteString ?: @"";
     NSView *anchor = [_strip beginEditing:tab field:_addressField];
     if (!anchor) return NO;
@@ -1276,11 +1414,11 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
 - (NSLayoutConstraint *)titleRowLeading { return _titleRowLeading; }
 
 - (void)applySettings {
+    [_nav rebuild];
+    [self updateChrome];
     CGFloat font = Settings.tabFontSize;
-    if (font != _fontSize) {
-        _fontSize = font;
-        _strip.fontSize = font;
-    }
+    _fontSize = font;
+    _strip.fontSize = font;   // also re-reads the UI font and close-button setting
     _strip.shrinkToFit = Settings.topTabsShrink;
     [self reloadFavorites];
 }
@@ -1323,7 +1461,8 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
 
 - (void)tabChanged:(BrowserTab *)tab change:(TabChange)change {
     // Tabs show only these; URL, navigation and consent changes matter to the toolbar alone.
-    if (change & (TabChangeTitle | TabChangeFavicon | TabChangeLoading | TabChangeLoaded)) {
+    // (URL too: the selected compact tab shows its address.)
+    if (change & (TabChangeTitle | TabChangeURL | TabChangeFavicon | TabChangeLoading | TabChangeLoaded)) {
         if (tab.isFavorite) [_favorites refresh:tab];
         else [_strip refresh:tab];
     }
@@ -1332,12 +1471,10 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
 
 - (void)updateChrome {
     BrowserTab *tab = BrowserState.shared.selectedTab;
-    _backButton.enabled = tab.webView ? tab.webView.canGoBack : NO;
-    _forwardButton.enabled = tab.webView ? tab.webView.canGoForward : NO;
-    _reloadButton.enabled = tab != nil;
-    BOOL loading = tab.isLoading == YES;
-    [_reloadButton setSymbol:loading ? @"xmark" : @"arrow.clockwise"];
-    _reloadButton.toolTip = loading ? @"Stop (⌘.)" : @"Reload (⌘R)";
+    [_nav updateWithTab:tab];
+    // Reload moved into the pill / the selected tab; in compact the toolbar keeps one only for a
+    // favorite or a pinned tab, which have no room of their own to carry it.
+    [_nav buttonForItem:ToolbarItemReload].hidden = !(_compact && tab && (tab.isFavorite || tab.isPinned));
     [_urlPill updateWithTab:tab];
     _extensionsBar.tab = tab;
 }

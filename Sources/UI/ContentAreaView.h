@@ -24,4 +24,6 @@
 - (void)showTab:(BrowserTab *)tab spaceName:(NSString *)spaceName;
 - (void)tabChanged:(BrowserTab *)tab change:(TabChange)change;
 - (void)showFind;
+/// Re-reads the page shadow, accent and loading-indicator settings.
+- (void)applySettings;
 @end

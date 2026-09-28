@@ -1,8 +1,23 @@
 #import "Brook.h"
 
+NSNotificationName const BrookHoveredLinkNotification = @"BrookHoveredLink";
+
+/// Reports the link under the pointer, for the link preview.
+@interface HoveredLinkHandler : NSObject <WKScriptMessageHandler>
+@end
+
+@implementation HoveredLinkHandler
+- (void)userContentController:(WKUserContentController *)ucc didReceiveScriptMessage:(WKScriptMessage *)message {
+    NSString *url = [message.body isKindOfClass:NSString.class] ? message.body : @"";
+    [NSNotificationCenter.defaultCenter postNotificationName:BrookHoveredLinkNotification object:message.webView
+                                                    userInfo:@{@"url": url}];
+}
+@end
+
 @implementation WebViewFactory
 
 static WKUserScript *sBoostScript;
+static WKUserScript *sDarkScript;
 
 /// Makes sites treat Brook like Safari (same engine), so nothing serves a degraded page.
 + (NSString *)userAgentSuffix { return @"Version/26.0 Safari/605.1.15"; }
@@ -15,26 +30,43 @@ static WKUserScript *sBoostScript;
         ucc = [WKUserContentController new];
         [AutoconsentHandler.shared installHandlersInto:ucc];
         [ChromeWebStoreBridge.shared installHandlersInto:ucc];
+        WKContentWorld *linkWorld = [WKContentWorld worldWithName:@"BrookLinks"];
+        [ucc addScriptMessageHandler:[HoveredLinkHandler new] contentWorld:linkWorld name:@"brookLink"];
+        [ucc addUserScript:[[WKUserScript alloc] initWithSource:
+            @"(function () {\n"
+             "  var last = '';\n"
+             "  function send(u) { if (u !== last) { last = u; webkit.messageHandlers.brookLink.postMessage(u); } }\n"
+             "  document.addEventListener('mouseover', function (e) {\n"
+             "    var a = e.target.closest && e.target.closest('a[href]');\n"
+             "    send(a && a.href && !a.href.startsWith('javascript:') ? a.href : '');\n"
+             "  }, true);\n"
+             "  document.addEventListener('mouseleave', function () { send(''); });\n"
+             "})();"
+                                                  injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
+                                               forMainFrameOnly:YES inContentWorld:linkWorld]];
         if (WKUserScript *s = AutoconsentHandler.shared.userScript) [ucc addUserScript:s];
         if (WKUserScript *s = ChromeWebStoreBridge.shared.userScript) [ucc addUserScript:s];
         sBoostScript = Boosts.userScript;
+        sDarkScript = SiteSettings.forceDarkScript;
         if (sBoostScript) [ucc addUserScript:sBoostScript];
+        if (sDarkScript) [ucc addUserScript:sDarkScript];
     });
     return ucc;
 }
 
-/// Swaps in the current Boosts script. WebKit can only remove all scripts at once, so every
-/// other script (including ones web extensions added) is put back as it was.
+/// Swaps in the current Boosts and force-dark scripts. WebKit can only remove all scripts at once,
+/// so every other script (including ones web extensions added) is put back as it was.
 /// Pages pick up the change on their next load.
-+ (void)reloadBoosts {
++ (void)reloadSiteScripts {
     WKUserContentController *ucc = self.userContentController;
-    WKUserScript *old = sBoostScript;
     NSMutableArray<WKUserScript *> *keep = [NSMutableArray array];
-    for (WKUserScript *s in ucc.userScripts) if (s != old) [keep addObject:s];
+    for (WKUserScript *s in ucc.userScripts) if (s != sBoostScript && s != sDarkScript) [keep addObject:s];
     sBoostScript = Boosts.userScript;
+    sDarkScript = SiteSettings.forceDarkScript;
     [ucc removeAllUserScripts];
     for (WKUserScript *s in keep) [ucc addUserScript:s];
     if (sBoostScript) [ucc addUserScript:sBoostScript];
+    if (sDarkScript) [ucc addUserScript:sDarkScript];
 }
 
 /// Website data for a space: its own store when it has a separate profile, otherwise the shared one.

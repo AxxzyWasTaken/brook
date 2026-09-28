@@ -21,6 +21,7 @@
 
 - (void)applicationWillFinishLaunching:(NSNotification *)notification {
     NSApp.mainMenu = [self buildMenu];
+    [AppDelegate applyShortcuts];
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
@@ -38,6 +39,7 @@
         [ExtensionManager.shared loadAll];
     });
     [self startMemoryManagement];
+    [AppDelegate applyAppIcon];
     [NSNotificationCenter.defaultCenter addObserverForName:BrookSettingsDidChangeNotification
                                                     object:nil
                                                      queue:NSOperationQueue.mainQueue
@@ -45,13 +47,36 @@
         id rawKey = note.userInfo[@"key"];
         NSString *key = [rawKey isKindOfClass:NSString.class] ? rawKey : @"*";
         // Cached settings blobs are re-read after an import/reset.
+        if ([key isEqualToString:@"siteSettings"]) { [WebViewFactory reloadSiteScripts]; return; }
+        if ([@[@"*", @"shortcuts"] containsObject:key]) [AppDelegate applyShortcuts];
+        if ([@[@"*", @"appIcon", @"accentSource"] containsObject:key]) [AppDelegate applyAppIcon];
         if (![key isEqualToString:@"*"]) return;
         [SearchEngines invalidate];
         [SiteSettings invalidate];
         [Boosts invalidate];
-        [WebViewFactory reloadBoosts];
+        [WebViewFactory reloadSiteScripts];
     }];
     [NSApp activate];
+}
+
+/// Settings → General → Warn before quitting with this many tabs open.
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
+    NSInteger limit = Settings.quitWarningTabs;
+    NSInteger open = 0;
+    for (Space *s in self.state.spaces) open += (NSInteger)s.tabs.count;
+    if (limit <= 0 || open < limit || !_windowController.window.isVisible) return NSTerminateNow;
+    NSAlert *alert = [NSAlert new];
+    alert.messageText = [NSString stringWithFormat:@"Quit Brook with %ld tabs open?", (long)open];
+    alert.informativeText = Settings.launchBehavior == LaunchBehaviorRestore
+        ? @"They'll be back next time you open Brook."
+        : @"Your tabs won't be reopened next time (Settings → General → On launch).";
+    [alert addButtonWithTitle:@"Quit"];
+    [alert addButtonWithTitle:@"Cancel"];
+    alert.showsSuppressionButton = YES;
+    alert.suppressionButton.title = @"Don't ask again";
+    NSModalResponse r = [alert runModal];
+    if (alert.suppressionButton.state == NSControlStateValueOn) Settings.quitWarningTabs = 0;
+    return r == NSAlertFirstButtonReturn ? NSTerminateNow : NSTerminateCancel;
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
@@ -92,7 +117,9 @@
         NSInteger minutes = Settings.hibernateMinutes;
         if (minutes > 0) [BrowserState.shared hibernateOlderThan:(NSTimeInterval)(minutes * 60)];
         NSInteger hours = Settings.archiveHours;
-        if (hours > 0) [BrowserState.shared archiveOlderThan:(NSTimeInterval)(hours * 3600)];
+        BOOL perSpace = NO;
+        for (Space *s in BrowserState.shared.spaces) perSpace = perSpace || s.archiveHours.integerValue > 0;
+        if (hours > 0 || perSpace) [BrowserState.shared archiveOlderThan:(NSTimeInterval)(hours * 3600)];
     }];
     _hibernateTimer.tolerance = 60;
     dispatch_source_t source = dispatch_source_create(
@@ -133,6 +160,7 @@
 - (void)toggleFavorite:(id)sender { BrowserTab *t = self.state.selectedTab; if (t) [self.state toggleFavorite:t]; }
 - (void)duplicateTab:(id)sender { BrowserTab *t = self.state.selectedTab; if (t) [self.state duplicate:t]; }
 - (void)copyURL:(id)sender { [self.wc copyURL]; }
+- (void)toggleReader:(id)sender { [self.wc toggleReader]; }
 - (void)toggleSidebarMenu:(id)sender { [self.wc toggleSidebar]; }
 - (void)reload:(id)sender { [self.state.selectedTab reload]; }
 - (void)hardReload:(id)sender { [self.state.selectedTab.webView reloadFromOrigin]; }
@@ -168,7 +196,8 @@
         menuItem.state = Settings.blockCookiePopups ? NSControlStateValueOn : NSControlStateValueOff;
     } else if (action == @selector(stopLoading:)) {
         return tab.isLoading == YES;
-    } else if (action == @selector(showSiteSettings:) || action == @selector(printPage:)) {
+    } else if (action == @selector(showSiteSettings:) || action == @selector(printPage:) ||
+               action == @selector(toggleReader:)) {
         return BrookHost(tab.url) != nil;
     } else if (action == @selector(togglePin:)) {
         menuItem.title = tab.isPinned == YES ? @"Unpin Tab" : @"Pin Tab";
@@ -188,6 +217,98 @@
         return menuItem.tag < (NSInteger)self.state.spaces.count;
     }
     return YES;
+}
+
+// MARK: App icon
+
+/// Settings → Appearance → App icon: the Dock icon, recoloured from the bundled one. The Finder
+/// keeps the bundle's icon (changing that would modify the signed app).
++ (void)applyAppIcon {
+    static NSImage *original = [NSApp.applicationIconImage copy];
+    AppIconStyle style = Settings.appIcon;
+    if (style == AppIconStyleDefault || !original) { NSApp.applicationIconImage = nil; return; }
+    CGImageRef cg = [original CGImageForProposedRect:NULL context:nil hints:nil];
+    if (!cg) return;
+    CIImage *image = [CIImage imageWithCGImage:cg];
+    CIFilter *filter = nil;
+    switch (style) {
+        case AppIconStyleMono:
+            filter = [CIFilter filterWithName:@"CIColorControls"
+                          withInputParameters:@{kCIInputImageKey: image, kCIInputSaturationKey: @0, kCIInputContrastKey: @1.1}];
+            break;
+        case AppIconStyleNight: {
+            // Keep the hue, drop the lightness: a dimmed icon for dark desktops. The white waves
+            // stay light because exposure scales, and the gamma curve holds the highlights up.
+            CIFilter *dim = [CIFilter filterWithName:@"CIExposureAdjust"
+                                 withInputParameters:@{kCIInputImageKey: image, kCIInputEVKey: @(-1.6)}];
+            filter = [CIFilter filterWithName:@"CIGammaAdjust"
+                          withInputParameters:@{kCIInputImageKey: dim.outputImage, @"inputPower": @0.75}];
+            break;
+        }
+        default: {
+            NSColor *c = [(BrowserState.shared.currentSpace.color ?: NSColor.systemPurpleColor)
+                          colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+            CIFilter *mono = [CIFilter filterWithName:@"CIColorMonochrome"
+                                  withInputParameters:@{kCIInputImageKey: image, kCIInputIntensityKey: @0.85,
+                                                        kCIInputColorKey: [[CIColor alloc] initWithColor:c]}];
+            filter = mono;
+            break;
+        }
+    }
+    CIImage *out = [filter.outputImage imageByCroppingToRect:image.extent];
+    if (!out) return;
+    NSCIImageRep *rep = [NSCIImageRep imageRepWithCIImage:out];
+    NSImage *icon = [[NSImage alloc] initWithSize:original.size];
+    [icon addRepresentation:rep];
+    NSApp.applicationIconImage = icon;
+}
+
+// MARK: Shortcuts
+
+static NSMutableDictionary<NSString *, NSString *> *sDefaultShortcuts;
+
++ (NSString *)shortcutIDForItem:(NSMenuItem *)item {
+    NSString *name = NSStringFromSelector(item.action);
+    return item.tag ? [NSString stringWithFormat:@"%@%ld", name, (long)item.tag] : name;
+}
+
++ (NSArray<NSArray *> *)shortcutItems {
+    NSMutableArray *list = [NSMutableArray array];
+    for (NSMenuItem *top in NSApp.mainMenu.itemArray) {
+        for (NSMenuItem *item in top.submenu.itemArray) {
+            // Standard Edit/window commands stay as macOS has them.
+            if (item.isSeparatorItem || !item.action || item.submenu) continue;
+            if ([@[@"Edit", @"Window"] containsObject:top.title]) continue;
+            [list addObject:@[top.title.length ? top.title : @"Brook", item]];
+        }
+    }
+    return list;
+}
+
++ (NSString *)defaultShortcutForItem:(NSMenuItem *)item {
+    return sDefaultShortcuts[[self shortcutIDForItem:item]] ?: @"";
+}
+
+/// Settings → Shortcuts: overrides replace the built-in key equivalents ("" removes one).
++ (void)applyShortcuts {
+    BOOL first = sDefaultShortcuts == nil;
+    if (first) sDefaultShortcuts = [NSMutableDictionary dictionary];
+    NSDictionary<NSString *, NSString *> *overrides = Settings.shortcuts;
+    for (NSArray *pair in self.shortcutItems) {
+        NSMenuItem *item = pair[1];
+        NSString *identifier = [self shortcutIDForItem:item];
+        if (first) sDefaultShortcuts[identifier] = BrookShortcutString(item.keyEquivalent, item.keyEquivalentModifierMask);
+        NSString *shortcut = overrides[identifier] ?: sDefaultShortcuts[identifier];
+        NSString *key = nil;
+        NSEventModifierFlags mods = 0;
+        if (BrookParseShortcut(shortcut, &key, &mods)) {
+            item.keyEquivalent = key;
+            item.keyEquivalentModifierMask = mods;
+        } else {
+            item.keyEquivalent = @"";
+            item.keyEquivalentModifierMask = 0;
+        }
+    }
 }
 
 // MARK: Menu bar
@@ -275,6 +396,7 @@ static NSString *BrookKey(unichar c) {
         item(@"Reload Ignoring Cache", @selector(hardReload:), @"r", cmd | shift),
         item(@"Stop", @selector(stopLoading:), @"."),
         separator(),
+        item(@"Show Reader", @selector(toggleReader:), @"r", cmd | opt),
         item(@"Actual Size", @selector(actualSize:), @"0"),
         item(@"Zoom In", @selector(zoomIn:), @"="),
         item(@"Zoom Out", @selector(zoomOut:), @"-"),

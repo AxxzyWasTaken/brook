@@ -3,6 +3,7 @@
 #import <WebKit/WebKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <objc/message.h>
 
 #include <algorithm>
 #include <cmath>

@@ -21,6 +21,13 @@
     return [NSColor brook_colorWithHex:_colorHex] ?: NSColor.systemPurpleColor;
 }
 
+- (ThemeMode)effectiveTheme { return _themeMode ? (ThemeMode)_themeMode.integerValue : Settings.theme; }
+- (TabLayout)effectiveTabLayout { return _tabLayout ? (TabLayout)_tabLayout.integerValue : Settings.tabLayout; }
+- (NSInteger)effectiveArchiveHours { return _archiveHours ? _archiveHours.integerValue : Settings.archiveHours; }
+- (PinnedCloseBehavior)effectivePinnedClose {
+    return _pinnedClose ? (PinnedCloseBehavior)_pinnedClose.integerValue : Settings.pinnedClose;
+}
+
 @end
 
 @implementation ArchivedTab
@@ -151,6 +158,14 @@ struct ClosedTab {
             s.lastSelectedID = UUIDFromJSON(sr[@"lastSelected"]);
             s.searchEngineID = StringFromJSON(sr[@"searchEngine"]);
             s.profileID = UUIDFromJSON(sr[@"profile"]);
+            NSInteger theme = ThemeModeFromRaw(StringFromJSON(sr[@"theme"]));
+            NSInteger layout = TabLayoutFromRaw(StringFromJSON(sr[@"tabLayout"]));
+            NSInteger pinnedClose = PinnedCloseBehaviorFromRaw(StringFromJSON(sr[@"pinnedClose"]));
+            s.themeMode = theme >= 0 ? @(theme) : nil;
+            s.tabLayout = layout >= 0 ? @(layout) : nil;
+            s.pinnedClose = pinnedClose >= 0 ? @(pinnedClose) : nil;
+            id hours = sr[@"archiveHours"];
+            s.archiveHours = [hours isKindOfClass:NSNumber.class] ? @(std::max<NSInteger>(0, [hours integerValue])) : nil;
             [_spaces addObject:s];
         }
         _currentSpaceIndex = std::min(std::max<NSInteger>(0, [record[@"currentSpace"] integerValue]),
@@ -158,12 +173,32 @@ struct ClosedTab {
         for (NSDictionary *a in record[@"archived"]) {
             if (ArchivedTab *t = ArchivedFromRecord(a)) [_archived addObject:t];
         }
+        [self applyLaunchBehavior];
         NSUUID *sel = UUIDFromJSON(record[@"selected"]);
         BrowserTab *tab = sel ? [self tabWithID:sel] : nil;
         [self selectTab:tab ?: self.currentSpace.tabs.firstObject ?: self.currentSpace.pinned.firstObject];
     } else {
         [_spaces addObject:[[Space alloc] initWithName:@"Personal" colorHex:Palette.spaceColors[0][1]]];
+        [self applyLaunchBehavior];
     }
+}
+
+/// Settings → General → On launch. Restore keeps everything; the others drop the unpinned tabs
+/// (pinned tabs and favorites stay, like Arc) and the start page opens one tab.
+- (void)applyLaunchBehavior {
+    LaunchBehavior launch = Settings.launchBehavior;
+    if (launch == LaunchBehaviorRestore) return;
+    for (Space *s in _spaces) {
+        [s.tabs removeAllObjects];
+        s.lastSelectedID = nil;
+    }
+    if (launch != LaunchBehaviorStartPage) return;
+    NSURL *start = [URLParser urlFromInput:Settings.startPageURL];
+    if (!start) return;
+    BrowserTab *t = [[BrowserTab alloc] initWithURL:start];
+    t.state = self;
+    [self.currentSpace.tabs addObject:t];
+    self.currentSpace.lastSelectedID = t.identifier;
 }
 
 - (BrowserTab *)makeTab:(NSDictionary *)r favorite:(BOOL)favorite pinned:(BOOL)pinned {
@@ -197,6 +232,10 @@ struct ClosedTab {
         if (s.lastSelectedID) d[@"lastSelected"] = s.lastSelectedID.UUIDString;
         if (s.searchEngineID) d[@"searchEngine"] = s.searchEngineID;
         if (s.profileID) d[@"profile"] = s.profileID.UUIDString;
+        if (s.themeMode) d[@"theme"] = ThemeModeRaw((ThemeMode)s.themeMode.integerValue);
+        if (s.tabLayout) d[@"tabLayout"] = TabLayoutRaw((TabLayout)s.tabLayout.integerValue);
+        if (s.pinnedClose) d[@"pinnedClose"] = PinnedCloseBehaviorRaw((PinnedCloseBehavior)s.pinnedClose.integerValue);
+        if (s.archiveHours) d[@"archiveHours"] = s.archiveHours;
         [spaces addObject:d];
     }
     NSMutableArray *archived = [NSMutableArray array];
@@ -363,9 +402,10 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
 
 - (void)close:(BrowserTab *)tab {
     if (tab.isPinned || tab.isFavorite) {
-        if (tab.isPinned && Settings.pinnedClose == PinnedCloseBehaviorUnpin) { [self remove:tab]; return; }
+        PinnedCloseBehavior behavior = tab.isPinned ? [self spaceOf:tab].effectivePinnedClose : Settings.pinnedClose;
+        if (tab.isPinned && behavior == PinnedCloseBehaviorUnpin) { [self remove:tab]; return; }
         if (_selectedTab == tab) [self selectTab:[self neighborOf:tab]];
-        if (Settings.pinnedClose == PinnedCloseBehaviorUnloadOnly) [tab unload]; else [tab resetToHome];
+        if (behavior == PinnedCloseBehaviorUnloadOnly) [tab unload]; else [tab resetToHome];
         [_observer browserStateTabDidChange:tab change:TabChangeURL | TabChangeTitle | TabChangeLoaded];
         [self scheduleSave];
     } else {
@@ -393,15 +433,26 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     if (!found) return nil;
     NSArray<BrowserTab *> *list = [self listFor:found->location];
     NSInteger i = found->index;
+    auto usable = [tab](BrowserTab *t) { return t != tab && (t.isLoaded || !t.isPinned); };
+    // Settings → Tabs → After closing a tab: the one used most recently, from anywhere in the space.
+    if (Settings.closeSelects == CloseSelectsLastUsed) {
+        BrowserTab *best = nil;
+        for (BrowserTab *t in self.visibleTabs) {
+            if (!usable(t) || (t.isFavorite && !t.isLoaded)) continue;
+            if (!best || [t.lastActive compare:best.lastActive] == NSOrderedDescending) best = t;
+        }
+        if (best.lastActive) return best;
+    }
     BrowserTab *after = nil, *before = nil;
     for (NSInteger j = 0; j < (NSInteger)list.count; j++) {
         BrowserTab *t = list[(NSUInteger)j];
-        if (t == tab || !(t.isLoaded || !t.isPinned)) continue;
+        if (!usable(t)) continue;
         if (j > i && !after) after = t;
         if (j < i) before = t;
     }
-    if (after) return after;
-    if (before) return before;
+    BOOL above = Settings.closeSelects == CloseSelectsAbove;
+    if (BrowserTab *first = above ? before : after) return first;
+    if (BrowserTab *second = above ? after : before) return second;
     if (found->location.kind == TabLocation::Tabs) return nil;
     return self.currentSpace.tabs.firstObject;
 }
@@ -592,12 +643,15 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     }
 }
 
-/// Tabs playing media or using the camera/microphone are left alone.
+/// Tabs playing media or using the camera/microphone are left alone. Each space may set its
+/// own limit (0 = never); `seconds` is the global one.
 - (void)archiveOlderThan:(NSTimeInterval)seconds {
-    NSDate *cutoff = [NSDate dateWithTimeIntervalSinceNow:-seconds];
     struct Candidate { Space *space; BrowserTab *tab; };
     auto candidates = std::make_shared<std::vector<Candidate>>();
     for (Space *s in _spaces) {
+        NSTimeInterval limit = s.archiveHours ? s.archiveHours.integerValue * 3600.0 : seconds;
+        if (limit <= 0) continue;
+        NSDate *cutoff = [NSDate dateWithTimeIntervalSinceNow:-limit];
         for (BrowserTab *t in s.tabs) {
             if (t != _selectedTab && [t.lastActive compare:cutoff] == NSOrderedAscending) candidates->push_back({s, t});
         }

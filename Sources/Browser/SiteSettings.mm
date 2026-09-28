@@ -20,7 +20,10 @@ static BOOL IsAbsent(id v) { return v == nil || v == NSNull.null; }
 /// Overrides for one site. `nil` means "use the global setting".
 @implementation SiteOverride
 
-- (BOOL)isEmpty { return _zoom == nil && _javascript == nil && _autoplay == nil && _cookiePopups == nil; }
+- (BOOL)isEmpty {
+    return _zoom == nil && _javascript == nil && _autoplay == nil && _cookiePopups == nil && _forceDark == nil &&
+           _userAgent == nil && _blockAds == nil;
+}
 
 - (id)copyWithZone:(NSZone *)zone {
     SiteOverride *o = [SiteOverride new];
@@ -28,33 +31,44 @@ static BOOL IsAbsent(id v) { return v == nil || v == NSNull.null; }
     o.javascript = _javascript;
     o.autoplay = _autoplay;
     o.cookiePopups = _cookiePopups;
+    o.forceDark = _forceDark;
+    o.userAgent = _userAgent;
+    o.blockAds = _blockAds;
     return o;
 }
+
+static BOOL Same(id a, id b) { return a == b || [a isEqual:b]; }
 
 - (BOOL)isEqual:(id)other {
     if (![other isKindOfClass:SiteOverride.class]) return NO;
     SiteOverride *o = other;
-    return (_zoom == o.zoom || [_zoom isEqual:o.zoom]) &&
-           (_javascript == o.javascript || [_javascript isEqual:o.javascript]) &&
-           (_autoplay == o.autoplay || [_autoplay isEqual:o.autoplay]) &&
-           (_cookiePopups == o.cookiePopups || [_cookiePopups isEqual:o.cookiePopups]);
+    return Same(_zoom, o.zoom) && Same(_javascript, o.javascript) && Same(_autoplay, o.autoplay) &&
+           Same(_cookiePopups, o.cookiePopups) && Same(_forceDark, o.forceDark) && Same(_userAgent, o.userAgent) &&
+           Same(_blockAds, o.blockAds);
 }
 
-- (NSUInteger)hash { return _zoom.hash ^ _javascript.hash ^ _autoplay.hash ^ _cookiePopups.hash; }
+- (NSUInteger)hash { return _zoom.hash ^ _javascript.hash ^ _autoplay.hash ^ _cookiePopups.hash ^ _userAgent.hash; }
 
 /// nil when a present field has the wrong type.
 + (instancetype)fromJSON:(NSDictionary *)json {
     if (![json isKindOfClass:NSDictionary.class]) return nil;
     id zoom = json[@"zoom"], js = json[@"javascript"], autoplay = json[@"autoplay"], cookies = json[@"cookiePopups"];
+    id dark = json[@"forceDark"], ua = json[@"userAgent"], ads = json[@"blockAds"];
     if (!IsAbsent(zoom) && !IsJSONNumber(zoom)) return nil;
     if (!IsAbsent(js) && !IsJSONBool(js)) return nil;
     if (!IsAbsent(autoplay) && ![autoplay isKindOfClass:NSString.class]) return nil;
     if (!IsAbsent(cookies) && !IsJSONBool(cookies)) return nil;
+    if (!IsAbsent(dark) && !IsJSONBool(dark)) return nil;
+    if (!IsAbsent(ua) && ![ua isKindOfClass:NSString.class]) return nil;
+    if (!IsAbsent(ads) && !IsJSONBool(ads)) return nil;
     SiteOverride *o = [SiteOverride new];
     o.zoom = IsAbsent(zoom) ? nil : @([zoom doubleValue]);
     o.javascript = IsAbsent(js) ? nil : @([js boolValue]);
     o.autoplay = IsAbsent(autoplay) ? nil : autoplay;
     o.cookiePopups = IsAbsent(cookies) ? nil : @([cookies boolValue]);
+    o.forceDark = IsAbsent(dark) ? nil : @([dark boolValue]);
+    o.userAgent = IsAbsent(ua) ? nil : ua;
+    o.blockAds = IsAbsent(ads) ? nil : @([ads boolValue]);
     return o;
 }
 
@@ -64,6 +78,9 @@ static BOOL IsAbsent(id v) { return v == nil || v == NSNull.null; }
     if (_javascript) d[@"javascript"] = @(_javascript.boolValue);
     if (_autoplay) d[@"autoplay"] = _autoplay;
     if (_cookiePopups) d[@"cookiePopups"] = @(_cookiePopups.boolValue);
+    if (_forceDark) d[@"forceDark"] = @(_forceDark.boolValue);
+    if (_userAgent) d[@"userAgent"] = _userAgent;
+    if (_blockAds) d[@"blockAds"] = @(_blockAds.boolValue);
     return d;
 }
 
@@ -162,7 +179,68 @@ static NSDictionary<NSString *, SiteOverride *> *sSiteCache;
     return raw >= 0 ? (AutoplayPolicy)raw : Settings.autoplay;
 }
 
++ (BOOL)forceDarkForHost:(NSString *)host { return [self overrideForHost:host].forceDark.boolValue; }
+
++ (UserAgentChoice)userAgentForHost:(NSString *)host {
+    NSInteger raw = UserAgentChoiceFromRaw([self overrideForHost:host].userAgent);
+    return raw >= 0 ? (UserAgentChoice)raw : UserAgentChoiceSafari;
+}
+
++ (BOOL)blockAdsForHost:(NSString *)host {
+    NSNumber *v = [self overrideForHost:host].blockAds;
+    return v ? v.boolValue : Settings.blockAds;
+}
+
++ (WKUserScript *)forceDarkScript {
+    NSMutableArray<NSString *> *hosts = [NSMutableArray array];
+    [self.all enumerateKeysAndObjectsUsingBlock:^(NSString *key, SiteOverride *o, BOOL *stop) {
+        if (o.forceDark.boolValue) [hosts addObject:key];
+    }];
+    if (hosts.count == 0) return nil;
+    NSData *json = [NSJSONSerialization dataWithJSONObject:hosts options:0 error:nil];
+    // Inverts the page and flips media back, unless the page turns out to be dark already.
+    NSString *source = [NSString stringWithFormat:
+        @"(function () {\n"
+         "  if (window.top !== window) return;\n"
+         "  var h = location.hostname.toLowerCase().replace(/^www\\./, '');\n"
+         "  var hosts = %@;\n"
+         "  if (!hosts.some(function (p) { return h === p || h.endsWith('.' + p); })) return;\n"
+         "  var s = document.createElement('style');\n"
+         "  s.id = 'brook-force-dark';\n"
+         "  s.textContent = 'html{filter:invert(1) hue-rotate(180deg)!important;background:#fff!important}'\n"
+         "    + 'img,video,picture,canvas,svg image,iframe,embed,object,[style*=\"background-image\"]'\n"
+         "    + '{filter:invert(1) hue-rotate(180deg)!important}';\n"
+         "  (document.head || document.documentElement).appendChild(s);\n"
+         "  function lum(c) {\n"
+         "    var m = c.match(/[\\d.]+/g); if (!m || (m.length > 3 && +m[3] === 0)) return null;\n"
+         "    return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];\n"
+         "  }\n"
+         "  document.addEventListener('DOMContentLoaded', function () {\n"
+         "    s.disabled = true;\n"
+         "    var l = lum(getComputedStyle(document.body || document.documentElement).backgroundColor);\n"
+         "    if (l === null) l = lum(getComputedStyle(document.documentElement).backgroundColor);\n"
+         "    s.disabled = l !== null && l < 110;\n"
+         "  });\n"
+         "})();", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]];
+    return [[WKUserScript alloc] initWithSource:source injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                               forMainFrameOnly:YES inContentWorld:Boosts.world];
+}
+
 @end
+
+NSString *UserAgentString(UserAgentChoice choice) {
+    switch (choice) {
+        case UserAgentChoiceChrome:
+            return @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+                   @"Chrome/140.0.0.0 Safari/537.36";
+        case UserAgentChoiceFirefox:
+            return @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:143.0) Gecko/20100101 Firefox/143.0";
+        case UserAgentChoiceMobile:
+            return @"Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) "
+                   @"Version/26.0 Mobile/15E148 Safari/604.1";
+        default: return nil;
+    }
+}
 
 WKAudiovisualMediaTypes AutoplayPolicyMediaTypes(AutoplayPolicy policy) {
     switch (policy) {

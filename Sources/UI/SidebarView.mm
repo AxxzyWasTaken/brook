@@ -33,9 +33,7 @@ struct Row {
     NSLayoutConstraint *_titleRowTop;
     NSLayoutConstraint *_titleRowLeading;
     IconButton *_toggleButton;
-    IconButton *_backButton;
-    IconButton *_forwardButton;
-    IconButton *_reloadButton;
+    ToolbarButtons *_navStack;
     FavoritesGridView *_favoritesGrid;
     NSLayoutConstraint *_favoritesTop;
     NSLayoutConstraint *_pillTop;
@@ -82,15 +80,7 @@ struct Row {
         _toggleButton = [[IconButton alloc] initWithSymbol:@"sidebar.left" tooltip:@"Hide Sidebar (⌘S)" onClick:^{
             [weakSelf.browser toggleSidebar];
         }];
-        _backButton = [[IconButton alloc] initWithSymbol:@"arrow.left" tooltip:@"Back (⌘[)" onClick:^{
-            [weakSelf.browser goBack];
-        }];
-        _forwardButton = [[IconButton alloc] initWithSymbol:@"arrow.right" tooltip:@"Forward (⌘])" onClick:^{
-            [weakSelf.browser goForward];
-        }];
-        _reloadButton = [[IconButton alloc] initWithSymbol:@"arrow.clockwise" tooltip:@"Reload (⌘R)" onClick:^{
-            [weakSelf.browser reloadOrStop];
-        }];
+        _navStack = [ToolbarButtons new];
         _fireButton = [[IconButton alloc] initWithSymbol:@"flame" tooltip:@"Burn Tabs & Data (⇧⌘⌫)" onClick:^{
             [weakSelf.browser fire];
         }];
@@ -120,8 +110,7 @@ struct Row {
     // Nav row
     _titleRow.translatesAutoresizingMaskIntoConstraints = NO;
     [self addSubview:_titleRow];
-    NSStackView *navStack = [NSStackView stackViewWithViews:@[_backButton, _forwardButton, _reloadButton]];
-    navStack.spacing = 2;
+    ToolbarButtons *navStack = _navStack;
     navStack.translatesAutoresizingMaskIntoConstraints = NO;
     [_titleRow addSubview:_toggleButton];
     [_titleRow addSubview:navStack];
@@ -150,6 +139,10 @@ struct Row {
     // Tab list
     NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"main"];
     column.resizingMask = NSTableColumnAutoresizingMask;
+    // Start narrow: autoresizing only grows the column, and NSTableColumn's default 100pt is
+    // wider than the icon rail, which would push the centred icons off its edge.
+    column.minWidth = 1;
+    column.width = 1;
     [_table addTableColumn:column];
     _table.headerView = nil;
     _table.backgroundColor = NSColor.clearColor;
@@ -198,9 +191,13 @@ struct Row {
     for (NSView *v in @[_fireButton, _downloadsButton, _spaceStack, _addSpaceButton]) [bottom addSubview:v];
     _downloadsButton.hidden = YES;
 
+    // In the icon rail the traffic lights take the whole width, leaving the (hidden) title row
+    // nowhere to go; let its right edge give way rather than the sidebar's width.
+    NSLayoutConstraint *titleRowTrailing = [_titleRow.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8];
+    titleRowTrailing.priority = NSLayoutPriorityRequired - 1;
     [NSLayoutConstraint activateConstraints:@[
         [_titleRow.heightAnchor constraintEqualToConstant:self.titleRowHeight],
-        [_titleRow.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8],
+        titleRowTrailing,
         [_toggleButton.leadingAnchor constraintEqualToAnchor:_titleRow.leadingAnchor],
         [_toggleButton.centerYAnchor constraintEqualToAnchor:_titleRow.centerYAnchor],
         [navStack.trailingAnchor constraintEqualToAnchor:_titleRow.trailingAnchor],
@@ -240,7 +237,13 @@ struct Row {
 }
 
 /// Re-reads the appearance settings that affect the sidebar.
+- (void)setBrowser:(BrowserWindowController *)browser {
+    _browser = browser;
+    _navStack.browser = browser;
+}
+
 - (void)applySettings {
+    [_navStack rebuild];
     BOOL showPill = Settings.showAddressBar;
     _urlPill.hidden = !showPill;
     _pillHeight.active = !showPill;
@@ -249,14 +252,27 @@ struct Row {
     _bottomBar.hidden = !showBottom;
     _bottomHeight.constant = showBottom ? 28 : 0;
     _favoritesGrid.maxColumns = Settings.favoritesColumns;
-    TabDensity density = Settings.tabDensity;
-    CGFloat font = Settings.tabFontSize;
-    if (density != _rowDensity || font != _rowFontSize) {
-        _rowDensity = density;
-        _rowFontSize = font;
-        [_table reloadData];
-        [self updateSelection];
+    // Icon-only rail: just the tab icons, the space dots and the traffic lights above them.
+    BOOL rail = Settings.sidebarIconsOnly;
+    _navStack.hidden = rail;
+    _toggleButton.hidden = rail;
+    if (rail) {
+        _urlPill.hidden = YES;
+        _pillHeight.active = YES;
+        _pillTop.constant = 0;
+        _favoritesGrid.maxColumns = 1;
     }
+    _fireButton.hidden = rail;
+    _addSpaceButton.hidden = rail;
+    _spaceStack.orientation = rail ? NSUserInterfaceLayoutOrientationVertical : NSUserInterfaceLayoutOrientationHorizontal;
+    _bottomHeight.constant = !showBottom ? 0 : rail ? std::max<CGFloat>(28, 22 * (CGFloat)self.state.spaces.count) : 28;
+    // Rows are cheap to rebuild; tab style, fonts and the rest are read when a cell is configured.
+    _rowDensity = Settings.tabDensity;
+    _rowFontSize = Settings.tabFontSize;
+    [_table sizeLastColumnToFit];
+    [_table noteHeightOfRowsWithIndexesChanged:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, (NSUInteger)_table.numberOfRows)]];
+    [_table reloadData];
+    [self updateSelection];
     [self reloadFavorites];
 }
 
@@ -359,12 +375,7 @@ struct Row {
 /// Back/forward/reload state and the address pill.
 - (void)updateChrome {
     BrowserTab *tab = self.state.selectedTab;
-    _backButton.enabled = tab.webView ? tab.webView.canGoBack : NO;
-    _forwardButton.enabled = tab.webView ? tab.webView.canGoForward : NO;
-    _reloadButton.enabled = tab != nil;
-    BOOL loading = tab.isLoading == YES;
-    [_reloadButton setSymbol:loading ? @"xmark" : @"arrow.clockwise"];
-    _reloadButton.toolTip = loading ? @"Stop (⌘.)" : @"Reload (⌘R)";
+    [_navStack updateWithTab:tab];
     [_urlPill updateWithTab:tab];
 }
 
@@ -383,7 +394,12 @@ struct Row {
 
 - (CGFloat)tableView:(NSTableView *)tableView heightOfRow:(NSInteger)row {
     if (_rows[row].kind == Row::Divider) return 11;
-    return TabDensityRowHeight(_rowDensity);
+    CGFloat height = TabDensityRowHeight(_rowDensity);
+    // Two-line tabs grow by the site line, unless the row is already roomy enough.
+    if (Settings.tabSubtitles && !Settings.sidebarIconsOnly && _rows[row].kind != Row::NewTab) {
+        height = std::max<CGFloat>(height, ceil(_rowFontSize * 1.25 + (_rowFontSize - 2.5) * 1.25) + 10);
+    }
+    return height;
 }
 
 - (NSTableRowView *)tableView:(NSTableView *)tableView rowViewForRow:(NSInteger)row {
@@ -401,6 +417,7 @@ struct Row {
         __weak SidebarView *weakSelf = self;
         cell.onClose = ^(BrowserTab *t) { [weakSelf.state close:t]; };
         cell.fontSize = _rowFontSize;
+        cell.iconOnly = Settings.sidebarIconsOnly;
         [cell configureWithTab:tab selected:tab == self.state.selectedTab];
         return cell;
     }
@@ -412,6 +429,7 @@ struct Row {
         id made = [tableView makeViewWithIdentifier:NewTabCellView.reuseID owner:self];
         NewTabCellView *cell = [made isKindOfClass:NewTabCellView.class] ? made : [NewTabCellView new];
         cell.fontSize = _rowFontSize;
+        cell.iconOnly = Settings.sidebarIconsOnly;
         return cell;
     }
     }

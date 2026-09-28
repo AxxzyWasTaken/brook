@@ -7,13 +7,17 @@
 /// Overrides for one site. nil means "use the global setting".
 /// Treat instances as values (copy before mutating a shared one).
 /// JSON (stored in Settings key "siteSettings" as {host: override}) uses the keys
-/// "zoom" (number), "javascript" (bool), "autoplay" (AutoplayPolicy raw string), "cookiePopups" (bool);
+/// "zoom" (number), "javascript" (bool), "autoplay" (AutoplayPolicy raw string), "cookiePopups" (bool),
+/// "forceDark" (bool), "userAgent" (UserAgentChoice raw string), "blockAds" (bool);
 /// nil fields are omitted.
 @interface SiteOverride : NSObject <NSCopying>
 @property (strong) NSNumber *zoom;          // double
 @property (strong) NSNumber *javascript;    // BOOL
 @property (copy) NSString *autoplay;        // AutoplayPolicy raw value ("allow", "blockAudio", "blockAll")
 @property (strong) NSNumber *cookiePopups;  // BOOL
+@property (strong) NSNumber *forceDark;     // BOOL (nil = off)
+@property (copy) NSString *userAgent;       // UserAgentChoice raw value (nil = Safari)
+@property (strong) NSNumber *blockAds;      // BOOL (nil = the global setting)
 @property (readonly) BOOL isEmpty;
 + (instancetype)fromJSON:(NSDictionary *)json;
 - (NSDictionary *)toJSON;
@@ -38,7 +42,15 @@
 + (BOOL)javascriptForHost:(NSString *)host;
 + (BOOL)cookiePopupsForHost:(NSString *)host;
 + (AutoplayPolicy)autoplayForHost:(NSString *)host;
++ (BOOL)forceDarkForHost:(NSString *)host;
++ (UserAgentChoice)userAgentForHost:(NSString *)host;
++ (BOOL)blockAdsForHost:(NSString *)host;
+/// Dims every site with forceDark set (nil when none). Shared by every tab, like Boosts.
++ (WKUserScript *)forceDarkScript;
 @end
+
+/// The full user-agent string for a choice (nil = WebKit's own, with Brook's Safari suffix).
+FOUNDATION_EXPORT NSString *UserAgentString(UserAgentChoice choice);
 
 /// Media types that need a user gesture to play.
 FOUNDATION_EXPORT WKAudiovisualMediaTypes AutoplayPolicyMediaTypes(AutoplayPolicy policy);

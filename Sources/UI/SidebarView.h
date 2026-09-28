@@ -6,7 +6,7 @@
 
 /// The sidebar: nav row (its titleRow), address pill, favorites, the tab list and the spaces bar.
 @interface SidebarView : NSView <BrowserChrome>
-@property (weak) BrowserWindowController *browser;
+@property (nonatomic, weak) BrowserWindowController *browser;
 @property (readonly) URLPillView *urlPill;
 @end
 

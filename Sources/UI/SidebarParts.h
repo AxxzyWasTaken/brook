@@ -6,9 +6,12 @@
 /// The address pill at the top of the sidebar or in the top bar's toolbar row.
 @interface URLPillView : HoverControl
 /// With extensions: the extension buttons sit inside the pill's trailing end (the sidebar).
-/// Without: the top bar shows them in their own capsule beside the pill.
+/// Without: the top bar shows them in their own capsule beside the pill, and a reload button
+/// takes the pill's trailing end instead, like Safari's.
 - (instancetype)initWithExtensions:(BOOL)withExtensions;
 @property (readonly) IconButton *siteButton;
+/// Reload / stop at the trailing end; nil when made -initWithExtensions:YES.
+@property (readonly) IconButton *reloadButton;
 /// nil unless made -initWithExtensions:YES.
 @property (readonly) ExtensionsBar *extensionsBar;
 /// tab may be nil.
@@ -55,4 +58,16 @@
 - (void)tabChanged:(BrowserTab *)tab change:(TabChange)change;
 /// Back/forward/reload state and the address pill.
 - (void)updateChrome;
+@end
+
+/// The buttons beside the traffic lights (Settings → Layout → Toolbar buttons), in the chosen
+/// order. Shared by the sidebar and the top bar.
+@interface ToolbarButtons : NSStackView
+@property (weak) BrowserWindowController *browser;
+/// Rebuilds from Settings.toolbarItems.
+- (void)rebuild;
+/// Enabled state and the reload/stop symbol.
+- (void)updateWithTab:(BrowserTab *)tab;
+/// The button for an item, when it's showing.
+- (IconButton *)buttonForItem:(ToolbarItem)item;
 @end

@@ -1,15 +1,94 @@
 #import "Brook.h"
 
+// MARK: - Row background
+
+/// The rounded fill behind a tab, drawn in the Settings → Appearance → Tab style.
+/// Card is HoverControl's own look; the others restyle only the selected state.
+@interface TabRowBackground : HoverControl
+@property (nonatomic) TabStyle style;
+/// Accent bar: on the right (the page side of a left sidebar) or the left.
+@property (nonatomic) BOOL barOnRight;
+@end
+
+@implementation TabRowBackground {
+    CALayer *_bar;
+}
+
+- (void)setStyle:(TabStyle)style {
+    _style = style;
+    self.needsDisplay = YES;
+}
+
+- (void)setBarOnRight:(BOOL)barOnRight {
+    _barOnRight = barOnRight;
+    self.needsDisplay = YES;
+}
+
+- (void)layout {
+    [super layout];
+    self.needsDisplay = YES;   // the accent bar follows the height
+}
+
+- (void)updateLayer {
+    [super updateLayer];
+    CALayer *layer = self.layer;
+    if (!layer) return;
+    BOOL selected = self.isHighlightedState;
+    layer.borderWidth = 0;
+    BOOL showBar = selected && _style == TabStyleAccentBar;
+    if (selected && _style != TabStyleCard) {
+        layer.shadowOpacity = 0;
+        NSColor *fill = NSColor.clearColor;
+        switch (_style) {
+            case TabStyleOutline:
+                layer.borderWidth = 1;
+                layer.borderColor = [self brook_cg:[BrookAccentColor() colorWithAlphaComponent:0.7]];
+                break;
+            case TabStyleAccentBar: fill = Palette.rowHover; break;
+            case TabStyleTinted: {
+                NSColor *space = BrowserState.shared.currentSpace.color ?: NSColor.controlAccentColor;
+                CGFloat alpha = std::clamp<CGFloat>(0.22 * std::max<CGFloat>(Settings.tintStrength, 0.4), 0.08, 0.4);
+                fill = [space colorWithAlphaComponent:alpha];
+                break;
+            }
+            default: break;   // Flat: the title carries the selection
+        }
+        layer.backgroundColor = [self brook_cg:fill];
+    }
+    if (showBar && !_bar) {
+        _bar = [CALayer layer];
+        _bar.cornerRadius = 1.5;
+        [layer addSublayer:_bar];
+    }
+    _bar.hidden = !showBar;
+    if (showBar) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        CGSize size = layer.bounds.size;
+        CGFloat h = std::max<CGFloat>(12, size.height - 14);
+        _bar.frame = CGRectMake(_barOnRight ? size.width - 3 : 0, (size.height - h) / 2, 3, h);
+        _bar.backgroundColor = [self brook_cg:BrookAccentColor()];
+        [CATransaction commit];
+    }
+}
+
+@end
+
 // MARK: - Tab row
 
-/// One tab row in the sidebar: favicon, title, spinner, close button on hover.
+/// One tab row in the sidebar: favicon, title (and site), spinner, close button.
 @implementation TabCellView {
-    HoverControl *_background;
+    TabRowBackground *_background;
     NSImageView *_icon;
     NSTextField *_label;
+    NSTextField *_subtitle;
+    NSStackView *_text;
     IconButton *_closeButton;
     NSProgressIndicator *_spinner;
     NSTrackingArea *_tracking;
+    NSLayoutConstraint *_iconLeading;
+    NSLayoutConstraint *_iconCentered;
+    NSLayoutConstraint *_textTrailing;
     BOOL _hovering;
     BOOL _selected;
 }
@@ -18,9 +97,10 @@
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
     if ((self = [super initWithFrame:frameRect])) {
-        _background = [HoverControl new];
+        _background = [TabRowBackground new];
         _icon = [NSImageView new];
         _label = [NSTextField labelWithString:@""];
+        _subtitle = [NSTextField labelWithString:@""];
         _closeButton = [[IconButton alloc] initWithSymbol:@"xmark" size:10 tooltip:@"Close Tab" dimension:20 onClick:nil];
         _spinner = [NSProgressIndicator new];
         _fontSize = 13;
@@ -41,13 +121,21 @@
         _spinner.translatesAutoresizingMaskIntoConstraints = NO;
         [self addSubview:_spinner];
 
-        _label.font = [NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
-        _label.lineBreakMode = NSLineBreakByTruncatingTail;
-        _label.cell.truncatesLastVisibleLine = YES;
-        _label.translatesAutoresizingMaskIntoConstraints = NO;
-        [_label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
-                                         forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [self addSubview:_label];
+        for (NSTextField *f in @[_label, _subtitle]) {
+            f.lineBreakMode = NSLineBreakByTruncatingTail;
+            f.cell.truncatesLastVisibleLine = YES;
+            [f setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                        forOrientation:NSLayoutConstraintOrientationHorizontal];
+        }
+        _subtitle.textColor = NSColor.secondaryLabelColor;
+        _subtitle.hidden = YES;
+        _text = [NSStackView stackViewWithViews:@[_label, _subtitle]];
+        _text.orientation = NSUserInterfaceLayoutOrientationVertical;
+        _text.alignment = NSLayoutAttributeLeading;
+        _text.spacing = 0;
+        _text.detachesHiddenViews = YES;
+        _text.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:_text];
 
         __weak TabCellView *weakSelf = self;
         _closeButton.onClick = ^{
@@ -58,12 +146,14 @@
         };
         [self addSubview:_closeButton];
 
+        _iconLeading = [_icon.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10];
+        _iconCentered = [_icon.centerXAnchor constraintEqualToAnchor:self.centerXAnchor];
         [NSLayoutConstraint activateConstraints:@[
             [_background.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
             [_background.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
             [_background.topAnchor constraintEqualToAnchor:self.topAnchor],
             [_background.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
-            [_icon.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10],
+            _iconLeading,
             [_icon.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             [_icon.widthAnchor constraintEqualToConstant:16],
             [_icon.heightAnchor constraintEqualToConstant:16],
@@ -71,20 +161,45 @@
             [_spinner.centerYAnchor constraintEqualToAnchor:_icon.centerYAnchor],
             [_spinner.widthAnchor constraintEqualToConstant:14],
             [_spinner.heightAnchor constraintEqualToConstant:14],
-            [_label.leadingAnchor constraintEqualToAnchor:_icon.trailingAnchor constant:9],
-            [_label.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
-            [_label.trailingAnchor constraintEqualToAnchor:_closeButton.leadingAnchor constant:-4],
+            [_text.leadingAnchor constraintEqualToAnchor:_icon.trailingAnchor constant:9],
+            [_text.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             [_closeButton.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-6],
             [_closeButton.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
         ]];
+        // Off in the icon rail (see -setIconOnly:): a 52pt cell has no room for text beside a
+        // centred icon, and the clash would make AppKit drop constraints on every row.
+        _textTrailing = [_text.trailingAnchor constraintEqualToAnchor:_closeButton.leadingAnchor constant:-4];
+        _textTrailing.active = YES;
+        [self applyFont];
     }
     return self;
 }
 
+- (void)applyFont {
+    BOOL bold = _selected && Settings.tabStyle == TabStyleFlat;
+    _label.font = BrookUIFont(_fontSize, bold ? NSFontWeightSemibold : NSFontWeightMedium);
+    _subtitle.font = BrookUIFont(std::max<CGFloat>(10, _fontSize - 2.5), NSFontWeightRegular);
+}
+
 - (void)setFontSize:(CGFloat)fontSize {
-    CGFloat oldValue = _fontSize;
     _fontSize = fontSize;
-    if (fontSize != oldValue) _label.font = [NSFont systemFontOfSize:fontSize weight:NSFontWeightMedium];
+    [self applyFont];
+}
+
+- (void)setIconOnly:(BOOL)iconOnly {
+    _iconOnly = iconOnly;
+    _text.hidden = iconOnly;
+    // Deactivate before activating so the old and new placements never clash.
+    if (iconOnly) {
+        _textTrailing.active = NO;
+        _iconLeading.active = NO;
+        _iconCentered.active = YES;
+    } else {
+        _iconCentered.active = NO;
+        _iconLeading.active = YES;
+        _textTrailing.active = YES;
+    }
+    [self updateClose];
 }
 
 - (void)setHovering:(BOOL)hovering {
@@ -126,45 +241,72 @@
 - (void)configureWithTab:(BrowserTab *)tab selected:(BOOL)selected {
     _tab = tab;
     _selected = selected;
+    _background.style = Settings.tabStyle;
+    _background.barOnRight = Settings.sidebarPosition != SidebarPositionRight;
     [self setHovering:NO];
     _background.baseColor = NSColor.clearColor;
     _background.isHighlightedState = selected;
+    [self applyFont];
     [self updateWithTab:tab];
 }
 
 - (void)updateWithTab:(BrowserTab *)tab {
     _label.stringValue = tab.displayTitle;
-    _label.textColor = tab.isLoaded || !tab.isPinned ? NSColor.labelColor : NSColor.secondaryLabelColor;
+    [self refreshTextColor];
+    NSString *host = BrookHost(tab.url);
+    if ([host hasPrefix:@"www."]) host = [host substringFromIndex:4];
+    _subtitle.stringValue = host ?: @"";
+    _subtitle.hidden = !(Settings.tabSubtitles && host.length);
     _icon.image = tab.favicon ?: [NSImage brook_symbol:@"globe" size:13];
     _icon.contentTintColor = NSColor.secondaryLabelColor;
     _icon.alphaValue = tab.isLoaded || tab.isPinned == NO ? 1 : 0.6;
-    if (tab.isLoading && tab.favicon == nil) {
+    // Settings → Layout → While loading: the bar only spins icons that have none yet.
+    LoadingIndicator indicator = Settings.loadingIndicator;
+    BOOL spin = tab.isLoading && (indicator == LoadingIndicatorSpinner ||
+                                  (indicator == LoadingIndicatorBar && tab.favicon == nil));
+    if (spin) {
         [_spinner startAnimation:nil]; _icon.hidden = YES;
     } else {
         [_spinner stopAnimation:nil]; _icon.hidden = NO;
     }
-    self.toolTip = tab.url.absoluteString;
+    self.toolTip = _iconOnly ? tab.displayTitle : tab.url.absoluteString;
     [self updateClose];
+}
+
+/// Flat tabs show the selection in the title alone: the others are dimmed.
+- (void)refreshTextColor {
+    BrowserTab *tab = _tab;
+    BOOL dim = !(tab.isLoaded || !tab.isPinned) || (Settings.tabStyle == TabStyleFlat && !_selected);
+    _label.textColor = dim ? NSColor.secondaryLabelColor : NSColor.labelColor;
 }
 
 - (void)setSelected:(BOOL)s {
     _selected = s;
     _background.isHighlightedState = s;
     _background.baseColor = (!s && _hovering) ? Palette.rowHover : NSColor.clearColor;
+    [self applyFont];
+    [self refreshTextColor];
     [self updateClose];
 }
 
 - (void)updateClose {
-    _closeButton.hidden = !(_hovering || _selected);
+    BOOL show = NO;
+    switch (Settings.closeButtons) {
+        case CloseButtonVisibilityAlways: show = YES; break;
+        case CloseButtonVisibilityNever: show = NO; break;
+        default: show = _hovering || _selected; break;
+    }
     BrowserTab *tab = self.tab;
+    if (_iconOnly) show = NO;   // the rail has no room; middle-click or ⌘W closes
     if (tab && tab.isPinned) {
         [_closeButton setSymbol:tab.isLoaded ? @"minus" : @"xmark" size:10];
-        _closeButton.hidden = _closeButton.isHidden || !tab.isLoaded;
+        show = show && tab.isLoaded;
         _closeButton.toolTip = @"Unload Pinned Tab";
     } else {
         [_closeButton setSymbol:@"xmark" size:10];
         _closeButton.toolTip = @"Close Tab";
     }
+    _closeButton.hidden = !show;
 }
 
 @end
@@ -174,7 +316,10 @@
 @implementation NewTabCellView {
     HoverControl *_background;
     NSTextField *_label;
+    NSImageView *_icon;
     NSTrackingArea *_tracking;
+    NSLayoutConstraint *_iconLeading;
+    NSLayoutConstraint *_iconCentered;
 }
 
 + (NSUserInterfaceItemIdentifier)reuseID { return @"NewTabCell"; }
@@ -185,25 +330,28 @@
         _label = [NSTextField labelWithString:@"New Tab"];
         _fontSize = 13;
         self.identifier = NewTabCellView.reuseID;
+        self.toolTip = @"New Tab (⌘T)";
         _background.cornerRadius = 9;
         _background.translatesAutoresizingMaskIntoConstraints = NO;
         [self addSubview:_background];
-        NSImageView *icon = [NSImageView imageViewWithImage:
+        _icon = [NSImageView imageViewWithImage:
             [NSImage brook_symbol:@"plus" size:12 weight:NSFontWeightSemibold] ?: [NSImage new]];
-        icon.contentTintColor = NSColor.secondaryLabelColor;
-        icon.translatesAutoresizingMaskIntoConstraints = NO;
-        _label.font = [NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
+        _icon.contentTintColor = NSColor.secondaryLabelColor;
+        _icon.translatesAutoresizingMaskIntoConstraints = NO;
+        _label.font = BrookUIFont(13, NSFontWeightMedium);
         _label.textColor = NSColor.secondaryLabelColor;
         _label.translatesAutoresizingMaskIntoConstraints = NO;
-        [self addSubview:icon];
+        [self addSubview:_icon];
         [self addSubview:_label];
+        _iconLeading = [_icon.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:11];
+        _iconCentered = [_icon.centerXAnchor constraintEqualToAnchor:self.centerXAnchor];
         [NSLayoutConstraint activateConstraints:@[
             [_background.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
             [_background.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
             [_background.topAnchor constraintEqualToAnchor:self.topAnchor],
             [_background.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
-            [icon.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:11],
-            [icon.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+            _iconLeading,
+            [_icon.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             [_label.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:35],
             [_label.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
         ]];
@@ -212,9 +360,20 @@
 }
 
 - (void)setFontSize:(CGFloat)fontSize {
-    CGFloat oldValue = _fontSize;
     _fontSize = fontSize;
-    if (fontSize != oldValue) _label.font = [NSFont systemFontOfSize:fontSize weight:NSFontWeightMedium];
+    _label.font = BrookUIFont(fontSize, NSFontWeightMedium);
+}
+
+- (void)setIconOnly:(BOOL)iconOnly {
+    _iconOnly = iconOnly;
+    _label.hidden = iconOnly;
+    if (iconOnly) {
+        _iconLeading.active = NO;
+        _iconCentered.active = YES;
+    } else {
+        _iconCentered.active = NO;
+        _iconLeading.active = YES;
+    }
 }
 
 - (NSView *)hitTest:(NSPoint)point {
@@ -289,7 +448,7 @@
 
 - (void)otherMouseUp:(NSEvent *)event {
     NSInteger row = [self rowAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
-    if (event.buttonNumber == 2 && row >= 0) {
+    if (event.buttonNumber == 2 && row >= 0 && Settings.middleClickCloses) {
         if (self.onMiddleClick) self.onMiddleClick(row);
     } else {
         [super otherMouseUp:event];
@@ -308,7 +467,7 @@
 }
 
 - (void)scrollWheel:(NSEvent *)event {
-    if (!event.hasPreciseScrollingDeltas) { [super scrollWheel:event]; return; }
+    if (!event.hasPreciseScrollingDeltas || !Settings.swipeSwitchesSpaces) { [super scrollWheel:event]; return; }
     if (event.phase == NSEventPhaseBegan) {
         _horizontal = std::abs(event.scrollingDeltaX) > std::abs(event.scrollingDeltaY) * 1.3;
         _accumulated = 0;
