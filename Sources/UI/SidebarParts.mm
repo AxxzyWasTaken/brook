@@ -69,7 +69,9 @@
             bar.buttonCornerRadius = 7;   // the same shape as the site and shield buttons beside it
             [self addSubview:bar];
             NSLayoutConstraint *minLabel = [_label.widthAnchor constraintGreaterThanOrEqualToConstant:110];
-            minLabel.priority = NSLayoutPriorityRequired - 1;
+            // Below the sidebar's hold on the pill's right edge (Required - 1): at the narrowest
+            // sidebar the address gives up a few points rather than the pill running past the edge.
+            minLabel.priority = NSLayoutPriorityRequired - 2;
             [NSLayoutConstraint activateConstraints:@[
                 minLabel,
                 // "…" always shows: in a narrow sidebar the address gives way, not the last button.
