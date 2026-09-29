@@ -28,7 +28,16 @@
   }
   if (!best) return 'none';
 
+  // The page hides some copies (another layout's caption, say); leave those out of the clone.
+  // The clone lists its elements in the same order as the original.
+  var originals = best.querySelectorAll('*');
+  var hidden = [];
+  for (var j = 0; j < originals.length; j++) {
+    if (!/^(SOURCE|TRACK)$/.test(originals[j].tagName) && getComputedStyle(originals[j]).display === 'none') hidden.push(j);
+  }
   var article = best.cloneNode(true);
+  var copies = article.querySelectorAll('*');
+  hidden.forEach(function (k) { copies[k].remove(); });
   article.querySelectorAll('script, style, noscript, iframe, form, button, input, nav, aside, footer, header, ' +
                            'svg, [role="navigation"], [role="complementary"], [aria-hidden="true"]')
     .forEach(function (n) { n.remove(); });
