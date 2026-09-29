@@ -297,7 +297,7 @@ static NSMutableDictionary<NSString *, NSString *> *sShortcutTitles;
 }
 
 + (NSArray<NSArray *> *)shortcutItems {
-    // Brook's own items, recorded once. AppKit adds its own items later (a visible "Enter Full Screen"), which
+    // Brook's own items, recorded once. AppKit adds its own items later (a hidden "Enter Full Screen"), which
     // Settings must not list twice and which applyShortcuts must not change.
     static NSArray<NSArray *> *sItems;
     if (sItems) return sItems;
