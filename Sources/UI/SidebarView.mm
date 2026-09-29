@@ -58,6 +58,7 @@ struct Row {
     SidebarScrollView *_scrollView;
     SidebarTableView *_table;
     std::vector<Row> _rows;
+    BOOL _scrollToSelectionPending;   // the list had no size yet when the selection changed
 
     // Bottom
     IconButton *_fireButton;
@@ -555,11 +556,26 @@ static const CGFloat kRailButtonInset = 4;
             [tc setSelected:tc.tab == selected];
         }
     }];
-    if (selected) {
-        NSInteger idx = [self rowIndexOfTab:selected];
-        if (idx >= 0) [_table scrollRowToVisible:idx];
-    }
+    [self scrollToSelection];
     [self updateChrome];
+}
+
+/// Before the first layout the list has no height, and scrolling then leaves it
+/// clamped to its end once it grows. Wait for a size instead.
+- (void)scrollToSelection {
+    if (NSHeight(_scrollView.contentView.bounds) <= 0) {
+        _scrollToSelectionPending = YES;
+        return;
+    }
+    _scrollToSelectionPending = NO;
+    BrowserTab *selected = self.state.selectedTab;
+    NSInteger idx = selected ? [self rowIndexOfTab:selected] : -1;
+    if (idx >= 0) [_table scrollRowToVisible:idx];
+}
+
+- (void)layout {
+    [super layout];
+    if (_scrollToSelectionPending) [self scrollToSelection];
 }
 
 - (void)tabChanged:(BrowserTab *)tab change:(TabChange)change {
