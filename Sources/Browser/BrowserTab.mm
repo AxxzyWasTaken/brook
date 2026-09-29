@@ -17,6 +17,8 @@ static void *kTabKVOContext = &kTabKVOContext;
     WKWebView *_observed;
     WKWebViewConfiguration *_pendingConfiguration;
     NSMutableDictionary<NSString *, NSNumber *> *_mediaPermissions;   // WKPermissionDecision
+    NSDate *_lastCrash;          // web content process crashes in a row, each soon after the one before
+    NSInteger _crashesInARow;
 }
 
 - (instancetype)initWithID:(NSUUID *)identifier url:(NSURL *)url title:(NSString *)title {
@@ -368,7 +370,20 @@ static void *kTabKVOContext = &kTabKVOContext;
 }
 
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
-    [webView reload];
+    // Reload after a crash, but not without end: a page that crashes on each load stops after the
+    // third crash in a row and shows the error view, whose Try Again reloads it.
+    NSDate *now = [NSDate date];
+    BOOL soon = _lastCrash && [now timeIntervalSinceDate:_lastCrash] < 10;
+    _crashesInARow = soon ? _crashesInARow + 1 : 1;
+    _lastCrash = now;
+    if (_crashesInARow < 3) {
+        [webView reload];
+        return;
+    }
+    _crashesInARow = 0;
+    _lastCrash = nil;
+    _loadError = @"A problem repeatedly occurred with this page.";
+    [_state tabDidChange:self change:TabChangeError];
 }
 
 - (void)webView:(WKWebView *)webView didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
