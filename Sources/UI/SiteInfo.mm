@@ -122,7 +122,7 @@ static NSStackView *BrookVerticalStack(NSStackView *stack) {
     }]];
     NSMutableArray<NSString *> *agents = [NSMutableArray array];
     for (NSInteger a = 0; a < UserAgentChoiceCount; a++) [agents addObject:UserAgentChoiceTitle((UserAgentChoice)a)];
-    agents[0] = @"Safari (default)";
+    agents[0] = [NSString stringWithFormat:@"Default (%@)", UserAgentChoiceTitle(UserAgentChoiceSafari)];
     [form row:@"Identify as" view:[self popup:agents selected:[SiteSettings userAgentForHost:host] onChange:^(NSInteger i) {
         [SiteSettings updateHost:host change:^(SiteOverride *ov) {
             ov.userAgent = i == UserAgentChoiceSafari ? nil : UserAgentChoiceRaw((UserAgentChoice)i);
