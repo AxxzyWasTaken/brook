@@ -207,7 +207,8 @@ FOUNDATION_EXPORT NSInteger PinnedCloseBehaviorFromRaw(NSString *raw);
 @property (class, copy) NSDictionary<NSString *, NSDictionary *> *appearancePresets;
 @property (class, readonly) NSDictionary *currentAppearance;
 /// Sets every appearance key from the dictionary (missing ones go back to default).
-+ (void)applyAppearance:(NSDictionary *)values;
+/// NO, with nothing changed, if a value can't be stored.
++ (BOOL)applyAppearance:(NSDictionary *)values;
 
 // Export / import
 + (NSData *)exportData:(NSError **)error;

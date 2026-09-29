@@ -499,7 +499,7 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
     [menu addItem:[NSMenuItem brook_itemWithTitle:@"Paste Look" action:^{
         NSString *s = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
         id v = s ? [NSJSONSerialization JSONObjectWithData:[s dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
-        if ([v isKindOfClass:NSDictionary.class]) [Settings applyAppearance:v]; else NSBeep();
+        if (![v isKindOfClass:NSDictionary.class] || ![Settings applyAppearance:v]) NSBeep();
     }]];
     if (names.count) {
         NSMenu *remove = [NSMenu new];

@@ -408,13 +408,25 @@ BROOK_FLAG(commandBarSuggestions, setCommandBarSuggestions, @"commandBarSuggesti
     return d;
 }
 
-+ (void)applyAppearance:(NSDictionary *)values {
+/// NO if a value for one of `keys` can't be stored (a null nested in it), so nothing is written halfway.
+static BOOL storable(NSDictionary *values, NSArray<NSString *> *keys) {
+    for (NSString *key in keys) {
+        id v = values[key];
+        if (v && v != NSNull.null &&
+            ![NSPropertyListSerialization propertyList:v isValidForFormat:NSPropertyListBinaryFormat_v1_0]) return NO;
+    }
+    return YES;
+}
+
++ (BOOL)applyAppearance:(NSDictionary *)values {
+    if (!storable(values, self.appearanceKeys)) return NO;
     for (NSString *key in self.appearanceKeys) {
         id v = values[key];
         if (v && v != NSNull.null) [D() setObject:v forKey:key]; else [D() removeObjectForKey:key];
     }
     [D() removeObjectForKey:kLegacyTintKey];
     [self notify:@"*"];
+    return YES;
 }
 
 // Export / import
@@ -436,15 +448,11 @@ BROOK_FLAG(commandBarSuggestions, setCommandBarSuggestions, @"commandBarSuggesti
         if (error) *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:nil];
         return NO;
     }
-    // Check every value before writing any: a value that isn't a property list (a null nested
-    // in it) would throw halfway through the loop below and leave a partial import.
-    for (NSString *key in self.exportedKeys) {
-        id v = obj[key];
-        if (v && v != NSNull.null &&
-            ![NSPropertyListSerialization propertyList:v isValidForFormat:NSPropertyListBinaryFormat_v1_0]) {
-            if (error) *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:nil];
-            return NO;
-        }
+    // Check every value before writing any: a value that isn't a property list would throw
+    // halfway through the loop below and leave a partial import.
+    if (!storable(obj, self.exportedKeys)) {
+        if (error) *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:nil];
+        return NO;
     }
     for (NSString *key in self.exportedKeys) {
         id v = obj[key];
