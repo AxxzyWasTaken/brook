@@ -286,6 +286,8 @@
 // MARK: Shortcuts
 
 static NSMutableDictionary<NSString *, NSString *> *sDefaultShortcuts;
+/// The built-in menu titles. Validation renames some items ("Pin Tab" → "Unpin Tab"), so Settings uses these.
+static NSMutableDictionary<NSString *, NSString *> *sShortcutTitles;
 
 + (NSString *)shortcutIDForItem:(NSMenuItem *)item {
     NSString *name = NSStringFromSelector(item.action);
@@ -309,15 +311,26 @@ static NSMutableDictionary<NSString *, NSString *> *sDefaultShortcuts;
     return sDefaultShortcuts[[self shortcutIDForItem:item]] ?: @"";
 }
 
+/// The command's name for Settings → Shortcuts: its built-in title, not the current state-dependent one.
++ (NSString *)shortcutTitleForItem:(NSMenuItem *)item {
+    return sShortcutTitles[[self shortcutIDForItem:item]] ?: item.title;
+}
+
 /// Settings → Shortcuts: overrides replace the built-in key equivalents ("" removes one).
 + (void)applyShortcuts {
     BOOL first = sDefaultShortcuts == nil;
-    if (first) sDefaultShortcuts = [NSMutableDictionary dictionary];
+    if (first) {
+        sDefaultShortcuts = [NSMutableDictionary dictionary];
+        sShortcutTitles = [NSMutableDictionary dictionary];
+    }
     NSDictionary<NSString *, NSString *> *overrides = Settings.shortcuts;
     for (NSArray *pair in self.shortcutItems) {
         NSMenuItem *item = pair[1];
         NSString *identifier = [self shortcutIDForItem:item];
-        if (first) sDefaultShortcuts[identifier] = BrookShortcutString(item.keyEquivalent, item.keyEquivalentModifierMask);
+        if (first) {
+            sDefaultShortcuts[identifier] = BrookShortcutString(item.keyEquivalent, item.keyEquivalentModifierMask);
+            sShortcutTitles[identifier] = item.title;
+        }
         NSString *shortcut = overrides[identifier] ?: sDefaultShortcuts[identifier];
         NSString *key = nil;
         NSEventModifierFlags mods = 0;

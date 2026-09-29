@@ -1572,7 +1572,7 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
         }];
         reset.controlSize = NSControlSizeSmall;
         reset.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        NSTextField *label = [NSTextField labelWithString:item.title];
+        NSTextField *label = [NSTextField labelWithString:[AppDelegate shortcutTitleForItem:item]];
         // Only changed shortcuts get a Default button (NSGridView ignores `hidden` on its cells).
         NSView *third = overrides[identifier] ? reset : NSGridCell.emptyContentView;
         NSGridRow *r = [grid addRowWithViews:@[label, recorder, third]];

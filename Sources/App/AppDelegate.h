@@ -10,6 +10,8 @@
 + (NSString *)shortcutIDForItem:(NSMenuItem *)item;
 /// The built-in shortcut, as a Settings.shortcuts-style string ("" = none).
 + (NSString *)defaultShortcutForItem:(NSMenuItem *)item;
+/// The built-in title of a menu command, for Settings → Shortcuts.
++ (NSString *)shortcutTitleForItem:(NSMenuItem *)item;
 /// Re-reads Settings.shortcuts into the menu bar.
 + (void)applyShortcuts;
 /// Re-draws the Dock icon for Settings.appIcon.
