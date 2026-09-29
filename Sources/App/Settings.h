@@ -185,6 +185,12 @@ FOUNDATION_EXPORT NSInteger PinnedCloseBehaviorFromRaw(NSString *raw);
 @property (class) BOOL blockCookiePopups;
 @property (class) BOOL blockAds;             // default YES
 
+// Passwords
+/// Offer to save a password after signing in to a site.
+@property (class) BOOL offerToSavePasswords;  // default YES
+/// Offer saved logins when a sign-in field is clicked.
+@property (class) BOOL autofillPasswords;     // default YES
+
 // Search
 @property (class, copy) NSString *defaultSearchEngine;
 

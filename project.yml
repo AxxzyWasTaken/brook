@@ -26,6 +26,9 @@ targets:
       - sdk: QuartzCore.framework
       - sdk: CoreGraphics.framework
       - sdk: UniformTypeIdentifiers.framework
+      - sdk: Security.framework
+      - sdk: LocalAuthentication.framework
+      - sdk: libsqlite3.tbd
     info:
       path: Support/Info.plist
       properties:

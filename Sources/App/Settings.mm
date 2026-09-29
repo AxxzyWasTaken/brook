@@ -135,6 +135,7 @@ static NSUserDefaults *D(void) { return NSUserDefaults.standardUserDefaults; }
                       @"quitWarningTabs", @"commandBarTabs", @"commandBarHistory", @"commandBarSuggestions",
                       @"commandBarRows", @"commandBarPosition", @"downloadFolder", @"askDownloadLocation",
                       @"defaultZoom", @"javascriptEnabled", @"autoplay", @"blockCookiePopups", @"blockAds",
+                      @"offerToSavePasswords", @"autofillPasswords",
                       @"defaultSearchEngine", @"searchEngines", @"siteSettings", @"boosts", @"shortcuts",
                       @"appearancePresets"];
     return [self.appearanceKeys arrayByAddingObjectsFromArray:rest];
@@ -355,6 +356,14 @@ BROOK_FLAG(commandBarSuggestions, setCommandBarSuggestions, @"commandBarSuggesti
 
 + (BOOL)blockAds { return flag(@"blockAds", YES); }
 + (void)setBlockAds:(BOOL)v { [self store:@(v) key:@"blockAds"]; }
+
+// Passwords
+
++ (BOOL)offerToSavePasswords { return flag(@"offerToSavePasswords", YES); }
++ (void)setOfferToSavePasswords:(BOOL)v { [self store:@(v) key:@"offerToSavePasswords"]; }
+
++ (BOOL)autofillPasswords { return flag(@"autofillPasswords", YES); }
++ (void)setAutofillPasswords:(BOOL)v { [self store:@(v) key:@"autofillPasswords"]; }
 
 // Search
 

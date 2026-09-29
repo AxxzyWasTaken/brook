@@ -3,7 +3,11 @@
 #import <WebKit/WebKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <Security/Security.h>
+#import <LocalAuthentication/LocalAuthentication.h>
+#import <CommonCrypto/CommonCrypto.h>
 #import <objc/message.h>
+#include <sqlite3.h>
 
 #include <algorithm>
 #include <cmath>
@@ -29,6 +33,8 @@ NS_ASSUME_NONNULL_END
 #import "Autoconsent.h"
 #import "ContentBlocker.h"
 #import "Fire.h"
+#import "PasswordStore.h"
+#import "PasswordImporter.h"
 #import "ExtensionManager.h"
 #import "Controls.h"
 #import "SidebarCells.h"
