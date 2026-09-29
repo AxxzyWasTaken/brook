@@ -248,12 +248,14 @@ static void *kTabKVOContext = &kTabKVOContext;
     decisionHandler(policy, preferences);
 }
 
-/// Per-site user agent and content blocking. WebKit only exposes these per navigation through
+/// Per-site user agent, content blocking and autoplay. WebKit only exposes these per navigation through
 /// the same preferences Safari uses; skipped (site gets the defaults) if WebKit ever drops them.
-/// An empty user agent means WebKit's own.
+/// An empty user agent means WebKit's own. The web view's configuration only has the autoplay policy
+/// of the site it was created for, so a reload or a move to another site needs the policy here too.
 - (void)applySitePreferences:(WKWebpagePreferences *)preferences host:(NSString *)host {
     static SEL setUA = NSSelectorFromString(@"_setCustomUserAgent:");
     static SEL setBlockers = NSSelectorFromString(@"_setContentBlockersEnabled:");
+    static SEL setAutoplay = NSSelectorFromString(@"_setAutoplayPolicy:");
     if ([preferences respondsToSelector:setUA]) {
         NSString *ua = UserAgentString([SiteSettings userAgentForHost:host]) ?: @"";
         ((void (*)(id, SEL, NSString *))objc_msgSend)(preferences, setUA, ua);
@@ -262,6 +264,12 @@ static void *kTabKVOContext = &kTabKVOContext;
         // Only an explicit "off" for this site turns blocking off; the global switch works on the lists.
         NSNumber *v = [SiteSettings overrideForHost:host].blockAds;
         ((void (*)(id, SEL, BOOL))objc_msgSend)(preferences, setBlockers, v ? v.boolValue : YES);
+    }
+    if ([preferences respondsToSelector:setAutoplay]) {
+        // _WKWebsiteAutoplayPolicy: 1 Allow, 2 AllowWithoutSound, 3 Deny.
+        AutoplayPolicy policy = [SiteSettings autoplayForHost:host];
+        NSInteger value = policy == AutoplayPolicyBlockAll ? 3 : policy == AutoplayPolicyBlockAudio ? 2 : 1;
+        ((void (*)(id, SEL, NSInteger))objc_msgSend)(preferences, setAutoplay, value);
     }
 }
 
