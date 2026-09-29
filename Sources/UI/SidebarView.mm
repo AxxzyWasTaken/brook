@@ -292,6 +292,9 @@ static const CGFloat kRailButtonInset = 4;
     // nowhere to go; let its right edge give way rather than the sidebar's width.
     NSLayoutConstraint *titleRowTrailing = [_titleRow.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8];
     titleRowTrailing.priority = NSLayoutPriorityRequired - 1;
+    // The same for the (hidden) address pill: its buttons need more width than the rail has.
+    NSLayoutConstraint *pillTrailing = [_urlPill.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10];
+    pillTrailing.priority = NSLayoutPriorityRequired - 1;
     [NSLayoutConstraint activateConstraints:@[
         [_titleRow.heightAnchor constraintEqualToConstant:self.titleRowHeight],
         titleRowTrailing,
@@ -303,7 +306,7 @@ static const CGFloat kRailButtonInset = 4;
         [navStack.centerYAnchor constraintEqualToAnchor:_titleRow.centerYAnchor],
 
         [_urlPill.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10],
-        [_urlPill.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10],
+        pillTrailing,
 
         [_favoritesGrid.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10],
         [_favoritesGrid.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10],

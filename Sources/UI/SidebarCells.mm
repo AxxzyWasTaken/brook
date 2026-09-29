@@ -168,7 +168,10 @@
         ]];
         // Off in the icon rail (see -setIconOnly:): a 52pt cell has no room for text beside a
         // centred icon, and the clash would make AppKit drop constraints on every row.
+        // Leaving the rail, the rows show their text while still rail-wide for a frame or two of
+        // the slide, so the text's end gives way then rather than a required constraint.
         _textTrailing = [_text.trailingAnchor constraintEqualToAnchor:_closeButton.leadingAnchor constant:-4];
+        _textTrailing.priority = NSLayoutPriorityRequired - 1;
         _textTrailing.active = YES;
         [self applyFont];
     }
