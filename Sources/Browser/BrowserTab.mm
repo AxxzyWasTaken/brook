@@ -112,6 +112,7 @@ static void *kTabKVOContext = &kTabKVOContext;
     _webView = nil;
     _isLoading = NO;
     _progress = 0;
+    _readerOn = NO;
     [_state tabDidChange:self change:TabChangeLoading | TabChangeLoaded];
 }
 
@@ -331,6 +332,13 @@ static void *kTabKVOContext = &kTabKVOContext;
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
     if (NSURL *url = webView.URL) [HistoryStore.shared recordURL:url title:webView.title];
+    // A page from the back-forward cache keeps its reader overlay, so ask the page, not the last toggle.
+    _readerOn = NO;
+    __weak BrowserTab *weakSelf = self;
+    [webView evaluateJavaScript:@"!!document.getElementById('brook-reader')" inFrame:nil
+                 inContentWorld:WKContentWorld.defaultClientWorld completionHandler:^(id result, NSError *error) {
+        if ([result isKindOfClass:NSNumber.class]) weakSelf.readerOn = [result boolValue];
+    }];
     // A page with no <title> keeps the last page's title otherwise; drop it so the URL shows.
     if (!webView.title.length && _title.length) {
         _title = @"";

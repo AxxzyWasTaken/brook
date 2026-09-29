@@ -1279,7 +1279,9 @@ static const CGFloat kTitleRowMinTop = 4;
     if (!source) return;
     static WKContentWorld *world = [WKContentWorld worldWithName:@"BrookReader"];
     __weak BrowserWindowController *weakSelf = self;
+    __weak BrowserTab *tab = _state.selectedTab;
     [wv evaluateJavaScript:source inFrame:nil inContentWorld:world completionHandler:^(id result, NSError *error) {
+        if ([result isKindOfClass:NSString.class]) tab.readerOn = [result isEqual:@"on"];
         if ([result isEqual:@"none"]) [weakSelf showToast:@"No article found on this page"];
     }];
 }

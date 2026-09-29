@@ -197,8 +197,10 @@
         menuItem.state = Settings.blockCookiePopups ? NSControlStateValueOn : NSControlStateValueOff;
     } else if (action == @selector(stopLoading:)) {
         return tab.isLoading == YES;
-    } else if (action == @selector(showSiteSettings:) || action == @selector(printPage:) ||
-               action == @selector(toggleReader:)) {
+    } else if (action == @selector(toggleReader:)) {
+        menuItem.title = tab.readerOn == YES ? @"Hide Reader" : @"Show Reader";
+        return BrookHost(tab.url) != nil;
+    } else if (action == @selector(showSiteSettings:) || action == @selector(printPage:)) {
         return BrookHost(tab.url) != nil;
     } else if (action == @selector(reload:) || action == @selector(hardReload:) ||
                action == @selector(actualSize:) || action == @selector(zoomIn:) ||

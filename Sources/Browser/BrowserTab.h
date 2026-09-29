@@ -43,6 +43,8 @@ typedef NS_OPTIONS(NSUInteger, TabChange) {
 @property (readonly) double progress;
 @property (readonly, copy) NSString *loadError;
 @property (copy) NSString *consentCMP;
+/// YES while the reader overlay covers the page. The View menu reads it for its Show or Hide title.
+@property BOOL readerOn;
 @property (weak) BrowserState *state;
 
 @property (readonly) NSString *displayTitle;
