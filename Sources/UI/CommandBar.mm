@@ -46,7 +46,9 @@ NSInteger CharacterCount(NSString *s) {
 
 - (void)drawSelectionInRect:(NSRect)dirtyRect {
     NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 2, 1) xRadius:10 yRadius:10];
-    [[NSColor.controlAccentColor colorWithAlphaComponent:0.85] setFill];
+    // The system colour for an emphasized selected row under white text; the raw accent is too
+    // light for white text in some accents (Graphite) and matches the glass in dark mode.
+    [[NSColor.selectedContentBackgroundColor colorWithAlphaComponent:0.85] setFill];
     [path fill];
 }
 
