@@ -58,6 +58,9 @@ struct TabPosition {
 @property (strong) NSDate *date;
 @end
 
+/// Posted when the archive list changes ("BrookArchiveDidChange"), object = the state.
+FOUNDATION_EXPORT NSNotificationName const BrowserStateArchiveDidChangeNotification;
+
 /// All windows' tabs and spaces, plus the session file.
 @interface BrowserState : NSObject
 

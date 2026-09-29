@@ -102,6 +102,8 @@ struct ClosedTab {
 
 // MARK: - State
 
+NSNotificationName const BrowserStateArchiveDidChangeNotification = @"BrookArchiveDidChange";
+
 @implementation BrowserState {
     NSMutableArray<BrowserTab *> *_favorites;
     NSMutableArray<Space *> *_spaces;
@@ -648,6 +650,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     for (BrowserTab *t in _favorites) [t resetToHome];
     _recentlyClosed.clear();
     [_archived removeAllObjects];
+    [NSNotificationCenter.defaultCenter postNotificationName:BrowserStateArchiveDidChangeNotification object:self];
     [HistoryStore.shared clear];
     [_observer browserStateDidChangeStructure];
     [self selectTab:nil];
@@ -717,6 +720,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
             [self->_archived removeObjectsInRange:NSMakeRange(300, self->_archived.count - 300)];
         }
         [self->_observer browserStateDidChangeStructure];
+        [NSNotificationCenter.defaultCenter postNotificationName:BrowserStateArchiveDidChangeNotification object:self];
         [self scheduleSave];
     });
 }
@@ -725,6 +729,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     if (index < 0 || index >= (NSInteger)_archived.count) return;
     ArchivedTab *a = _archived[(NSUInteger)index];
     [_archived removeObjectAtIndex:(NSUInteger)index];
+    [NSNotificationCenter.defaultCenter postNotificationName:BrowserStateArchiveDidChangeNotification object:self];
     Space *space = self.currentSpace;
     for (Space *s in _spaces) if ([s.identifier isEqual:a.spaceID]) { space = s; break; }
     [self openTabWithURL:a.url inSpace:space select:YES];
@@ -732,6 +737,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
 
 - (void)clearArchive {
     [_archived removeAllObjects];
+    [NSNotificationCenter.defaultCenter postNotificationName:BrowserStateArchiveDidChangeNotification object:self];
     [self scheduleSave];
 }
 

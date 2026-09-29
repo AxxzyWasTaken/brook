@@ -653,6 +653,10 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
     [NSNotificationCenter.defaultCenter removeObserver:self name:FaviconStoreDidLoadIconNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(iconLoaded:)
                                                name:FaviconStoreDidLoadIconNotification object:nil];
+    // Tabs are archived on a timer, so the list can change while the pane is open.
+    [NSNotificationCenter.defaultCenter removeObserver:self name:BrowserStateArchiveDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(archiveChanged:)
+                                               name:BrowserStateArchiveDidChangeNotification object:nil];
     SettingsForm *f = [SettingsForm new];
     [f row:@"New tabs open" view:[Controls popupWithTitles:EnumTitles(NewTabPositionCount, ^(NSInteger i) { return NewTabPositionTitle((NewTabPosition)i); })
                                              selectedIndex:Settings.newTabPosition
@@ -722,11 +726,7 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
     __weak TabsPane *weakSelf = self;
     l.extra = @[
         [Controls button:@"Restore" action:^{ [weakSelf restoreSelected]; }],
-        [Controls button:@"Clear Archive" action:^{
-            [BrowserState.shared clearArchive];
-            TabsPane *self = weakSelf;
-            if (self) [self->_list reload];
-        }]
+        [Controls button:@"Clear Archive" action:^{ [BrowserState.shared clearArchive]; }]
     ];
     [l.container.widthAnchor constraintEqualToConstant:520].active = YES;
     l.emptyLabel.stringValue = @"No archived tabs";
@@ -749,12 +749,15 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
     }];
 }
 
+- (void)archiveChanged:(NSNotification *)note {
+    [_list reload];
+}
+
 - (void)restoreSelected {
     if (!_list) return;
     NSInteger row = _list.table.selectedRow;
     if (row < 0) return;
     [BrowserState.shared restoreArchivedAt:row];
-    [_list reload];
 }
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
