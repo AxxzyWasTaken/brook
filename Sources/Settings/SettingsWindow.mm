@@ -1333,7 +1333,9 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
     NSTextField *site = [NSTextField labelWithString:[b.site isEqualToString:@"*"] ? @"All sites" : (b.site ?: @"")];
     site.font = [NSFont systemFontOfSize:11];
     site.textColor = NSColor.secondaryLabelColor;
-    NSStackView *stack = [NSStackView stackViewWithViews:@[title, site]];
+    // In the centre gravity, so the two lines are centred in the row instead of at its top.
+    NSStackView *stack = [NSStackView new];
+    [stack setViews:@[title, site] inGravity:NSStackViewGravityCenter];
     stack.orientation = NSUserInterfaceLayoutOrientationVertical;
     stack.alignment = NSLayoutAttributeLeading;
     stack.spacing = 1;
