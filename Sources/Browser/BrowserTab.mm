@@ -459,7 +459,8 @@ static NSString *SaysTitle(WKFrameInfo *frame) {
     NSWindow *window = webView.window;
     if (!window) { completionHandler(nil); return; }
     NSAlert *alert = [NSAlert new];
-    alert.messageText = prompt;
+    alert.messageText = SaysTitle(frame);
+    alert.informativeText = prompt;
     [alert addButtonWithTitle:@"OK"];
     [alert addButtonWithTitle:@"Cancel"];
     NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 260, 24)];
