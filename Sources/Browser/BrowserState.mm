@@ -598,7 +598,8 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     NSUInteger i = [_spaces indexOfObjectIdenticalTo:space];
     if (i != NSNotFound && (NSInteger)i == _currentSpaceIndex) [_observer browserStateDidSwitchSpace:YES];
     [_observer browserStateDidChangeStructure];
-    if (_selectedTab) [_observer browserStateDidSelect:_selectedTab previous:_selectedTab];
+    // Also with no tab: the empty page shows the space name.
+    [_observer browserStateDidSelect:_selectedTab previous:_selectedTab];
     [self scheduleSave];
 }
 
