@@ -193,7 +193,12 @@
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
     SEL action = menuItem.action;
     BrowserTab *tab = self.state.selectedTab;
-    if (_windowController.window.attachedSheet != nil && action != @selector(showSettings:) &&
+    NSWindow *sheet = _windowController.window.attachedSheet;
+    NSWindow *key = NSApp.keyWindow;
+    // Close Tab closes another key window (Settings) itself; see closeTab:.
+    BOOL closesOtherWindow = action == @selector(closeTab:) && key && key != _windowController.window &&
+                             key != sheet && ![key isKindOfClass:KeyPanel.class];
+    if (sheet != nil && !closesOtherWindow && action != @selector(showSettings:) &&
         action != @selector(showMainWindow:) && action != @selector(toggleCookiePopups:)) {
         // A sheet is modal to the browser window: its tabs, spaces and page stay untouched until it closes.
         return NO;
