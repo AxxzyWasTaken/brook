@@ -547,17 +547,20 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
 
 // MARK: Spaces
 
+// The tab the space last showed, else its first tab.
+- (BrowserTab *)tabToShowIn:(Space *)s {
+    for (BrowserTab *t in [[s.pinned arrayByAddingObjectsFromArray:s.tabs] arrayByAddingObjectsFromArray:_favorites]) {
+        if ([t.identifier isEqual:s.lastSelectedID]) return t;
+    }
+    return s.tabs.firstObject ?: s.pinned.firstObject;
+}
+
 - (void)switchToSpace:(NSInteger)index {
     if (index < 0 || index >= (NSInteger)_spaces.count || index == _currentSpaceIndex) return;
     BOOL forward = index > _currentSpaceIndex;
     _currentSpaceIndex = index;
     [_observer browserStateDidSwitchSpace:forward];
-    Space *s = self.currentSpace;
-    BrowserTab *target = nil;
-    for (BrowserTab *t in [[s.pinned arrayByAddingObjectsFromArray:s.tabs] arrayByAddingObjectsFromArray:_favorites]) {
-        if ([t.identifier isEqual:s.lastSelectedID]) { target = t; break; }
-    }
-    [self selectTab:target ?: s.tabs.firstObject ?: s.pinned.firstObject];
+    [self selectTab:[self tabToShowIn:self.currentSpace]];
     [self scheduleSave];
 }
 
@@ -645,7 +648,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     }
     [_observer browserStateDidSwitchSpace:NO];
     [_observer browserStateDidChangeStructure];
-    [self selectTab:self.currentSpace.tabs.firstObject ?: self.currentSpace.pinned.firstObject];
+    [self selectTab:[self tabToShowIn:self.currentSpace]];
 }
 
 // MARK: Fire
