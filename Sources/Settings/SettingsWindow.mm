@@ -773,7 +773,10 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
     label.toolTip = a.url.absoluteString;
     if (isDate) {
         label.textColor = NSColor.secondaryLabelColor;
-        return label;
+        // In a stack, like the title, so the text is centred in the row instead of at its top.
+        NSStackView *dateStack = [NSStackView stackViewWithViews:@[label]];
+        dateStack.toolTip = a.url.absoluteString;
+        return dateStack;
     }
     // Title cell: site icon + title, like the sidebar.
     NSImage *image = [FaviconStore.shared cachedIconForHost:BrookHost(a.url) ?: @""]
