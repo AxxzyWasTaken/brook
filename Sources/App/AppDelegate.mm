@@ -225,6 +225,10 @@
     } else if (action == @selector(selectSpaceN:)) {
         menuItem.state = menuItem.tag == self.state.currentSpaceIndex ? NSControlStateValueOn : NSControlStateValueOff;
         return menuItem.tag < (NSInteger)self.state.spaces.count;
+    } else if (action == @selector(nextSpace:)) {
+        return self.state.currentSpaceIndex + 1 < (NSInteger)self.state.spaces.count;
+    } else if (action == @selector(previousSpace:)) {
+        return self.state.currentSpaceIndex > 0;
     }
     return YES;
 }
