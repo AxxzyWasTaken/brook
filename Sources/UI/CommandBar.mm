@@ -463,9 +463,10 @@ NSInteger CharacterCount(NSString *s) {
     NSString *text = BrookTrim(_input.stringValue);
     std::vector<Suggestion> list;
     BrowserState *state = BrowserState.shared;
+    BOOL untouchedAddress = _editingCurrent && text.length > 0 && [text isEqualToString:BrookTrim(_initialText ?: @"")];
 
     // Nothing typed yet (or the current address, untouched): offer recently used tabs.
-    if (text.length == 0 || (_editingCurrent && [text isEqualToString:BrookTrim(_initialText ?: @"")])) {
+    if (text.length == 0 || untouchedAddress) {
         BrowserTab *selected = state.selectedTab;
         NSMutableArray<BrowserTab *> *candidates = [NSMutableArray array];
         for (BrowserTab *t in state.visibleTabs) {
@@ -522,7 +523,10 @@ NSInteger CharacterCount(NSString *s) {
     // Make the rows before selecting one: a row made already selected keeps a non-vibrant look
     // after the selection moves on, so its labels draw dimmer than every other row's.
     [_table layoutSubtreeIfNeeded];
-    if (!_suggestions.empty()) [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+    // With the current address untouched, Return loads that address (as in Safari); the recent
+    // tabs stay one ↓ away. Otherwise Return would switch to another tab.
+    if (untouchedAddress) [_table deselectAll:nil];
+    else if (!_suggestions.empty()) [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
     if (_attachedField) [self layoutAttached];
     else if (_panel.isVisible) [self layoutPanel];
 }
