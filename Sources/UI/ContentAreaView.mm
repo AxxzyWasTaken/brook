@@ -29,6 +29,10 @@
                                          forOrientation:NSLayoutConstraintOrientationHorizontal];
         _hint.font = [NSFont systemFontOfSize:14];
         _hint.textColor = NSColor.secondaryLabelColor;
+        // A narrow page (a wide sidebar at the minimum window width) truncates the hint; it must not widen the window.
+        _hint.lineBreakMode = NSLineBreakByTruncatingTail;
+        [_hint setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                        forOrientation:NSLayoutConstraintOrientationHorizontal];
         NSStackView *stack = [NSStackView stackViewWithViews:@[_title, _hint]];
         stack.orientation = NSUserInterfaceLayoutOrientationVertical;
         stack.spacing = 8;
@@ -89,6 +93,10 @@
         _retry = [NSButton buttonWithTitle:@"Try Again" target:nil action:nil];
         self.wantsLayer = YES;
         _title.font = [NSFont systemFontOfSize:22 weight:NSFontWeightSemibold];
+        // Like the empty-state labels: a narrow page truncates the title, and the window keeps its width.
+        _title.lineBreakMode = NSLineBreakByTruncatingTail;
+        [_title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                         forOrientation:NSLayoutConstraintOrientationHorizontal];
         _detail.font = [NSFont systemFontOfSize:13];
         _detail.textColor = NSColor.secondaryLabelColor;
         _detail.alignment = NSTextAlignmentCenter;
