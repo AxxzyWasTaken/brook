@@ -807,6 +807,7 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
 @implementation SearchPane {
     EditableList *_list;
     NSMutableArray<SearchEngine *> *_engines;
+    NSPopUpButton *_defaultPopup;
 }
 
 /// Keep private copies of the engines so edits don't touch the shared cache.
@@ -820,18 +821,12 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
     _engines = CopyEngines(SearchEngines.all);
     SettingsForm *f = [SettingsForm new];
     NSPopUpButton *def = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    for (SearchEngine *e in _engines) [def addItemWithTitle:e.name];
-    NSString *defaultID = SearchEngines.defaultEngine.identifier;
-    NSUInteger defIndex = [_engines indexOfObjectPassingTest:^BOOL(SearchEngine *e, NSUInteger, BOOL *) {
-        return [e.identifier isEqualToString:defaultID];
-    }];
-    [def selectItemAtIndex:defIndex != NSNotFound ? (NSInteger)defIndex : 0];
+    _defaultPopup = def;
+    [self reloadDefaultPopup];
     __weak SearchPane *weakSelf = self;
     [def brook_onAction:^(id c) {
-        SearchPane *self = weakSelf;
-        if (!self) return;
-        NSInteger i = ((NSPopUpButton *)c).indexOfSelectedItem;
-        if (i >= 0 && i < (NSInteger)self->_engines.count) Settings.defaultSearchEngine = self->_engines[(NSUInteger)i].identifier;
+        id engineID = ((NSPopUpButton *)c).selectedItem.representedObject;
+        if ([engineID isKindOfClass:NSString.class]) Settings.defaultSearchEngine = engineID;
     }];
     [f row:@"Default search engine" view:def];
     [f note:@"Spaces can use a different engine: right-click a space dot → Edit Space."];
@@ -888,6 +883,19 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
 
 - (void)commit {
     SearchEngines.all = CopyEngines(_engines);
+    [self reloadDefaultPopup];
+}
+
+/// One item per engine, keyed by its identifier. NSPopUpButton's addItemWithTitle: drops an earlier item
+/// with the same title, so the items go into the menu directly: two engines can have the same name.
+- (void)reloadDefaultPopup {
+    [_defaultPopup removeAllItems];
+    NSString *defaultID = SearchEngines.defaultEngine.identifier;
+    for (SearchEngine *e in _engines) {
+        NSMenuItem *item = [_defaultPopup.menu addItemWithTitle:e.name action:nil keyEquivalent:@""];
+        item.representedObject = e.identifier;
+        if ([e.identifier isEqualToString:defaultID]) [_defaultPopup selectItem:item];
+    }
 }
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView { return (NSInteger)_engines.count; }
