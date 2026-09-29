@@ -502,6 +502,8 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     // Moving down within the same list: account for the removed slot.
     if (from->location == destination && from->index < index) idx -= 1;
     BOOL wasSelected = _selectedTab == tab;
+    // The tab that takes over when the selected tab leaves this space, as when it is closed.
+    BrowserTab *next = wasSelected ? [self neighborOf:tab] : nil;
     NSUUID *oldProfile = [self profileIDFor:tab];
     [self detach:tab];
     [self attach:tab to:destination at:idx];
@@ -514,7 +516,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     [_observer browserStateDidChangeStructure];
     Space *s = [self spaceOf:tab];
     if (wasSelected && s && s != self.currentSpace) {
-        [self selectTab:self.currentSpace.tabs.firstObject ?: self.currentSpace.pinned.firstObject];
+        [self selectTab:next ?: self.currentSpace.tabs.firstObject ?: self.currentSpace.pinned.firstObject];
     } else if (wasSelected) {
         [_observer browserStateDidSelect:tab previous:tab];
     }
