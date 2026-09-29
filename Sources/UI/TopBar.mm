@@ -486,7 +486,7 @@ static NSAttributedString *AddressText(BrowserTab *tab, CGFloat fontSize) {
 }
 
 - (void)otherMouseUp:(NSEvent *)event {
-    if (event.buttonNumber == 2 && self.onClose) self.onClose(_tab);
+    if (event.buttonNumber == 2 && Settings.middleClickCloses && self.onClose) self.onClose(_tab);
     else [super otherMouseUp:event];
 }
 
