@@ -476,7 +476,11 @@ static const unsigned long long kAdBlockerRulesetBytes = 100 * 1024;
     [fm fileExistsAtPath:source.path isDirectory:&isDir];
     if (isDir) {
         NSError *error;
-        if (![fm copyItemAtURL:source toURL:dest error:&error]) { completion(error); return; }
+        if (![fm copyItemAtURL:source toURL:dest error:&error]) {
+            [fm removeItemAtURL:dest error:nil];
+            completion(error);
+            return;
+        }
         afterUnpack();
     } else {
         NSURL *zipURL;
@@ -492,8 +496,12 @@ static const unsigned long long kAdBlockerRulesetBytes = 100 * 1024;
             zipURL = source;
         }
         [CRX unzip:zipURL to:dest completion:^(NSError *error) {
-            if (error) { completion(error); return; }
             if (![zipURL isEqual:source]) [NSFileManager.defaultManager removeItemAtURL:zipURL error:nil];
+            if (error) {
+                [NSFileManager.defaultManager removeItemAtURL:dest error:nil];
+                completion(error);
+                return;
+            }
             afterUnpack();
         }];
     }
@@ -533,6 +541,7 @@ static const unsigned long long kAdBlockerRulesetBytes = 100 * 1024;
                 if (!strong) return;
                 NSError *loadError;
                 if (![strong->_controller loadExtensionContext:[strong makeContext:ext id:identifier] error:&loadError]) {
+                    [NSFileManager.defaultManager removeItemAtURL:dest error:nil];
                     completion(loadError);
                     return;
                 }
