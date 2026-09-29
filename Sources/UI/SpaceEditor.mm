@@ -127,7 +127,8 @@ static NSPopUpButton *OverridePopup(NSString *defaultTitle, NSArray<NSString *> 
 
 static NSString *ArchiveTitle(NSInteger hours) {
     if (hours == 0) return @"Never";
-    if (hours % 24 == 0) return hours == 24 ? @"After a day" : [NSString stringWithFormat:@"After %ld days", (long)(hours / 24)];
+    // The same titles as Settings > Tabs: "After 1 day", like "After 1 hour" for unloading.
+    if (hours % 24 == 0) return hours == 24 ? @"After 1 day" : [NSString stringWithFormat:@"After %ld days", (long)(hours / 24)];
     return [NSString stringWithFormat:@"After %ld hours", (long)hours];
 }
 
