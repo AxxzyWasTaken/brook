@@ -436,6 +436,16 @@ BROOK_FLAG(commandBarSuggestions, setCommandBarSuggestions, @"commandBarSuggesti
         if (error) *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:nil];
         return NO;
     }
+    // Check every value before writing any: a value that isn't a property list (a null nested
+    // in it) would throw halfway through the loop below and leave a partial import.
+    for (NSString *key in self.exportedKeys) {
+        id v = obj[key];
+        if (v && v != NSNull.null &&
+            ![NSPropertyListSerialization propertyList:v isValidForFormat:NSPropertyListBinaryFormat_v1_0]) {
+            if (error) *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:nil];
+            return NO;
+        }
+    }
     for (NSString *key in self.exportedKeys) {
         id v = obj[key];
         if (v && v != NSNull.null) [D() setObject:v forKey:key]; else [D() removeObjectForKey:key];
