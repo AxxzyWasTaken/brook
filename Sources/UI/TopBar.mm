@@ -973,7 +973,7 @@ static const CGFloat kTabGap = 2;
     BrowserTab *tab = _tab;
     NSImage *icon = TabIcon(tab);
     if (_icon.image != icon) _icon.image = icon;
-    _icon.alphaValue = tab.isLoaded ? 1 : 0.7;
+    _icon.alphaValue = tab.isLoaded ? 1 : 0.6;
     NSString *title = tab.displayTitle ?: @"";
     if (![self.toolTip isEqualToString:title]) {
         self.toolTip = title;
