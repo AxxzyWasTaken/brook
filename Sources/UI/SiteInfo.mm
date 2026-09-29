@@ -47,21 +47,21 @@ static NSStackView *BrookVerticalStack(NSStackView *stack) {
     SettingsForm *form = [[SettingsForm alloc] init];
     form.grid.rowSpacing = 8;
 
-    // Zoom: nil (default) then fixed levels.
-    std::vector<std::optional<double>> zooms = {std::nullopt, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 2};
+    // Zoom: nil (default) then the levels ⌘+ / ⌘− step through, so a level set there shows here.
+    std::vector<std::optional<double>> zooms = {std::nullopt, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3};
     NSMutableArray<NSString *> *zoomTitles = [NSMutableArray array];
     NSInteger zoomSelected = 0;
     bool zoomFound = false;
     for (size_t i = 0; i < zooms.size(); i++) {
         const auto &z = zooms[i];
         if (z) {
-            [zoomTitles addObject:[NSString stringWithFormat:@"%ld%%", (long)(NSInteger)(*z * 100)]];
+            [zoomTitles addObject:[NSString stringWithFormat:@"%ld%%", (long)std::round(*z * 100)]];
             if (!zoomFound && o.zoom && std::abs(*z - o.zoom.doubleValue) < 0.01) {
                 zoomSelected = (NSInteger)i;
                 zoomFound = true;
             }
         } else {
-            [zoomTitles addObject:[NSString stringWithFormat:@"Default (%ld%%)", (long)(NSInteger)(Settings.defaultZoom * 100)]];
+            [zoomTitles addObject:[NSString stringWithFormat:@"Default (%ld%%)", (long)std::round(Settings.defaultZoom * 100)]];
         }
     }
     [form row:@"Zoom" view:[self popup:zoomTitles selected:zoomSelected onChange:^(NSInteger i) {
