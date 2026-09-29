@@ -1199,6 +1199,10 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
 
 - (NSView *)makeContent {
     _boosts = Boosts.all;
+    // "Boost This Site…" in the Site Info popover adds a boost while the pane is open.
+    [NSNotificationCenter.defaultCenter removeObserver:self name:BrookSettingsDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsChanged:)
+                                               name:BrookSettingsDidChangeNotification object:nil];
 
     EditableList *l = [[EditableList alloc] initWithColumns:{{@"name", @"Boost", 190}} height:300];
     l.emptyLabel.stringValue = @"No Boosts";
@@ -1368,6 +1372,27 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
 }
 
 - (void)textDidChange:(NSNotification *)notification { [self saveEditor]; }
+
+- (void)settingsChanged:(NSNotification *)note {
+    if (![note.userInfo[@"key"] isEqual:@"boosts"]) return;
+    // Later, so that the pane's own save has updated _boosts first. Its own changes then show no difference.
+    __weak BoostsPane *weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf reloadBoosts]; });
+}
+
+- (void)reloadBoosts {
+    NSArray<Boost *> *boosts = Boosts.all;
+    if (!_list) return;
+    BOOL same = boosts.count == _boosts.count;
+    for (NSUInteger i = 0; same && i < boosts.count; i++) same = BoostsEqual(boosts[i], _boosts[i]);
+    if (same) return;
+    // Select a boost that was added elsewhere, so the editor shows it.
+    for (Boost *b in boosts) {
+        if ([self indexOfID:b.identifier] == NSNotFound) _selectedID = b.identifier;
+    }
+    // A rebuild, because the pane changes between the empty text and the editor.
+    [self rebuild];
+}
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView { return (NSInteger)_boosts.count; }
 
