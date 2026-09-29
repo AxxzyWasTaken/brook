@@ -846,6 +846,11 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
         id engineID = ((NSPopUpButton *)c).selectedItem.representedObject;
         if ([engineID isKindOfClass:NSString.class]) Settings.defaultSearchEngine = engineID;
     }];
+    // A long engine name truncates (like the General pane's space popup) so it can't widen the window.
+    [def.cell setLineBreakMode:NSLineBreakByTruncatingTail];
+    [def setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                  forOrientation:NSLayoutConstraintOrientationHorizontal];
+    [def.widthAnchor constraintLessThanOrEqualToConstant:260].active = YES;
     [f row:@"Default search engine" view:def];
     [f note:@"Spaces can use a different engine: right-click a space dot → Edit Space."];
 

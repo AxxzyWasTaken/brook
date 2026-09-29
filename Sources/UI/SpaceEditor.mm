@@ -179,6 +179,12 @@ static NSString *ArchiveTitle(NSInteger hours) {
         profileNote.preferredMaxLayoutWidth = 280;
 
         NSTextField *engineLabel = [NSTextField labelWithString:@"Search with"];
+        // The label keeps its full width; a long engine name truncates in the popup instead.
+        [engineLabel setContentCompressionResistancePriority:NSLayoutPriorityRequired
+                                              forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [_engine.cell setLineBreakMode:NSLineBreakByTruncatingTail];
+        [_engine setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                          forOrientation:NSLayoutConstraintOrientationHorizontal];
         NSStackView *engineRow = [NSStackView stackViewWithViews:@[engineLabel, _engine]];
         engineRow.spacing = 8;
 
