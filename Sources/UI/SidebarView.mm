@@ -384,6 +384,8 @@ static const CGFloat kRailButtonInset = 4;
     BOOL rail = Settings.sidebarIconsOnly;
     _navStack.hidden = rail;
     _toggleButton.hidden = rail;
+    // The symbol shows the panel on the side where the sidebar is.
+    [_toggleButton setSymbol:Settings.sidebarPosition == SidebarPositionRight ? @"sidebar.right" : @"sidebar.left"];
     _railStack.hidden = !rail;
     for (NSGlassEffectView *g in self.railSurfaces) g.hidden = !rail;
     _railSpacesGlass.hidden = !rail || !showBottom;
