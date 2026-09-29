@@ -341,7 +341,9 @@ static const CGFloat kRailButtonInset = 4;
     _railTabsTop = [_railTabsGlass.topAnchor constraintEqualToAnchor:_railTopGlass.bottomAnchor constant:8];
     _favoritesTopRail = [_favoritesGrid.topAnchor constraintEqualToAnchor:_railTabsGlass.topAnchor constant:8];
     _railTabsHeight = [_scrollView.heightAnchor constraintEqualToConstant:0];
-    _railTabsHeight.priority = NSLayoutPriorityDefaultLow;
+    // One above the default-low rules inside the glass, so a tie can never leave the list at zero
+    // height; still below the window's current height (500), so it never makes the window taller.
+    _railTabsHeight.priority = NSLayoutPriorityDefaultLow + 1;
     _railTabsMaxBottom = [_scrollView.bottomAnchor constraintLessThanOrEqualToAnchor:bottom.topAnchor constant:-24];
     [NSLayoutConstraint activateConstraints:@[
         [_railTopGlass.topAnchor constraintEqualToAnchor:self.topAnchor],
