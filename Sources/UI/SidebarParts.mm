@@ -481,13 +481,16 @@ static const CGFloat kMoreButtonWidth = 18;
 - (void)showMoreMenu {
     NSMenu *menu = [NSMenu new];
     menu.autoenablesItems = NO;
+    BOOL loading = BrowserState.shared.selectedTab.isLoading == YES;
     for (auto &[item, button] : _buttons) {
         if (!button.isHidden) continue;
         IconButton *b = button;
-        ClosureMenuItem *mi = [[ClosureMenuItem alloc] initWithTitle:ToolbarItemTitle(item) handler:^{
+        // Reload acts as Stop during a load, the same as its button (-updateWithTab:).
+        BOOL stop = item == ToolbarItemReload && loading;
+        ClosureMenuItem *mi = [[ClosureMenuItem alloc] initWithTitle:stop ? @"Stop" : ToolbarItemTitle(item) handler:^{
             if (b.onClick) b.onClick();
         }];
-        [mi brook_setVisibleImage:[NSImage brook_symbol:ToolbarItemSymbol(item) size:13]];
+        [mi brook_setVisibleImage:[NSImage brook_symbol:stop ? @"xmark" : ToolbarItemSymbol(item) size:13]];
         mi.enabled = b.isEnabled;
         [menu addItem:mi];
     }
