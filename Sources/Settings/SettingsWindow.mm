@@ -978,6 +978,7 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
     EditableList *_list;
     NSArray<NSString *> *_hosts;
     NSDictionary<NSString *, SiteOverride *> *_sites;
+    NSButton *_cookieCheck;
 }
 
 - (instancetype)initWithNibName:(NSNibName)nib bundle:(NSBundle *)bundle {
@@ -1008,8 +1009,9 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
     [f row:@"Autoplay" view:[Controls popupWithTitles:EnumTitles(AutoplayPolicyCount, ^(NSInteger i) { return AutoplayPolicyTitle((AutoplayPolicy)i); })
                                         selectedIndex:Settings.autoplay
                                              onChange:^(NSInteger i) { Settings.autoplay = (AutoplayPolicy)i; }]];
-    [f row:@"Cookie popups" view:[Controls check:@"Decline cookie popups automatically" on:Settings.blockCookiePopups
-                                        onChange:^(BOOL on) { Settings.blockCookiePopups = on; }]];
+    _cookieCheck = [Controls check:@"Decline cookie popups automatically" on:Settings.blockCookiePopups
+                          onChange:^(BOOL on) { Settings.blockCookiePopups = on; }];
+    [f row:@"Cookie popups" view:_cookieCheck];
     [f row:@"Ads" view:[Controls check:@"Block ads and trackers" on:Settings.blockAds
                               onChange:^(BOOL on) { Settings.blockAds = on; }]];
     if (NSString *blocker = ContentBlocker.shared.pausedFor) {
@@ -1045,6 +1047,11 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
 }
 
 - (void)settingsChanged:(NSNotification *)note {
+    // Privacy → Decline Cookie Popups changes this setting too; keep the checkbox in step.
+    if ([note.userInfo[@"key"] isEqual:@"blockCookiePopups"]) {
+        _cookieCheck.state = Settings.blockCookiePopups ? NSControlStateValueOn : NSControlStateValueOff;
+        return;
+    }
     if (![note.userInfo[@"key"] isEqual:@"siteSettings"]) return;
     // Later, so a menu in the table is not replaced while its own action runs.
     __weak WebsitesPane *weakSelf = self;
