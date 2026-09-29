@@ -12,6 +12,7 @@
 @implementation EmptyStateView {
     NSTextField *_title;
     NSTextField *_hint;
+    NSButton *_importPasswords;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -33,7 +34,11 @@
         _hint.lineBreakMode = NSLineBreakByTruncatingTail;
         [_hint setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                         forOrientation:NSLayoutConstraintOrientationHorizontal];
-        NSStackView *stack = [NSStackView stackViewWithViews:@[_title, _hint]];
+        _importPasswords = [Controls button:@"Import Passwords…" action:^{ [SettingsWindowController.shared importPasswords]; }];
+        _importPasswords.hidden = PasswordStore.shared.logins.count > 0;
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(updateImport)
+            name:PasswordStoreDidChangeNotification object:nil];
+        NSStackView *stack = [NSStackView stackViewWithViews:@[_title, _hint, _importPasswords]];
         stack.orientation = NSUserInterfaceLayoutOrientationVertical;
         stack.spacing = 8;
         stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -46,6 +51,8 @@
     }
     return self;
 }
+
+- (void)updateImport { _importPasswords.hidden = PasswordStore.shared.logins.count > 0; }
 
 - (void)updateHint {
     NSString *shortcut = [AppDelegate shortcutDisplayForCommand:@"newTab:"];

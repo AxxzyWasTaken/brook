@@ -151,6 +151,7 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
 - (void)unload {
     BrookWebView *wv = _webView;
     if (!wv) return;
+    [PasswordAutofill.shared dismissForWebView:wv];
     [ExtensionManager.shared tabWillClose:self];
     [self stopObserving];
     [wv stopLoading];
@@ -243,6 +244,7 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
         NSString *host = BrookHost(u);
         BOOL hostChanged = !SameHost(host, BrookHost(_url));
         _url = u;
+        [PasswordAutofill.shared pageChangedForWebView:wv];
         if (hostChanged && host) {
             self.favicon = [FaviconStore.shared cachedIconForHost:host];
             [_state tabDidChange:self change:TabChangeFavicon];
@@ -371,6 +373,7 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
 }
 
 - (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
+    [PasswordAutofill.shared navigationStartedForWebView:webView];
     if (_loadError) {
         _loadError = nil;
         [_state tabDidChange:self change:TabChangeError];
@@ -378,6 +381,7 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
 }
 
 - (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation {
+    [PasswordAutofill.shared pageChangedForWebView:webView];
     // Per-site zoom, remembered like Safari does.
     double zoom = [SiteSettings zoomForHost:BrookHost(webView.URL)];
     if (fabs(webView.pageZoom - zoom) > 0.001) webView.pageZoom = zoom;

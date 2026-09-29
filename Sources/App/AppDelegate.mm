@@ -138,6 +138,8 @@
 - (BrowserWindowController *)wc { return _windowController; }
 
 - (void)newTab:(id)sender { [self.wc showWindow:nil]; [self.wc newTab]; }
+- (void)importPasswords:(id)sender { [SettingsWindowController.shared importPasswords]; }
+- (void)showPasswords:(id)sender { [SettingsWindowController.shared showPane:@"Passwords"]; }
 - (void)showSettings:(id)sender { [SettingsWindowController.shared show]; }
 - (void)showSiteSettings:(id)sender { [self.wc showSiteInfo]; }
 - (void)stopLoading:(id)sender { [self.state.selectedTab.webView stopLoading]; }
@@ -423,6 +425,7 @@ static NSString *BrookKey(unichar c) {
         item(@"About Brook", @selector(orderFrontStandardAboutPanel:), @""),
         separator(),
         item(@"Settings…", @selector(showSettings:), @","),
+        item(@"Saved Passwords…", @selector(showPasswords:)),
         separator(),
         item(@"Hide Brook", @selector(hide:), @"h"),
         item(@"Hide Others", @selector(hideOtherApplications:), @"h", cmd | opt),
@@ -435,6 +438,7 @@ static NSString *BrookKey(unichar c) {
         item(@"New Tab", @selector(newTab:), @"t"),
         item(@"Open Location…", @selector(openLocation:), @"l"),
         item(@"Reopen Closed Tab", @selector(reopenTab:), @"t", cmd | shift),
+        item(@"Import Passwords…", @selector(importPasswords:)),
         separator(),
         item(@"Close Tab", @selector(closeTab:), @"w"),
         separator(),

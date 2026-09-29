@@ -10,7 +10,7 @@ Every push to `main` is built by GitHub Actions on a Mac. Download `Brook.zip` f
 
     xattr -dr com.apple.quarantine /Applications/Brook.app
 
-(The build is signed ad-hoc, not notarized, so macOS needs that the first time.)
+(The build uses a stable self-signed certificate and is not notarized, so macOS needs that the first time.)
 
 ## Build locally
     brew install xcodegen && xcodegen generate && open Brook.xcodeproj
@@ -45,10 +45,42 @@ Everything is in **Settings (⌘,)** and applies instantly:
   command bar to search that engine. Each space can have its own default engine.
 - **Websites**: default zoom, JavaScript and autoplay, plus per-site overrides. Click the lock in
   the address pill for this site's settings.
+- **Passwords**: import CSV exports or selected Chromium browser profiles, search and manage saved
+  logins, and unlock with Touch ID or your login password to reveal or copy them.
 - **Boosts**: your own CSS and JavaScript for the sites you choose (or every site), like Arc's.
 - **Spaces**: any colour, and optionally a **separate profile** so the space keeps its own
   cookies and logins.
 - **Advanced**: download folder, export/import all settings as a file, reset.
+
+## Passwords
+
+Open **Settings → Passwords → Import…**, **File → Import Passwords…**, or type
+`import passwords` in the command bar. Empty pages offer an import button while no logins are saved.
+
+Choose a detected Chromium browser, select profiles, and approve macOS's data/keychain prompts.
+Brook reads a private SQLite snapshot, including passwords in the signed-in account database.
+Unsupported encryption formats use the CSV path instead. CSV imports support Chrome, Safari,
+Apple Passwords, Firefox/Zen, Orion, 1Password, Bitwarden and compatible exports.
+
+Duplicates match the website origin and username. Identical or older passwords stay unchanged;
+only a known newer modification time replaces a saved password. Conflicting passwords without
+that information are skipped, so keep the CSV and use **Edit…** if you want to replace one.
+The import summary separates duplicate rows from already saved logins. After a complete, successful
+CSV import, Brook offers to move the readable source file to the Bin; keeping it is the default.
+
+Click a username or current-password field on a standard login form, then choose a login in Brook's
+native popover. Autofill works only in the main frame on the saved login's exact scheme, host and
+port. It does not fill automatically on load. After a user-edited form is submitted to the same
+origin, Brook offers **Save Password**, **Update Password**, **Not Now**, or **Never for This Website**.
+Forms with multiple password fields, passkeys and direct Firefox vault reading are not supported;
+Firefox and Zen can use CSV import.
+
+Passwords are sealed with a Secure Enclave key in
+`~/Library/Application Support/Brook/passwords.json`. Site names and usernames are readable;
+passwords require Touch ID or the Mac's login password. The vault locks after five idle minutes,
+on screen lock, sleep and switching away from the macOS session. Passwords copied in Settings
+stay on this Mac's clipboard and clear after 30 seconds unless another copy replaces them.
+This vault is tied to this Mac; it is not a portable password backup.
 
 ## Extensions
 Uses WebKit's `WKWebExtension` API (as DuckDuckGo's browser does). Install from the puzzle

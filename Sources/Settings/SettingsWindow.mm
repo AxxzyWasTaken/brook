@@ -243,6 +243,7 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
         @[@"Tabs", @"square.on.square", [TabsPane new]],
         @[@"Search", @"magnifyingglass", [SearchPane new]],
         @[@"Websites", @"globe", [WebsitesPane new]],
+        @[@"Passwords", @"key", [PasswordsPane new]],
         @[@"Boosts", @"wand.and.stars", [BoostsPane new]],
         @[@"Shortcuts", @"command", [ShortcutsPane new]],
         @[@"Advanced", @"gearshape.2", [AdvancedPane new]]
@@ -294,6 +295,14 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
 }
 
 - (void)show { [self showPane:nil]; }
+
+- (void)importPasswords {
+    [self showPane:@"Passwords"];
+    NSTabViewController *tabs = (NSTabViewController *)self.window.contentViewController;
+    for (NSTabViewItem *item in tabs.tabViewItems) {
+        if ([item.viewController isKindOfClass:PasswordsPane.class]) [(PasswordsPane *)item.viewController beginImport];
+    }
+}
 
 - (void)showPane:(NSString *)pane {
     NSTabViewController *tabs = [self.window.contentViewController isKindOfClass:NSTabViewController.class]

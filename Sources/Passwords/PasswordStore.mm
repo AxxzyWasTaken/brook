@@ -7,7 +7,7 @@ NSNotificationName const PasswordStoreDidChangeNotification = @"BrookPasswordSto
 static NSString *const kTokenOID = @"toid";
 static const SecKeyAlgorithm kSealAlgorithm = kSecKeyAlgorithmECIESEncryptionCofactorVariableIVX963SHA256AESGCM;
 /// Unlocked passwords lock again after this long without one being opened.
-static const NSTimeInterval kUnlockIdle = 10 * 60;
+static const NSTimeInterval kUnlockIdle = 5 * 60;
 
 static NSError *PasswordError(NSString *message) {
     return [NSError errorWithDomain:@"BrookPasswords" code:1 userInfo:@{NSLocalizedDescriptionKey: message}];
@@ -15,7 +15,7 @@ static NSError *PasswordError(NSString *message) {
 
 // MARK: - Model
 
-@interface SavedLogin ()
+@interface SavedLogin () <NSCopying>
 @property (readwrite) NSString *identifier;
 @property (readwrite) NSString *origin;
 @property (readwrite) NSString *host;
@@ -29,6 +29,31 @@ static NSError *PasswordError(NSString *message) {
 @end
 
 @implementation SavedLogin
+
++ (instancetype)loginWithOrigin:(NSString *)origin username:(NSString *)username source:(NSString *)source {
+    SavedLogin *login = [SavedLogin new];
+    login.identifier = NSUUID.UUID.UUIDString;
+    login.origin = origin;
+    login.host = BrookHost([NSURL URLWithString:origin]).lowercaseString;
+    login.username = username;
+    login.created = login.modified = [NSDate date];
+    login.source = source;
+    return login;
+}
+
+- (id)copyWithZone:(NSZone *)zone {
+    SavedLogin *copy = [[SavedLogin allocWithZone:zone] init];
+    copy.identifier = _identifier;
+    copy.origin = _origin;
+    copy.host = _host;
+    copy.username = _username;
+    copy.created = _created;
+    copy.modified = _modified;
+    copy.lastUsed = _lastUsed;
+    copy.source = _source;
+    copy.sealed = _sealed;
+    return copy;
+}
 
 static NSDate *DateFrom(id v) {
     return [v isKindOfClass:NSNumber.class] ? [NSDate dateWithTimeIntervalSinceReferenceDate:[v doubleValue]] : nil;
@@ -73,6 +98,57 @@ static NSDate *DateFrom(id v) {
 @implementation PasswordImportResult
 @end
 
+typedef NS_ENUM(NSInteger, ImportDecision) { ImportAdd, ImportReplace, ImportUnchanged, ImportConflict };
+
+static ImportDecision ResolvePassword(NSString *incoming, NSDate *modified, NSString *current, NSDate *currentModified) {
+    if (current && [incoming isEqualToString:current]) return ImportUnchanged;
+    if (!modified || !currentModified) return ImportConflict;
+    NSComparisonResult order = [modified compare:currentModified];
+    if (order == NSOrderedDescending) return ImportReplace;
+    return current && order == NSOrderedAscending ? ImportUnchanged : ImportConflict;
+}
+
+@interface PasswordImportEntry : NSObject
+@property (strong) LoginCandidate *candidate;
+@property (copy) SavedLogin *saved;
+@property ImportDecision decision;
+@property (copy) NSData *sealed;
+@end
+@implementation PasswordImportEntry
+@end
+
+static NSArray<PasswordImportEntry *> *ImportEntries(NSArray<LoginCandidate *> *candidates, PasswordImportResult *result) {
+    NSMutableDictionary<NSString *, PasswordImportEntry *> *unique = [NSMutableDictionary dictionary];
+    NSMutableArray<PasswordImportEntry *> *entries = [NSMutableArray array];
+    for (LoginCandidate *input in candidates) {
+        NSString *origin = [PasswordStore originForURLString:input.url];
+        if (!origin || input.password.length == 0) { result.skipped++; continue; }
+        LoginCandidate *candidate = [LoginCandidate new];
+        candidate.url = origin;
+        candidate.username = BrookTrimAll(input.username ?: @"");
+        candidate.password = input.password;
+        candidate.modified = input.modified;
+        NSString *key = [NSString stringWithFormat:@"%@\n%@", origin, candidate.username];
+        PasswordImportEntry *entry = unique[key];
+        if (!entry) {
+            entry = [PasswordImportEntry new];
+            entry.candidate = candidate;
+            unique[key] = entry;
+            [entries addObject:entry];
+            continue;
+        }
+        LoginCandidate *old = entry.candidate;
+        if (ResolvePassword(candidate.password, candidate.modified, old.password, old.modified) == ImportConflict) {
+            result.skipped++;
+            continue;
+        }
+        result.duplicates++;
+        if ([candidate.modified ?: NSDate.distantPast compare:old.modified ?: NSDate.distantPast] == NSOrderedDescending)
+            entry.candidate = candidate;
+    }
+    return entries;
+}
+
 // MARK: - Store
 
 @implementation PasswordStore {
@@ -88,7 +164,8 @@ static NSDate *DateFrom(id v) {
     NSTimer *_lockTimer;
     /// Unlock requests waiting on one prompt.
     NSMutableArray<void (^)(BOOL)> *_unlockWaiters;
-    BOOL _noPresence;
+    NSError *_loadError;
+    NSUInteger _unlockGeneration;
 }
 
 + (PasswordStore *)shared {
@@ -104,10 +181,6 @@ static NSDate *DateFrom(id v) {
     _logins = [NSMutableArray array];
     _never = [NSMutableSet set];
     _unlockWaiters = [NSMutableArray array];
-#if DEBUG
-    // Scratch test runs: a key that opens without Touch ID, so flows can run unattended.
-    _noPresence = NSProcessInfo.processInfo.environment[@"BROOK_PASSWORDS_NO_PRESENCE"] != nil;
-#endif
     [self load];
     NSNotificationCenter *ws = NSWorkspace.sharedWorkspace.notificationCenter;
     [ws addObserver:self selector:@selector(lock) name:NSWorkspaceWillSleepNotification object:nil];
@@ -124,7 +197,12 @@ static NSDate *DateFrom(id v) {
 - (void)load {
     NSData *data = [NSData dataWithContentsOfURL:_fileURL];
     NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    if (![json isKindOfClass:NSDictionary.class]) return;
+    if (![json isKindOfClass:NSDictionary.class] || ![json[@"logins"] isKindOfClass:NSArray.class] ||
+        ![json[@"version"] isEqual:@1]) {
+        if ([NSFileManager.defaultManager fileExistsAtPath:_fileURL.path])
+            _loadError = PasswordError(@"The password vault couldn’t be read. Keep passwords.json and restore a valid copy before saving passwords.");
+        return;
+    }
     if ([json[@"key"] isKindOfClass:NSString.class] && [json[@"publicKey"] isKindOfClass:NSString.class]) {
         NSData *reference = [[NSData alloc] initWithBase64EncodedString:json[@"key"] options:0];
         NSData *pub = [[NSData alloc] initWithBase64EncodedString:json[@"publicKey"] options:0];
@@ -138,26 +216,61 @@ static NSDate *DateFrom(id v) {
         }
     }
     if ([json[@"logins"] isKindOfClass:NSArray.class]) {
-        for (id item in json[@"logins"]) if (SavedLogin *l = [SavedLogin fromJSON:item]) [_logins addObject:l];
+        for (id item in json[@"logins"]) {
+            SavedLogin *l = [SavedLogin fromJSON:item];
+            if (l) [_logins addObject:l];
+            else _loadError = PasswordError(@"The password vault contains an unreadable login. Restore a valid copy before saving passwords.");
+        }
+        if (_logins.count && !_publicKey) _loadError = PasswordError(@"The password vault’s encryption key is missing. Restore a valid copy before saving passwords.");
     }
     if ([json[@"neverSave"] isKindOfClass:NSArray.class]) {
         for (id h in json[@"neverSave"]) if ([h isKindOfClass:NSString.class]) [_never addObject:h];
     }
 }
 
-- (void)saveAndNotify {
-    NSMutableArray *list = [NSMutableArray arrayWithCapacity:_logins.count];
-    for (SavedLogin *l in _logins) [list addObject:l.toJSON];
+- (BOOL)commitLogins:(NSArray<SavedLogin *> *)logins neverSave:(NSSet<NSString *> *)never error:(NSError **)error {
+    NSMutableArray *list = [NSMutableArray arrayWithCapacity:logins.count];
+    for (SavedLogin *l in logins) [list addObject:l.toJSON];
     NSMutableDictionary *json = [@{@"version": @1, @"logins": list,
-                                   @"neverSave": [_never.allObjects sortedArrayUsingSelector:@selector(compare:)]} mutableCopy];
+                                   @"neverSave": [never.allObjects sortedArrayUsingSelector:@selector(compare:)]} mutableCopy];
     if (_keyReference && _publicKey) {
         NSData *pub = CFBridgingRelease(SecKeyCopyExternalRepresentation(_publicKey, NULL));
         json[@"key"] = [_keyReference base64EncodedStringWithOptions:0];
         if (pub) json[@"publicKey"] = [pub base64EncodedStringWithOptions:0];
     }
-    BrookWriteJSONInBackground(json, NSJSONWritingWithoutEscapingSlashes, _fileURL);
+    NSError *failure = _loadError;
+    NSData *data = !failure ? [NSJSONSerialization dataWithJSONObject:json options:NSJSONWritingWithoutEscapingSlashes error:&failure] : nil;
+    BOOL ok = data && [data writeToURL:_fileURL options:NSDataWritingAtomic error:&failure];
+    if (!ok) {
+        if (error) *error = failure ?: PasswordError(@"The password vault couldn’t be saved. Keep the source file and try again.");
+        return NO;
+    }
+    [NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions: @0600} ofItemAtPath:_fileURL.path error:nil];
+    NSMutableDictionary<NSString *, SavedLogin *> *current = [NSMutableDictionary dictionaryWithCapacity:_logins.count];
+    for (SavedLogin *login in _logins) current[login.identifier] = login;
+    NSMutableArray *committed = [NSMutableArray arrayWithCapacity:logins.count];
+    for (SavedLogin *proposed in logins) {
+        SavedLogin *login = current[proposed.identifier] ?: proposed;
+        if (login != proposed) {
+            login.username = proposed.username;
+            login.sealed = proposed.sealed;
+            login.modified = proposed.modified;
+            login.lastUsed = proposed.lastUsed;
+        }
+        [committed addObject:login];
+    }
+    _logins = committed;
+    _never = [never mutableCopy];
     _sorted = nil;
     [NSNotificationCenter.defaultCenter postNotificationName:PasswordStoreDidChangeNotification object:self];
+    return YES;
+}
+
+- (BOOL)commitLogin:(SavedLogin *)proposed replacing:(SavedLogin *)login error:(NSError **)error {
+    NSMutableArray *logins = [_logins mutableCopy];
+    if (login) logins[[_logins indexOfObjectIdenticalTo:login]] = proposed;
+    else [logins addObject:proposed];
+    return [self commitLogins:logins neverSave:_never error:error];
 }
 
 - (NSArray<SavedLogin *> *)logins {
@@ -175,10 +288,10 @@ static NSDate *DateFrom(id v) {
 
 /// Creates the Secure Enclave key on first use. NO when this Mac has none.
 - (BOOL)ensureKey:(NSError **)error {
+    if (_loadError) { if (error) *error = _loadError; return NO; }
     if (_publicKey) return YES;
     CFErrorRef cfError = NULL;
-    SecAccessControlCreateFlags flags = kSecAccessControlPrivateKeyUsage;
-    if (!_noPresence) flags |= kSecAccessControlUserPresence;
+    SecAccessControlCreateFlags flags = kSecAccessControlPrivateKeyUsage | kSecAccessControlUserPresence;
     SecAccessControlRef access = SecAccessControlCreateWithFlags(NULL, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, flags, &cfError);
     if (!access) {
         if (error) *error = CFBridgingRelease(cfError);
@@ -259,21 +372,22 @@ static NSString *Open(NSData *sealed, NSData *reference, LAContext *context) {
     }
     [_unlockWaiters addObject:[completion copy]];
     if (_unlockWaiters.count > 1) return;   // a prompt is already up
+    NSUInteger generation = _unlockGeneration;
     LAContext *context = [LAContext new];
     context.localizedReason = reason;
     void (^finish)(BOOL) = ^(BOOL ok) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (ok) {
+            BOOL accepted = ok && generation == self->_unlockGeneration;
+            if (accepted) {
                 self->_context = context;
                 [self touchUnlock];
                 [NSNotificationCenter.defaultCenter postNotificationName:PasswordStoreDidChangeNotification object:self];
             }
             NSArray *waiters = self->_unlockWaiters;
             self->_unlockWaiters = [NSMutableArray array];
-            for (void (^w)(BOOL) in waiters) w(ok);
+            for (void (^w)(BOOL) in waiters) w(accepted);
         });
     };
-    if (_noPresence) { finish(YES); return; }
     [context evaluatePolicy:LAPolicyDeviceOwnerAuthentication localizedReason:reason
                       reply:^(BOOL success, NSError *) { finish(success); }];
 }
@@ -290,6 +404,7 @@ static NSString *Open(NSData *sealed, NSData *reference, LAContext *context) {
         dispatch_async(dispatch_get_main_queue(), ^{ [self lock]; });
         return;
     }
+    _unlockGeneration++;
     [_lockTimer invalidate];
     _lockTimer = nil;
     if (!_context) return;
@@ -305,7 +420,10 @@ static NSString *Open(NSData *sealed, NSData *reference, LAContext *context) {
         LAContext *context = self->_context;
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
             NSString *password = Open(sealed, reference, context);
-            dispatch_async(dispatch_get_main_queue(), ^{ completion(password); });
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completion(self->_context == context && [self->_logins containsObject:login] &&
+                           [login.sealed isEqualToData:sealed] ? password : nil);
+            });
         });
     }];
 }
@@ -320,41 +438,24 @@ static NSString *Open(NSData *sealed, NSData *reference, LAContext *context) {
     NSString *scheme = c.scheme.lowercaseString, *host = c.percentEncodedHost.lowercaseString;
     if (!([scheme isEqualToString:@"https"] || [scheme isEqualToString:@"http"]) || host.length == 0) return nil;
     if (![host containsString:@"."] && ![host isEqualToString:@"localhost"]) return nil;
+    if (c.user.length || c.password.length || [host hasSuffix:@"."]) return nil;
     NSNumber *port = c.port;
+    if (port && (port.integerValue <= 0 || port.integerValue > 65535)) return nil;
     BOOL defaultPort = !port || ([scheme isEqualToString:@"https"] && port.integerValue == 443) ||
                        ([scheme isEqualToString:@"http"] && port.integerValue == 80);
     return defaultPort ? [NSString stringWithFormat:@"%@://%@", scheme, host]
                        : [NSString stringWithFormat:@"%@://%@:%@", scheme, host, port];
 }
 
-/// One host is the other, or one is a subdomain of the other (never two siblings, so a login saved
-/// for one site on a shared domain like github.io is not offered on another).
-static BOOL SameSite(NSString *a, NSString *b) {
-    if ([a isEqualToString:b]) return YES;
-    NSString *shorter = a.length < b.length ? a : b, *longer = a.length < b.length ? b : a;
-    if ([shorter componentsSeparatedByString:@"."].count < 2) return NO;
-    return [longer hasSuffix:[@"." stringByAppendingString:shorter]];
-}
-
 - (NSArray<SavedLogin *> *)loginsForPageURL:(NSURL *)url {
     NSString *origin = [PasswordStore originForURLString:url.absoluteString];
-    NSString *host = BrookHost(url).lowercaseString;
-    if (!origin || !host) return @[];
-    BOOL pageSecure = [origin hasPrefix:@"https:"];
-    NSString *site = [SiteSettings keyForHost:host];
-    NSMutableArray<SavedLogin *> *exact = [NSMutableArray array], *related = [NSMutableArray array];
-    for (SavedLogin *l in self.logins) {
-        if (!pageSecure && [l.origin hasPrefix:@"https:"]) continue;
-        if ([l.origin isEqualToString:origin]) [exact addObject:l];
-        else if (SameSite([SiteSettings keyForHost:l.host], site)) [related addObject:l];
-    }
-    NSComparator recent = ^NSComparisonResult(SavedLogin *a, SavedLogin *b) {
-        NSDate *da = a.lastUsed ?: a.modified, *db = b.lastUsed ?: b.modified;
-        return [db compare:da];
-    };
-    [exact sortUsingComparator:recent];
-    [related sortUsingComparator:recent];
-    return [exact arrayByAddingObjectsFromArray:related];
+    if (!origin) return @[];
+    NSMutableArray<SavedLogin *> *matches = [NSMutableArray array];
+    for (SavedLogin *login in self.logins) if ([login.origin isEqualToString:origin]) [matches addObject:login];
+    [matches sortUsingComparator:^NSComparisonResult(SavedLogin *a, SavedLogin *b) {
+        return [b.lastUsed ?: b.modified compare:a.lastUsed ?: a.modified];
+    }];
+    return matches;
 }
 
 - (SavedLogin *)loginForOrigin:(NSString *)origin username:(NSString *)username {
@@ -384,32 +485,25 @@ static BOOL SameSite(NSString *a, NSString *b) {
         return nil;
     }
     NSString *user = BrookTrimAll(username ?: @"");
-    SavedLogin *l = [self loginForOrigin:o username:user];
-    NSDate *now = [NSDate date];
-    if (!l) {
-        l = [SavedLogin new];
-        l.identifier = NSUUID.UUID.UUIDString;
-        l.origin = o;
-        l.host = BrookHost([NSURL URLWithString:o]).lowercaseString;
-        l.username = user;
-        l.created = now;
-        l.source = source ?: @"Brook";
-        [_logins addObject:l];
-    }
-    l.sealed = sealed;
-    l.modified = now;
-    [self saveAndNotify];
-    return l;
+    SavedLogin *login = [self loginForOrigin:o username:user];
+    SavedLogin *proposed = [login copy] ?: [SavedLogin loginWithOrigin:o username:user source:source ?: @"Brook"];
+    proposed.sealed = sealed;
+    proposed.modified = [NSDate date];
+    return [self commitLogin:proposed replacing:login error:error] ? (login ?: proposed) : nil;
 }
 
 - (BOOL)updateLogin:(SavedLogin *)login username:(NSString *)username password:(NSString *)password error:(NSError **)error {
-    if (![_logins containsObject:login]) return NO;
+    if (![_logins containsObject:login]) {
+        if (error) *error = PasswordError(@"This login no longer exists. Select a saved login and try again.");
+        return NO;
+    }
     NSString *user = BrookTrimAll(username ?: @"");
     SavedLogin *clash = [self loginForOrigin:login.origin username:user];
     if (clash && clash != login) {
         if (error) *error = PasswordError([NSString stringWithFormat:@"%@ already has a saved login for “%@”.", login.host, user]);
         return NO;
     }
+    SavedLogin *proposed = [login copy];
     if (password) {
         if (password.length == 0) {
             if (error) *error = PasswordError(@"The password is empty.");
@@ -420,24 +514,25 @@ static BOOL SameSite(NSString *a, NSString *b) {
             if (error) *error = PasswordError(@"The password couldn’t be encrypted.");
             return NO;
         }
-        login.sealed = sealed;
-        login.modified = [NSDate date];
+        proposed.sealed = sealed;
+        proposed.modified = [NSDate date];
     }
-    login.username = user;
-    [self saveAndNotify];
-    return YES;
+    proposed.username = user;
+    return [self commitLogin:proposed replacing:login error:error];
 }
 
-- (void)removeLogins:(NSArray<SavedLogin *> *)logins {
-    if (logins.count == 0) return;
-    [_logins removeObjectsInArray:logins];
-    [self saveAndNotify];
+- (BOOL)removeLogins:(NSArray<SavedLogin *> *)logins error:(NSError **)error {
+    if (logins.count == 0) return YES;
+    NSMutableArray *proposed = [_logins mutableCopy];
+    [proposed removeObjectsInArray:logins];
+    return [self commitLogins:proposed neverSave:_never error:error];
 }
 
 - (void)markUsed:(SavedLogin *)login {
     if (![_logins containsObject:login]) return;
-    login.lastUsed = [NSDate date];
-    [self saveAndNotify];
+    SavedLogin *proposed = [login copy];
+    proposed.lastUsed = [NSDate date];
+    [self commitLogin:proposed replacing:login error:nil];
 }
 
 - (BOOL)neverSavesHost:(NSString *)host {
@@ -447,101 +542,98 @@ static BOOL SameSite(NSString *a, NSString *b) {
 - (void)setNeverSaves:(BOOL)never host:(NSString *)host {
     if (!host) return;
     NSString *key = [SiteSettings keyForHost:host];
-    if (never) [_never addObject:key]; else [_never removeObject:key];
-    [self saveAndNotify];
+    NSMutableSet *proposed = [_never mutableCopy];
+    if (never) [proposed addObject:key]; else [proposed removeObject:key];
+    [self commitLogins:_logins neverSave:proposed error:nil];
 }
 
 // MARK: Import
 
+- (void)applyImportEntries:(NSArray<PasswordImportEntry *> *)entries source:(NSString *)source result:(PasswordImportResult *)result {
+    NSMutableArray *proposed = [_logins mutableCopy];
+    for (PasswordImportEntry *entry in entries) {
+        LoginCandidate *candidate = entry.candidate;
+        SavedLogin *current = [self loginForOrigin:candidate.url username:candidate.username];
+        SavedLogin *snapshot = entry.saved;
+        BOOL unchanged = !current && !snapshot;
+        if (current && snapshot) unchanged = [current.identifier isEqualToString:snapshot.identifier] &&
+            [current.sealed isEqualToData:snapshot.sealed] && [current.modified isEqualToDate:snapshot.modified];
+        if (!unchanged || entry.decision == ImportConflict) { result.skipped++; continue; }
+        if (entry.decision == ImportUnchanged) { result.unchanged++; continue; }
+        SavedLogin *login = [current copy] ?: [SavedLogin loginWithOrigin:candidate.url username:candidate.username source:source ?: @"Import"];
+        login.sealed = entry.sealed;
+        login.modified = candidate.modified ?: login.created;
+        if (entry.decision == ImportReplace) {
+            proposed[[_logins indexOfObjectIdenticalTo:current]] = login;
+            result.updated++;
+        } else {
+            [proposed addObject:login];
+            result.added++;
+        }
+    }
+    if (result.added || result.updated) {
+        NSError *error = nil;
+        if (![self commitLogins:proposed neverSave:_never error:&error]) {
+            result.skipped += result.added + result.updated;
+            result.added = result.updated = 0;
+            result.error = error;
+        }
+    }
+}
+
 - (void)importCandidates:(NSArray<LoginCandidate *> *)candidates source:(NSString *)source
               completion:(void (^)(PasswordImportResult *))completion {
     PasswordImportResult *result = [PasswordImportResult new];
-    // Usable candidates, one per origin and username (the most recently changed wins).
-    NSMutableDictionary<NSString *, LoginCandidate *> *unique = [NSMutableDictionary dictionary];
-    NSMutableArray<NSString *> *order = [NSMutableArray array];
-    for (LoginCandidate *c in candidates) {
-        NSString *origin = [PasswordStore originForURLString:c.url];
-        if (!origin || c.password.length == 0) { result.skipped++; continue; }
-        c.url = origin;
-        c.username = BrookTrimAll(c.username ?: @"");
-        NSString *key = [NSString stringWithFormat:@"%@\n%@", origin, c.username];
-        LoginCandidate *old = unique[key];
-        if (!old) [order addObject:key];
-        else result.unchanged++;
-        if (!old || [c.modified ?: NSDate.distantPast compare:old.modified ?: NSDate.distantPast] != NSOrderedAscending) unique[key] = c;
-    }
-    NSError *error = nil;
-    if (unique.count == 0 || ![self ensureKey:&error]) {
-        result.skipped += (NSInteger)unique.count;
+    NSArray<PasswordImportEntry *> *entries = ImportEntries(candidates, result);
+    void (^finish)(NSError *) = ^(NSError *error) {
+        if (error) result.error = error;
+        for (LoginCandidate *candidate in candidates) candidate.password = nil;
+        for (PasswordImportEntry *entry in entries) entry.candidate.password = nil;
         completion(result);
+    };
+    NSError *error = nil;
+    if (entries.count == 0 || ![self ensureKey:&error]) {
+        result.skipped += (NSInteger)entries.count;
+        finish(error);
         return;
     }
-    // Already-saved logins need their password compared: that takes one unlock, and only then.
-    NSMutableDictionary<NSString *, SavedLogin *> *existing = [NSMutableDictionary dictionary];
-    for (NSString *key in order) {
-        LoginCandidate *c = unique[key];
-        if (SavedLogin *l = [self loginForOrigin:c.url username:c.username]) existing[key] = l;
+    BOOL needsUnlock = NO;
+    for (PasswordImportEntry *entry in entries) {
+        entry.saved = [self loginForOrigin:entry.candidate.url username:entry.candidate.username];
+        needsUnlock |= entry.saved != nil;
     }
     void (^run)(BOOL) = ^(BOOL unlocked) {
+        if (needsUnlock && (!unlocked || !self->_context)) {
+            finish(PasswordError(@"Import cancelled. Your saved passwords haven’t changed."));
+            return;
+        }
         LAContext *context = unlocked ? self->_context : nil;
         NSData *reference = self->_keyReference;
         SecKeyRef pub = (SecKeyRef)CFRetain(self->_publicKey);
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-            // Work out every change off the main queue: sealing and opening take a few ms each.
-            NSMutableDictionary<NSString *, NSData *> *sealedByKey = [NSMutableDictionary dictionary];
-            for (NSString *key in order) {
-                LoginCandidate *c = unique[key];
-                SavedLogin *saved = existing[key];
-                if (saved) {
-                    NSString *current = context ? Open(saved.sealed, reference, context) : nil;
-                    BOOL same = current && [current isEqualToString:c.password];
-                    // Without the saved password to compare, only a known-newer one replaces it.
-                    BOOL newer = c.modified && [c.modified compare:saved.modified] == NSOrderedDescending;
-                    if (same || (!current && !newer) || (current && c.modified && !newer)) continue;
-                }
-                NSData *plain = [c.password dataUsingEncoding:NSUTF8StringEncoding];
-                NSData *sealed = plain ? CFBridgingRelease(SecKeyCreateEncryptedData(pub, kSealAlgorithm, (__bridge CFDataRef)plain, NULL)) : nil;
-                if (sealed) sealedByKey[key] = sealed;
+            for (PasswordImportEntry *entry in entries) {
+                LoginCandidate *candidate = entry.candidate;
+                SavedLogin *saved = entry.saved;
+                entry.decision = saved ? ResolvePassword(candidate.password, candidate.modified,
+                    Open(saved.sealed, reference, context), saved.modified) : ImportAdd;
+                if (entry.decision != ImportAdd && entry.decision != ImportReplace) continue;
+                NSData *plain = [candidate.password dataUsingEncoding:NSUTF8StringEncoding];
+                entry.sealed = plain ? CFBridgingRelease(SecKeyCreateEncryptedData(pub, kSealAlgorithm, (__bridge CFDataRef)plain, NULL)) : nil;
+                if (!entry.sealed) entry.decision = ImportConflict;
             }
             CFRelease(pub);
             dispatch_async(dispatch_get_main_queue(), ^{
-                NSDate *now = [NSDate date];
-                for (NSString *key in order) {
-                    LoginCandidate *c = unique[key];
-                    NSData *sealed = sealedByKey[key];
-                    SavedLogin *saved = [self loginForOrigin:c.url username:c.username];
-                    if (!sealed) {
-                        if (saved) result.unchanged++; else result.skipped++;
-                        continue;
-                    }
-                    if (saved) {
-                        saved.sealed = sealed;
-                        saved.modified = c.modified ?: now;
-                        result.updated++;
-                    } else {
-                        SavedLogin *l = [SavedLogin new];
-                        l.identifier = NSUUID.UUID.UUIDString;
-                        l.origin = c.url;
-                        l.host = BrookHost([NSURL URLWithString:c.url]).lowercaseString;
-                        l.username = c.username;
-                        l.sealed = sealed;
-                        l.created = now;
-                        l.modified = c.modified ?: now;
-                        l.source = source ?: @"Import";
-                        [self->_logins addObject:l];
-                        result.added++;
-                    }
+                if (needsUnlock && self->_context != context) {
+                    finish(PasswordError(@"The password vault locked during import. Keep the source file and try again."));
+                    return;
                 }
-                if (result.added || result.updated) [self saveAndNotify];
-                completion(result);
+                [self applyImportEntries:entries source:source result:result];
+                finish(nil);
             });
         });
     };
-    if (existing.count == 0) {
-        run(NO);
-    } else {
-        [self unlockWithReason:@"compare the imported passwords with the ones you’ve saved" completion:run];
-    }
+    if (needsUnlock) [self unlockWithReason:@"compare the imported passwords with the ones you’ve saved" completion:run];
+    else run(NO);
 }
 
 @end

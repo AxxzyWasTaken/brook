@@ -64,6 +64,14 @@ static NSError *ImportError(NSString *message) {
 
 @end
 
+@interface ChromiumProfile ()
+@property (readwrite) NSString *name;
+@property (readwrite) NSString *directory;
+@property (readwrite) NSInteger passwordCount;
+@end
+@implementation ChromiumProfile
+@end
+
 @implementation BrowserImport
 @end
 
@@ -109,19 +117,21 @@ static NSDate *ChromiumDate(sqlite3_int64 micros) {
     return [NSDate dateWithTimeIntervalSince1970:(double)micros / 1e6 - 11644473600.0];
 }
 
-/// Copies a database (and its journal) somewhere private, so a running browser's lock doesn't get
-/// in the way and nothing Brook does can touch the original.
-static NSURL *PrivateCopy(NSURL *db, NSURL *dir, NSString *name) {
-    NSFileManager *fm = NSFileManager.defaultManager;
+static NSURL *PrivateCopy(NSURL *file, NSURL *dir, NSString *name) {
     NSURL *copy = [dir URLByAppendingPathComponent:name];
-    if (![fm copyItemAtURL:db toURL:copy error:nil]) return nil;
-    for (NSString *suffix in @[@"-journal", @"-wal"]) {
-        NSURL *extra = [NSURL fileURLWithPath:[db.path stringByAppendingString:suffix]];
-        if ([fm fileExistsAtPath:extra.path]) {
-            [fm copyItemAtURL:extra toURL:[NSURL fileURLWithPath:[copy.path stringByAppendingString:suffix]] error:nil];
-        }
+    sqlite3 *source = NULL, *destination = NULL;
+    BOOL ok = sqlite3_open_v2(file.fileSystemRepresentation, &source, SQLITE_OPEN_READONLY, NULL) == SQLITE_OK;
+    if (ok) ok = sqlite3_open(copy.fileSystemRepresentation, &destination) == SQLITE_OK;
+    if (ok) {
+        sqlite3_busy_timeout(source, 2000);
+        sqlite3_backup *backup = sqlite3_backup_init(destination, "main", source, "main");
+        ok = backup && sqlite3_backup_step(backup, -1) == SQLITE_DONE;
+        if (backup) ok = sqlite3_backup_finish(backup) == SQLITE_OK && ok;
+        if (ok) ok = sqlite3_exec(destination, "PRAGMA journal_mode=DELETE", NULL, NULL, NULL) == SQLITE_OK;
     }
-    return copy;
+    sqlite3_close(destination);
+    sqlite3_close(source);
+    return ok ? copy : nil;
 }
 
 /// HTML-form logins in one "Login Data" file. Returns NO if it couldn't be opened.
@@ -147,7 +157,8 @@ static BOOL ReadLoginData(NSURL *file, NSData *key, NSMutableArray<LoginCandidat
             const unsigned char *t = sqlite3_column_text(s, col);
             return t ? @((const char *)t) : @"";
         };
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int step;
+        while ((step = sqlite3_step(stmt)) == SQLITE_ROW) {
             NSString *origin = text(stmt, 0);
             if (origin.length == 0) origin = text(stmt, 1);
             const void *blob = sqlite3_column_blob(stmt, 3);
@@ -166,94 +177,122 @@ static BOOL ReadLoginData(NSURL *file, NSData *key, NSMutableArray<LoginCandidat
             c.modified = ChromiumDate(sqlite3_column_int64(stmt, 5)) ?: ChromiumDate(sqlite3_column_int64(stmt, 4));
             [out addObject:c];
         }
+        ok = step == SQLITE_DONE;
     }
     sqlite3_finalize(stmt);
     sqlite3_close(db);
     return ok;
 }
 
++ (NSArray<ChromiumProfile *> *)profilesForBrowser:(ChromiumBrowser *)browser error:(NSError **)error {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSArray<NSString *> *folders = [fm contentsOfDirectoryAtPath:browser.dataFolder.path error:error];
+    if (!folders) return nil;
+    NSData *stateData = [NSData dataWithContentsOfURL:[browser.dataFolder URLByAppendingPathComponent:@"Local State"]];
+    id state = stateData ? [NSJSONSerialization JSONObjectWithData:stateData options:0 error:nil] : nil;
+    id profile = [state isKindOfClass:NSDictionary.class] ? state[@"profile"] : nil;
+    id cache = [profile isKindOfClass:NSDictionary.class] ? profile[@"info_cache"] : nil;
+    NSMutableArray<ChromiumProfile *> *profiles = [NSMutableArray array];
+    NSMutableArray *directories = [[folders sortedArrayUsingSelector:@selector(localizedStandardCompare:)] mutableCopy];
+    [directories insertObject:@"" atIndex:0];
+    for (NSString *directory in directories) {
+        NSURL *folder = directory.length ? [browser.dataFolder URLByAppendingPathComponent:directory] : browser.dataFolder;
+        BOOL found = NO;
+        NSInteger count = 0;
+        for (NSString *name in @[@"Login Data", @"Login Data For Account"]) {
+            NSURL *file = [folder URLByAppendingPathComponent:name];
+            if (![fm fileExistsAtPath:file.path]) continue;
+            found = YES;
+            sqlite3 *db = NULL;
+            if (sqlite3_open_v2(file.fileSystemRepresentation, &db, SQLITE_OPEN_READONLY, NULL) == SQLITE_OK) {
+                sqlite3_stmt *stmt = NULL;
+                if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM logins WHERE blacklisted_by_user=0 AND scheme=0", -1, &stmt, NULL) == SQLITE_OK &&
+                    sqlite3_step(stmt) == SQLITE_ROW) count += sqlite3_column_int(stmt, 0);
+                sqlite3_finalize(stmt);
+            }
+            sqlite3_close(db);
+        }
+        if (!found) continue;
+        id info = [cache isKindOfClass:NSDictionary.class] ? cache[directory] : nil;
+        ChromiumProfile *p = [ChromiumProfile new];
+        p.directory = directory;
+        p.name = [info isKindOfClass:NSDictionary.class] && [info[@"name"] isKindOfClass:NSString.class]
+            ? info[@"name"] : (directory.length ? directory : @"Default");
+        p.passwordCount = count;
+        [profiles addObject:p];
+    }
+    return profiles;
+}
+
 + (BrowserImport *)readBrowser:(ChromiumBrowser *)browser {
+    NSError *error = nil;
+    NSArray *profiles = [self profilesForBrowser:browser error:&error];
+    if (!profiles) {
+        BrowserImport *result = [BrowserImport new];
+        result.browser = browser;
+        result.logins = @[];
+        result.profiles = @[];
+        result.failure = error.localizedDescription;
+        return result;
+    }
+    return [self readBrowser:browser profiles:profiles];
+}
+
++ (BrowserImport *)readBrowser:(ChromiumBrowser *)browser profiles:(NSArray<ChromiumProfile *> *)profiles {
     BrowserImport *result = [BrowserImport new];
     result.browser = browser;
     result.logins = @[];
     result.profiles = @[];
-    NSFileManager *fm = NSFileManager.defaultManager;
-
-    // Profiles: "Local State" names them; fall back to the folders that have a Login Data file.
-    NSData *stateData = [NSData dataWithContentsOfURL:[browser.dataFolder URLByAppendingPathComponent:@"Local State"]];
-    NSArray<NSString *> *folders = [fm contentsOfDirectoryAtPath:browser.dataFolder.path error:nil];
-    if (!stateData && !folders) {
-        result.failure = [NSString stringWithFormat:@"macOS didn’t let Brook read %@’s data. Allow it in System Settings → "
-                                                    @"Privacy & Security → App Management or Full Disk Access, then try again.",
-                                                    browser.name];
+    if (profiles.count == 0) {
+        result.failure = @"Choose at least one browser profile to import.";
         return result;
     }
-    NSDictionary *state = stateData ? [NSJSONSerialization JSONObjectWithData:stateData options:0 error:nil] : nil;
-    NSDictionary *cache = [state isKindOfClass:NSDictionary.class] ? state[@"profile"][@"info_cache"] : nil;
-    NSMutableArray<NSString *> *profileDirs = [NSMutableArray array];
-    for (NSString *f in folders ?: @[]) {
-        if ([fm fileExistsAtPath:[browser.dataFolder URLByAppendingPathComponent:[f stringByAppendingPathComponent:@"Login Data"]].path]) {
-            [profileDirs addObject:f];
-        }
-    }
-    [profileDirs sortUsingSelector:@selector(localizedStandardCompare:)];
-    if (profileDirs.count == 0) {
-        result.failure = [NSString stringWithFormat:@"%@ has no saved passwords on this Mac.", browser.name];
-        return result;
-    }
-
     OSStatus status = errSecSuccess;
     NSData *key = SafeStoragePassword(browser.keychainService, &status);
     if (!key) {
         result.failure = status == errSecUserCanceled || status == errSecAuthFailed
-            ? [NSString stringWithFormat:@"Brook needs “%@” from your keychain to read %@’s passwords. Choose Allow when macOS asks.",
-                                         browser.keychainService, browser.name]
-            : [NSString stringWithFormat:@"%@’s password key isn’t in your keychain. Open %@ once, then try again.",
-                                         browser.name, browser.name];
+            ? [NSString stringWithFormat:@"Access to %@’s password key was cancelled. Try again and choose Allow when macOS asks, or import a CSV export.", browser.name]
+            : [NSString stringWithFormat:@"%@’s password key isn’t available. Open %@ once, then try again, or import a CSV export.", browser.name, browser.name];
         return result;
     }
-
-    NSURL *tmp = [fm URLForDirectory:NSItemReplacementDirectory inDomain:NSUserDomainMask appropriateForURL:AppPaths.support
-                              create:YES error:nil];
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSURL *tmp = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString] isDirectory:YES];
+    if (![fm createDirectoryAtURL:tmp withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions: @0700} error:nil]) {
+        result.failure = @"Brook couldn’t create a private copy of the browser database. Try importing a CSV export.";
+        return result;
+    }
     NSMutableArray<LoginCandidate *> *logins = [NSMutableArray array];
-    NSMutableArray<NSString *> *profiles = [NSMutableArray array];
-    NSInteger undecryptable = 0, index = 0;
-    for (NSString *dir in profileDirs) {
-        NSUInteger before = logins.count;
-        // "Login Data For Account" holds passwords kept in the signed-in Google account only.
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    NSInteger undecryptable = 0, index = 0, unreadable = 0;
+    for (ChromiumProfile *profile in profiles) {
+        NSURL *folder = profile.directory.length ? [browser.dataFolder URLByAppendingPathComponent:profile.directory] : browser.dataFolder;
+        [names addObject:profile.name];
         for (NSString *name in @[@"Login Data", @"Login Data For Account"]) {
-            NSURL *db = [browser.dataFolder URLByAppendingPathComponent:[dir stringByAppendingPathComponent:name]];
+            NSURL *db = [folder URLByAppendingPathComponent:name];
             if (![fm fileExistsAtPath:db.path]) continue;
-            NSURL *copy = tmp ? PrivateCopy(db, tmp, [NSString stringWithFormat:@"%ld", (long)index++]) : nil;
-            if (copy) ReadLoginData(copy, key, logins, &undecryptable);
-        }
-        if (logins.count > before) {
-            id info = [cache isKindOfClass:NSDictionary.class] ? cache[dir] : nil;
-            NSString *name = [info isKindOfClass:NSDictionary.class] && [info[@"name"] isKindOfClass:NSString.class] ? info[@"name"] : dir;
-            [profiles addObject:name];
+            NSURL *copy = PrivateCopy(db, tmp, [NSString stringWithFormat:@"%ld", (long)index++]);
+            if (!copy || !ReadLoginData(copy, key, logins, &undecryptable)) unreadable++;
         }
     }
-    if (tmp) [fm removeItemAtURL:tmp error:nil];
+    [fm removeItemAtURL:tmp error:nil];
     result.logins = logins;
-    result.profiles = profiles;
+    result.profiles = names;
     result.undecryptable = undecryptable;
-    if (logins.count == 0 && undecryptable > 0) {
-        result.failure = [NSString stringWithFormat:@"%@’s passwords are encrypted in a way Brook can’t read. "
-                                                    @"Export them from %@ as a CSV file instead.", browser.name, browser.name];
-    } else if (logins.count == 0) {
-        result.failure = [NSString stringWithFormat:@"%@ has no saved passwords on this Mac.", browser.name];
-    }
+    if (unreadable) result.failure = @"Some browser databases couldn’t be read. Close the source browser and try again, or import a CSV export.";
+    else if (logins.count == 0 && undecryptable > 0) result.failure = @"These passwords use an encryption format Brook can’t read. Export them as CSV and import that file.";
+    else if (logins.count == 0) result.failure = @"The selected profiles have no usable saved passwords.";
     return result;
 }
 
 // MARK: CSV
 
 /// RFC 4180 rows: quoted fields may hold commas, quotes ("") and line breaks.
-static std::vector<std::vector<NSString *>> ParseCSV(NSString *text) {
+static std::vector<std::vector<NSString *>> ParseCSV(NSString *text, BOOL *valid) {
+    *valid = YES;
     std::vector<std::vector<NSString *>> rows;
     std::vector<NSString *> row;
     NSMutableString *field = [NSMutableString string];
-    BOOL quoted = NO, fieldStarted = NO;
+    BOOL quoted = NO, fieldStarted = NO, closed = NO;
     NSUInteger n = text.length;
     std::vector<unichar> buffer(n);
     [text getCharacters:buffer.data() range:NSMakeRange(0, n)];
@@ -261,6 +300,7 @@ static std::vector<std::vector<NSString *>> ParseCSV(NSString *text) {
         row.push_back([field copy]);
         [field setString:@""];
         fieldStarted = NO;
+        closed = NO;
     };
     auto endRow = [&] {
         endField();
@@ -273,19 +313,22 @@ static std::vector<std::vector<NSString *>> ParseCSV(NSString *text) {
         if (quoted) {
             if (c == '"') {
                 if (i + 1 < n && buffer[i + 1] == '"') { [field appendString:@"\""]; i++; }
-                else quoted = NO;
+                else { quoted = NO; closed = YES; }
             } else {
                 [field appendFormat:@"%C", c];
             }
             continue;
         }
+        if ((closed && c != ',' && c != '\r' && c != '\n') || (c == '"' && fieldStarted)) { *valid = NO; return {}; }
         if (c == '"' && !fieldStarted) { quoted = YES; fieldStarted = YES; }
         else if (c == ',') endField();
         else if (c == '\r') { endRow(); if (i + 1 < n && buffer[i + 1] == '\n') i++; }
         else if (c == '\n') endRow();
         else { [field appendFormat:@"%C", c]; fieldStarted = YES; }
     }
+    if (quoted) { *valid = NO; return {}; }
     if (field.length || !row.empty() || fieldStarted) endRow();
+    std::fill(buffer.begin(), buffer.end(), 0);
     return rows;
 }
 
@@ -293,7 +336,12 @@ static std::vector<std::vector<NSString *>> ParseCSV(NSString *text) {
     NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]
                   ?: [[NSString alloc] initWithData:data encoding:NSWindowsCP1252StringEncoding];
     if ([text hasPrefix:@"\uFEFF"]) text = [text substringFromIndex:1];
-    auto rows = text ? ParseCSV(text) : std::vector<std::vector<NSString *>>{};
+    BOOL valid = YES;
+    auto rows = text ? ParseCSV(text, &valid) : std::vector<std::vector<NSString *>>{};
+    if (!valid) {
+        if (error) *error = ImportError(@"The CSV has an incomplete or invalid quoted field. Export the passwords again and choose the new file.");
+        return nil;
+    }
     if (rows.empty()) {
         if (error) *error = ImportError(@"The file is empty.");
         return nil;
@@ -321,6 +369,10 @@ static std::vector<std::vector<NSString *>> ParseCSV(NSString *text) {
     };
     for (size_t i = 1; i < rows.size(); i++) {
         const auto &r = rows[i];
+        if (r.size() != header.size()) {
+            if (error) *error = ImportError([NSString stringWithFormat:@"CSV row %zu has the wrong number of columns. Export the passwords again.", i + 1]);
+            return nil;
+        }
         if (type >= 0 && cell(r, type).length && ![cell(r, type).lowercaseString isEqualToString:@"login"]) continue;
         LoginCandidate *c = [LoginCandidate new];
         c.url = BrookTrimAll(cell(r, url));

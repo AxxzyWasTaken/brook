@@ -16,6 +16,12 @@
 + (NSArray<ChromiumBrowser *> *)installed;
 @end
 
+@interface ChromiumProfile : NSObject
+@property (readonly) NSString *name;
+@property (readonly) NSString *directory;
+@property (readonly) NSInteger passwordCount;
+@end
+
 /// Passwords read from one browser.
 @interface BrowserImport : NSObject
 @property (strong) ChromiumBrowser *browser;
@@ -32,6 +38,8 @@
 /// Reads every profile's saved passwords. Blocks (keychain and file prompts from macOS included):
 /// call it off the main queue.
 + (BrowserImport *)readBrowser:(ChromiumBrowser *)browser;
++ (NSArray<ChromiumProfile *> *)profilesForBrowser:(ChromiumBrowser *)browser error:(NSError **)error;
++ (BrowserImport *)readBrowser:(ChromiumBrowser *)browser profiles:(NSArray<ChromiumProfile *> *)profiles;
 /// Decrypts one Chromium "v10" value with a Safe Storage password. nil if it isn't one.
 + (NSString *)decryptChromiumValue:(NSData *)value safeStoragePassword:(NSData *)password;
 /// Parses a password CSV from Chrome, Safari, Firefox, Edge, 1Password, Bitwarden and similar.

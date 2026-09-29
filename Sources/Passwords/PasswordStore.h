@@ -38,8 +38,10 @@ FOUNDATION_EXPORT NSNotificationName const PasswordStoreDidChangeNotification;
 @property NSInteger updated;
 /// Already saved, identical or older.
 @property NSInteger unchanged;
+@property NSInteger duplicates;
 /// No usable web address or password.
 @property NSInteger skipped;
+@property (strong) NSError *error;
 @end
 
 /// Brook's saved passwords.
@@ -59,8 +61,6 @@ FOUNDATION_EXPORT NSNotificationName const PasswordStoreDidChangeNotification;
 /// "https://host[:port]" for an http(s) URL string (a bare host gets https), nil for anything else.
 + (NSString *)originForURLString:(NSString *)string;
 
-/// Logins to offer on a page: this exact origin first, then others on the same site
-/// ("accounts.example.com" for "example.com"). Never an https login on an http page.
 - (NSArray<SavedLogin *> *)loginsForPageURL:(NSURL *)url;
 - (SavedLogin *)loginForOrigin:(NSString *)origin username:(NSString *)username;
 
@@ -76,7 +76,7 @@ FOUNDATION_EXPORT NSNotificationName const PasswordStoreDidChangeNotification;
                     source:(NSString *)source error:(NSError **)error;
 /// Changes a login in place. nil password keeps the old one.
 - (BOOL)updateLogin:(SavedLogin *)login username:(NSString *)username password:(NSString *)password error:(NSError **)error;
-- (void)removeLogins:(NSArray<SavedLogin *> *)logins;
+- (BOOL)removeLogins:(NSArray<SavedLogin *> *)logins error:(NSError **)error;
 - (void)markUsed:(SavedLogin *)login;
 
 /// Sites where Brook never offers to save.

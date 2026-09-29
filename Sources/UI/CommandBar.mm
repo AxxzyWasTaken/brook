@@ -4,7 +4,7 @@ namespace {
 
 /// One row in the suggestion list.
 struct Suggestion {
-    enum Kind { Open, Search, KeywordSearch, Tab, History };
+    enum Kind { Open, Search, KeywordSearch, Tab, History, Passwords, ImportPasswords };
     Kind kind;
     __strong NSURL *url = nil;              // Open
     __strong NSString *query = nil;         // Search, KeywordSearch
@@ -12,6 +12,7 @@ struct Suggestion {
     __strong BrowserTab *tab = nil;         // Tab
     __strong HistoryEntry *history = nil;   // History
 
+    static Suggestion passwords(BOOL importing) { return Suggestion{importing ? ImportPasswords : Passwords}; }
     static Suggestion open(NSURL *u) { Suggestion s{Open}; s.url = u; return s; }
     static Suggestion search(NSString *q) { Suggestion s{Search}; s.query = q; return s; }
     static Suggestion keywordSearch(SearchEngine *e, NSString *q) {
@@ -487,6 +488,11 @@ NSInteger CharacterCount(NSString *s) {
             for (NSUInteger i = 0; i < recent.count && i < 6; i++) list.push_back(Suggestion::tabSuggestion(recent[i]));
         }
     } else {
+        NSString *command = text.lowercaseString;
+        if (command.length >= 3) {
+            if ([@"passwords" containsString:command]) list.push_back(Suggestion::passwords(NO));
+            if ([@"import passwords" containsString:command]) list.push_back(Suggestion::passwords(YES));
+        }
         NSString *kwQuery = nil;
         SearchEngine *engine = [SearchEngines keywordMatch:text query:&kwQuery];
         if (engine) list.push_back(Suggestion::keywordSearch(engine, kwQuery));
@@ -616,6 +622,14 @@ NSInteger CharacterCount(NSString *s) {
     if (row >= 0 && row < (NSInteger)_suggestions.size()) {
         Suggestion s = _suggestions[row];
         switch (s.kind) {
+        case Suggestion::ImportPasswords:
+            [self dismiss];
+            [SettingsWindowController.shared importPasswords];
+            return;
+        case Suggestion::Passwords:
+            [self dismiss];
+            [SettingsWindowController.shared showPane:@"Passwords"];
+            return;
         case Suggestion::Open: destination = s.url; break;
         case Suggestion::Search: destination = [SearchEngines.current urlForQuery:s.query]; break;
         case Suggestion::KeywordSearch: destination = [s.engine urlForQuery:s.query]; break;
@@ -655,6 +669,12 @@ NSInteger CharacterCount(NSString *s) {
     SuggestionCell *cell = [made isKindOfClass:SuggestionCell.class] ? made : [SuggestionCell new];
     const Suggestion &s = _suggestions[row];
     switch (s.kind) {
+    case Suggestion::Passwords:
+    case Suggestion::ImportPasswords:
+        [cell configureIcon:[NSImage brook_symbol:@"key" size:14]
+            title:s.kind == Suggestion::ImportPasswords ? @"Import Passwords…" : @"Saved Passwords"
+            subtitle:nil trailing:@"Settings"];
+        break;
     case Suggestion::Open:
         [cell configureIcon:[FaviconStore.shared cachedIconForHost:BrookHost(s.url) ?: @""]
                                 ?: [NSImage brook_symbol:@"globe" size:14]

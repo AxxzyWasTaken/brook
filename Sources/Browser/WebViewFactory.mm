@@ -30,6 +30,7 @@ static WKUserScript *sDarkScript;
         ucc = [WKUserContentController new];
         [AutoconsentHandler.shared installHandlersInto:ucc];
         [ChromeWebStoreBridge.shared installHandlersInto:ucc];
+        [PasswordAutofill.shared installInto:ucc];
         WKContentWorld *linkWorld = [WKContentWorld worldWithName:@"BrookLinks"];
         [ucc addScriptMessageHandler:[HoveredLinkHandler new] contentWorld:linkWorld name:@"brookLink"];
         [ucc addUserScript:[[WKUserScript alloc] initWithSource:
