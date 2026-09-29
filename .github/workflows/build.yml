@@ -33,6 +33,24 @@ jobs:
           brew install xcodegen
           xcodegen generate
 
+      # Every build is signed with the same self-signed identity, so macOS sees updates as the same app:
+      # keychain access (saved passwords) and privacy grants carry over instead of being asked again.
+      - name: Signing keychain
+        env:
+          P12: ${{ secrets.BROOK_SIGNING_P12 }}
+          P12_PASSWORD: ${{ secrets.BROOK_SIGNING_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          KC_PASSWORD=$(openssl rand -hex 16)
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$KC_PASSWORD" "$KC"
+          security set-keychain-settings "$KC"
+          security unlock-keychain -p "$KC_PASSWORD" "$KC"
+          security import "$RUNNER_TEMP/signing.p12" -k "$KC" -P "$P12_PASSWORD" -T /usr/bin/codesign >/dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PASSWORD" "$KC" >/dev/null
+          rm "$RUNNER_TEMP/signing.p12"
+          echo "SIGNING_KEYCHAIN=$KC" >> "$GITHUB_ENV"
+
       - name: Build
         run: |
           set -o pipefail
@@ -40,8 +58,17 @@ jobs:
             -derivedDataPath build -destination 'generic/platform=macOS' \
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
             build 2>&1 | tee build.log | grep -E "error:|warning: .*(nearly matches|never used|deprecated)|\*\* BUILD" || true
-          test -x build/Build/Products/Release/Brook.app/Contents/MacOS/Brook
-          test "$(lipo -archs build/Build/Products/Release/Brook.app/Contents/MacOS/Brook)" = arm64
+          APP=build/Build/Products/Release/Brook.app
+          test -x $APP/Contents/MacOS/Brook
+          test "$(lipo -archs $APP/Contents/MacOS/Brook)" = arm64
+          # Re-sign with the stable identity (Xcode refuses a self-signed, untrusted one itself).
+          codesign --force --sign "Brook Code Signing" --keychain "$SIGNING_KEYCHAIN" $APP
+          codesign --verify --deep --strict $APP
+          codesign -d -r- $APP 2>&1 | tee /dev/stderr | grep -q 'certificate root = H"8a63ef22dcc103882b1dfc9ea3479fb0fe563d39"'
+
+      - name: Remove signing keychain
+        if: always()
+        run: test -z "$SIGNING_KEYCHAIN" || security delete-keychain "$SIGNING_KEYCHAIN"
 
       - name: Error summary
         if: failure()
