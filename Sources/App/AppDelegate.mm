@@ -200,6 +200,15 @@
     } else if (action == @selector(showSiteSettings:) || action == @selector(printPage:) ||
                action == @selector(toggleReader:)) {
         return BrookHost(tab.url) != nil;
+    } else if (action == @selector(reload:) || action == @selector(hardReload:) ||
+               action == @selector(actualSize:) || action == @selector(zoomIn:) ||
+               action == @selector(zoomOut:) || action == @selector(find:) ||
+               action == @selector(findNext:) || action == @selector(findPrevious:) ||
+               action == @selector(duplicateTab:)) {
+        // These act on the selected tab; an empty space has none.
+        return tab != nil;
+    } else if (action == @selector(copyURL:)) {
+        return tab.url != nil;
     } else if (action == @selector(togglePin:)) {
         menuItem.title = tab.isPinned == YES ? @"Unpin Tab" : @"Pin Tab";
         return tab != nil;
