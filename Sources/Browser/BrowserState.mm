@@ -146,7 +146,9 @@ struct ClosedTab {
 
 - (NSArray<BrowserTab *> *)visibleTabs {
     Space *s = self.currentSpace;
-    return [[_favorites arrayByAddingObjectsFromArray:s.pinned] arrayByAddingObjectsFromArray:s.tabs];
+    // Settings → Layout → Favorites off hides them in every layout, so ⌘1–9 and ⌃Tab skip them.
+    NSArray<BrowserTab *> *favorites = Settings.showFavorites ? _favorites : @[];
+    return [[favorites arrayByAddingObjectsFromArray:s.pinned] arrayByAddingObjectsFromArray:s.tabs];
 }
 
 - (BrowserTab *)tabWithID:(NSUUID *)identifier {
