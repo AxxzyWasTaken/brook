@@ -94,6 +94,12 @@ FOUNDATION_EXPORT NSNotificationName const BrowserStateArchiveDidChangeNotificat
 - (BrowserTab *)openTabWithURL:(NSURL *)url inSpace:(Space *)space select:(BOOL)select;
 - (BrowserTab *)openTabWithURL:(NSURL *)url inSpace:(Space *)space after:(BrowserTab *)parent
                         select:(BOOL)select loadNow:(BOOL)loadNow;
+/// Opens a loaded tab for an extension. With a `neighbor`, the tab goes just before it (in the neighbor's
+/// space); pinned tabs always stay before regular tabs. With no neighbor, the tab goes after `opener`, or
+/// where Settings puts new tabs. A pinned tab goes at the end of the pinned tabs. A muted tab is muted
+/// before it loads. Returns nil and sets `error` when the tab cannot be muted.
+- (BrowserTab *)openTabWithURL:(NSURL *)url opener:(BrowserTab *)opener before:(BrowserTab *)neighbor
+                        pinned:(BOOL)pinned muted:(BOOL)muted select:(BOOL)select error:(NSError **)error;
 - (void)insertPopup:(BrowserTab *)tab after:(BrowserTab *)parent select:(BOOL)select;
 
 - (void)selectTab:(BrowserTab *)tab;

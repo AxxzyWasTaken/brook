@@ -13,7 +13,13 @@ typedef NS_OPTIONS(NSUInteger, TabChange) {
     TabChangeConsent = 1 << 6,
     TabChangeError = 1 << 7,
     TabChangeLoaded = 1 << 8,
+    TabChangeMuted = 1 << 9,
 };
+
+/// Errors from tab actions that Brook cannot do ("BrookTabError").
+FOUNDATION_EXPORT NSErrorDomain const BrowserTabErrorDomain;
+/// Builds a BrowserTabErrorDomain error with this message.
+NSError *BrowserTabError(NSString *message);
 
 /// The web view class every tab uses. Knows its tab, and renames "New Window" menu items to "New Tab".
 @interface BrookWebView : WKWebView
@@ -46,10 +52,18 @@ typedef NS_OPTIONS(NSUInteger, TabChange) {
 /// YES while the reader overlay covers the page. The View menu reads it for its Show or Hide title.
 @property BOOL readerOn;
 @property (weak) BrowserState *state;
+/// The tab that opened this one (a link, a popup, Duplicate Tab or an extension). Extensions read it as openerTabId.
+@property (weak) BrowserTab *parentTab;
+/// YES when the user or an extension muted the tab. The value stays when the tab unloads and applies again when it loads.
+@property (readonly) BOOL isMuted;
+/// NO when this WebKit has no page mute. Then setMuted:error: always fails.
+@property (class, readonly) BOOL canMute;
 
 @property (readonly) NSString *displayTitle;
 @property (readonly) BOOL isLoaded;
 
+/// Mutes or unmutes the page audio. Returns NO and sets `error` when WebKit has no page mute.
+- (BOOL)setMuted:(BOOL)muted error:(NSError **)error;
 - (BrookWebView *)materialize;
 /// Frees the web content process memory. The tab stays in the sidebar and reloads on demand.
 - (void)unload;

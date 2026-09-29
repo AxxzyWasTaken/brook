@@ -679,10 +679,19 @@ static const unsigned long long kAdBlockerRulesetBytes = 100 * 1024;
   openNewTabUsingConfiguration:(WKWebExtensionTabConfiguration *)configuration
            forExtensionContext:(WKWebExtensionContext *)extensionContext
              completionHandler:(void (^)(id<WKWebExtensionTab> newTab, NSError *error))completionHandler {
-    BrowserTab *tab = [BrowserState.shared openTabWithURL:configuration.url inSpace:nil after:nil
-                                                   select:configuration.shouldBeActive loadNow:NO];
-    [tab materialize];
-    completionHandler(tab, nil);
+    id parent = configuration.parentTab;
+    BrowserTab *opener = [parent isKindOfClass:BrowserTab.class] ? (BrowserTab *)parent : nil;
+    // WebKit counts the index in the window's tab list, and gives that list's length when the extension gave
+    // no index. The tab at that index is the one the new tab goes before.
+    NSArray<id<WKWebExtensionTab>> *tabs = [self.window tabsForWebExtensionContext:extensionContext];
+    id neighbor = configuration.index < tabs.count ? tabs[configuration.index] : nil;
+    NSError *error = nil;
+    BrowserTab *tab = [BrowserState.shared openTabWithURL:configuration.url opener:opener
+                                                   before:[neighbor isKindOfClass:BrowserTab.class] ? neighbor : nil
+                                                   pinned:configuration.shouldBePinned
+                                                    muted:configuration.shouldBeMuted
+                                                   select:configuration.shouldBeActive error:&error];
+    completionHandler(tab, error);
 }
 
 - (void)webExtensionController:(WKWebExtensionController *)controller

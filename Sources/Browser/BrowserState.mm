@@ -348,17 +348,48 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
                         select:(BOOL)shouldSelect loadNow:(BOOL)loadNow {
     BrowserTab *tab = [[BrowserTab alloc] initWithURL:url];
     tab.state = self;
+    tab.parentTab = parent;
     Space *target = space ?: (parent ? [self spaceOf:parent] : nil) ?: self.currentSpace;
-    NSUInteger i = parent ? [target.tabs indexOfObjectIdenticalTo:parent] : NSNotFound;
-    if (i != NSNotFound) {
-        [target.tabs insertObject:tab atIndex:i + 1];
-    } else {
-        [target.tabs insertObject:tab atIndex:[self newTabIndexIn:target]];
-    }
+    [target.tabs insertObject:tab atIndex:[self indexAfter:parent in:target]];
     [_observer browserStateDidChangeStructure];
     if (shouldSelect) [self selectTab:tab]; else if (loadNow) [tab materialize];
     [self scheduleSave];
     return tab;
+}
+
+- (BrowserTab *)openTabWithURL:(NSURL *)url opener:(BrowserTab *)opener before:(BrowserTab *)neighbor
+                        pinned:(BOOL)pinned muted:(BOOL)muted select:(BOOL)shouldSelect error:(NSError **)error {
+    BrowserTab *tab = [[BrowserTab alloc] initWithURL:url];
+    tab.parentTab = opener;
+    // Before the tab joins the state or loads, so no sound plays and no change is sent.
+    if (muted && ![tab setMuted:YES error:error]) return nil;
+    std::optional<TabPosition> at = neighbor ? [self locationOf:neighbor] : std::nullopt;
+    Space *space = (at ? at->location.space : nil) ?: (opener ? [self spaceOf:opener] : nil) ?: self.currentSpace;
+    TabLocation destination = pinned ? TabLocation::pinnedIn(space) : TabLocation::tabsIn(space);
+    NSInteger index;
+    if (at && at->location == destination) {
+        index = at->index;
+    } else if (at) {
+        // The neighbour is in another list. Favorites come before pinned tabs, and pinned tabs come
+        // before regular tabs. A list that comes before this one gives the first place; a later list gives the last.
+        BOOL before = at->location.kind == TabLocation::Favorites || (at->location.kind == TabLocation::Pinned && !pinned);
+        index = before ? 0 : (NSInteger)[self listFor:destination].count;
+    } else if (pinned) {
+        index = (NSInteger)space.pinned.count;
+    } else {
+        index = (NSInteger)[self indexAfter:opener in:space];
+    }
+    [self attach:tab to:destination at:index];
+    [_observer browserStateDidChangeStructure];
+    if (shouldSelect) [self selectTab:tab]; else [tab materialize];
+    [self scheduleSave];
+    return tab;
+}
+
+/// Just after `parent` when it is a regular tab in `space`, else where Settings puts new tabs.
+- (NSUInteger)indexAfter:(BrowserTab *)parent in:(Space *)space {
+    NSUInteger i = parent ? [space.tabs indexOfObjectIdenticalTo:parent] : NSNotFound;
+    return i != NSNotFound ? i + 1 : [self newTabIndexIn:space];
 }
 
 /// Where a new tab goes in a space's list (Settings → Tabs → New tabs open).
@@ -377,12 +408,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
 - (void)insertPopup:(BrowserTab *)tab after:(BrowserTab *)parent select:(BOOL)shouldSelect {
     tab.state = self;
     Space *target = [self spaceOf:parent] ?: self.currentSpace;
-    NSUInteger i = [target.tabs indexOfObjectIdenticalTo:parent];
-    if (i != NSNotFound) {
-        [target.tabs insertObject:tab atIndex:i + 1];
-    } else {
-        [target.tabs insertObject:tab atIndex:[self newTabIndexIn:target]];
-    }
+    [target.tabs insertObject:tab atIndex:[self indexAfter:parent in:target]];
     [_observer browserStateDidChangeStructure];
     if (shouldSelect) [self selectTab:tab];
     [self scheduleSave];
@@ -509,6 +535,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     // Moving down within the same list: account for the removed slot.
     if (from->location == destination && from->index < index) idx -= 1;
     BOOL wasSelected = _selectedTab == tab;
+    BOOL wasPinned = tab.isPinned || tab.isFavorite;
     // The tab that takes over when the selected tab leaves this space, as when it is closed.
     BrowserTab *next = wasSelected ? [self neighborOf:tab] : nil;
     NSUUID *oldProfile = [self profileIDFor:tab];
@@ -526,6 +553,10 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
         [self selectTab:next ?: self.currentSpace.tabs.firstObject ?: self.currentSpace.pinned.firstObject];
     } else if (wasSelected) {
         [_observer browserStateDidSelect:tab previous:tab];
+    }
+    // Extensions see favorites as pinned tabs too.
+    if (wasPinned != (tab.isPinned || tab.isFavorite)) {
+        [ExtensionManager.shared tabDidChange:tab properties:WKWebExtensionTabChangedPropertiesPinned];
     }
     [self scheduleSave];
 }
@@ -773,6 +804,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     if (change & TabChangeTitle) props |= WKWebExtensionTabChangedPropertiesTitle;
     if (change & TabChangeURL) props |= WKWebExtensionTabChangedPropertiesURL;
     if (change & TabChangeLoading) props |= WKWebExtensionTabChangedPropertiesLoading;
+    if (change & TabChangeMuted) props |= WKWebExtensionTabChangedPropertiesMuted;
     if (props) [ExtensionManager.shared tabDidChange:tab properties:props];
     if (change & (TabChangeURL | TabChangeTitle)) [self scheduleSave];
 }

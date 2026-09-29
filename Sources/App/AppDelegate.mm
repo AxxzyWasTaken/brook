@@ -158,6 +158,11 @@
 }
 - (void)reopenTab:(id)sender { [self.state reopenClosedTab]; }
 - (void)togglePin:(id)sender { BrowserTab *t = self.state.selectedTab; if (t) [self.state togglePin:t]; }
+- (void)toggleMute:(id)sender {
+    BrowserTab *t = self.state.selectedTab;
+    NSError *error = nil;
+    if (t && ![t setMuted:!t.isMuted error:&error]) [self.wc showError:error];
+}
 - (void)toggleFavorite:(id)sender { BrowserTab *t = self.state.selectedTab; if (t) [self.state toggleFavorite:t]; }
 - (void)duplicateTab:(id)sender { BrowserTab *t = self.state.selectedTab; if (t) [self.state duplicate:t]; }
 - (void)copyURL:(id)sender { [self.wc copyURL]; }
@@ -229,6 +234,9 @@
         return self.state.visibleTabs.count > 0;
     } else if (action == @selector(togglePin:)) {
         menuItem.title = tab.isPinned == YES ? @"Unpin Tab" : @"Pin Tab";
+        return tab != nil;
+    } else if (action == @selector(toggleMute:)) {
+        menuItem.title = tab.isMuted ? @"Unmute Tab" : @"Mute Tab";
         return tab != nil;
     } else if (action == @selector(toggleFavorite:)) {
         menuItem.title = tab.isFavorite == YES ? @"Remove from Favorites" : @"Add to Favorites";
@@ -431,6 +439,7 @@ static NSString *BrookKey(unichar c) {
         item(@"Close Tab", @selector(closeTab:), @"w"),
         separator(),
         item(@"Pin Tab", @selector(togglePin:), @"d"),
+        item(@"Mute Tab", @selector(toggleMute:)),
         item(@"Add to Favorites", @selector(toggleFavorite:), @"d", cmd | shift),
         item(@"Duplicate Tab", @selector(duplicateTab:), @"k", cmd | opt),
         item(@"Copy Link", @selector(copyURL:), @"c", cmd | shift),

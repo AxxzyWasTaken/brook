@@ -12,6 +12,26 @@ static NSArray<NSString *> *ObservedKeyPaths(void) {
 
 static void *kTabKVOContext = &kTabKVOContext;
 
+NSErrorDomain const BrowserTabErrorDomain = @"BrookTabError";
+
+NSError *BrowserTabError(NSString *message) {
+    return [NSError errorWithDomain:BrowserTabErrorDomain code:1 userInfo:@{NSLocalizedDescriptionKey: message}];
+}
+
+/// WebKit's private page mute (the same one Safari uses). The value is a _WKMediaMutedState bit set:
+/// bit 0 is page audio; the other bits are camera, microphone and screen capture.
+static SEL PageMutedStateSelector(void) {
+    static SEL sel = NSSelectorFromString(@"_mediaMutedState");
+    return sel;
+}
+
+static SEL SetPageMutedSelector(void) {
+    static SEL sel = NSSelectorFromString(@"_setPageMuted:");
+    return sel;
+}
+
+static const NSUInteger kMediaAudioMuted = 1 << 0;
+
 @implementation BrowserTab {
     /// The web view whose properties we observe (nil when nothing is observed).
     WKWebView *_observed;
@@ -61,6 +81,32 @@ static void *kTabKVOContext = &kTabKVOContext;
 
 - (BOOL)isLoaded { return _webView != nil; }
 
+// MARK: Mute
+
++ (BOOL)canMute {
+    return [WKWebView instancesRespondToSelector:PageMutedStateSelector()] &&
+           [WKWebView instancesRespondToSelector:SetPageMutedSelector()];
+}
+
+- (BOOL)setMuted:(BOOL)muted error:(NSError **)error {
+    if (!BrowserTab.canMute) {
+        if (error) *error = BrowserTabError(@"This version of WebKit cannot mute a tab.");
+        return NO;
+    }
+    if (_isMuted == muted) return YES;
+    _isMuted = muted;
+    if (_webView) [self applyMuteTo:_webView];
+    [_state tabDidChange:self change:TabChangeMuted];
+    return YES;
+}
+
+/// Sets only the page audio bit, so a muted camera or microphone stays muted.
+- (void)applyMuteTo:(WKWebView *)webView {
+    NSUInteger current = ((NSUInteger (*)(id, SEL))objc_msgSend)(webView, PageMutedStateSelector());
+    NSUInteger next = (current & ~kMediaAudioMuted) | (_isMuted ? kMediaAudioMuted : 0);
+    if (next != current) ((void (*)(id, SEL, NSUInteger))objc_msgSend)(webView, SetPageMutedSelector(), next);
+}
+
 // MARK: Lifecycle
 
 - (BrookWebView *)materialize {
@@ -82,6 +128,8 @@ static void *kTabKVOContext = &kTabKVOContext;
     wv.pageZoom = [SiteSettings zoomForHost:BrookHost(_url)];
     _webView = wv;
     [self observe:wv];
+    // A new web view starts with sound; a tab muted before it unloaded stays muted.
+    if (_isMuted && BrowserTab.canMute) [self applyMuteTo:wv];
     if (!isPopup && _url) {
         NSURL *url = _url;
         __weak BrookWebView *weakWV = wv;
@@ -444,6 +492,7 @@ static void *kTabKVOContext = &kTabKVOContext;
     BrowserState *state = _state;
     if (!state) return nil;
     BrowserTab *tab = [BrowserTab popupWithConfiguration:configuration];
+    tab.parentTab = self;
     BOOL background = (navigationAction.modifierFlags & NSEventModifierFlagCommand) || navigationAction.buttonNumber == 2;
     [state insertPopup:tab after:self select:!background];
     return [tab materialize];

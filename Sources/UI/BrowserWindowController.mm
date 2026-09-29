@@ -1444,6 +1444,11 @@ static const CGFloat kTitleRowMinTop = 4;
     [m addItem:[[ClosureMenuItem alloc] initWithTitle:tab.isPinned ? @"Unpin Tab" : @"Pin Tab" handler:^{
         [state togglePin:tab];
     }]];
+    __weak BrowserWindowController *weakSelf = self;
+    [m addItem:[[ClosureMenuItem alloc] initWithTitle:tab.isMuted ? @"Unmute Tab" : @"Mute Tab" handler:^{
+        NSError *error = nil;
+        if (![tab setMuted:!tab.isMuted error:&error]) [weakSelf showError:error];
+    }]];
     [m addItem:[[ClosureMenuItem alloc] initWithTitle:tab.isFavorite ? @"Remove from Favorites" : @"Add to Favorites"
                                               handler:^{ [state toggleFavorite:tab]; }]];
     [m addItem:[NSMenuItem separatorItem]];

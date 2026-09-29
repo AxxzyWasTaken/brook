@@ -20,6 +20,47 @@
     return self.isPinned || self.isFavorite;
 }
 
+- (void)setPinned:(BOOL)pinned forWebExtensionContext:(WKWebExtensionContext *)context
+ completionHandler:(void (^)(NSError *error))completionHandler {
+    // A favorite counts as pinned. Only the user can remove it from Favorites.
+    if (self.isFavorite) {
+        completionHandler(pinned ? nil : BrowserTabError(@"The tab is a favorite. Remove it from Favorites to unpin it."));
+        return;
+    }
+    if (!self.state) { completionHandler(BrowserTabError(@"The tab is not open.")); return; }
+    if (pinned != self.isPinned) [self.state togglePin:self];
+    completionHandler(nil);
+}
+
+- (id<WKWebExtensionTab>)parentTabForWebExtensionContext:(WKWebExtensionContext *)context {
+    BrowserTab *parent = self.parentTab;
+    // Extensions only know loaded tabs that are still open.
+    return parent.isLoaded && [parent.state locationOf:parent] ? parent : nil;
+}
+
+- (void)setParentTab:(id<WKWebExtensionTab>)parentTab forWebExtensionContext:(WKWebExtensionContext *)context
+   completionHandler:(void (^)(NSError *error))completionHandler {
+    if (parentTab && ![(id)parentTab isKindOfClass:BrowserTab.class]) {
+        completionHandler(BrowserTabError(@"The opener tab is not a Brook tab."));
+        return;
+    }
+    BrowserTab *parent = (BrowserTab *)parentTab;
+    if (parent == self) { completionHandler(BrowserTabError(@"A tab cannot be its own opener.")); return; }
+    self.parentTab = parent;
+    completionHandler(nil);
+}
+
+- (BOOL)isMutedForWebExtensionContext:(WKWebExtensionContext *)context {
+    return self.isMuted;
+}
+
+- (void)setMuted:(BOOL)muted forWebExtensionContext:(WKWebExtensionContext *)context
+ completionHandler:(void (^)(NSError *error))completionHandler {
+    NSError *error = nil;
+    [self setMuted:muted error:&error];
+    completionHandler(error);
+}
+
 - (NSURL *)urlForWebExtensionContext:(WKWebExtensionContext *)context {
     return self.webView.URL ?: self.url;
 }
