@@ -100,6 +100,19 @@ static WKUserScript *sDarkScript;
     else [super reload:sender];
 }
 
+// WKWebView sends every key equivalent to the page first, and the page's default Tab handling uses
+// up Control-Tab, so Next Tab / Previous Tab never reach the menu while a page has focus. Give the
+// menu the first chance at Control-Tab, as other browsers do.
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    NSEventModifierFlags mods = event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagCommand | NSEventModifierFlagOption);
+    NSString *chars = event.charactersIgnoringModifiers;
+    unichar c = chars.length ? [chars characterAtIndex:0] : 0;
+    if (mods == NSEventModifierFlagControl && (c == NSTabCharacter || c == NSBackTabCharacter) &&
+        [NSApp.mainMenu performKeyEquivalent:event])
+        return YES;
+    return [super performKeyEquivalent:event];
+}
+
 - (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event {
     [super willOpenMenu:menu withEvent:event];
     for (NSMenuItem *item in menu.itemArray) {
