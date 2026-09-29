@@ -512,7 +512,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     [_observer browserStateDidChangeStructure];
     Space *s = [self spaceOf:tab];
     if (wasSelected && s && s != self.currentSpace) {
-        [self selectTab:self.currentSpace.tabs.firstObject];
+        [self selectTab:self.currentSpace.tabs.firstObject ?: self.currentSpace.pinned.firstObject];
     } else if (wasSelected) {
         [_observer browserStateDidSelect:tab previous:tab];
     }
