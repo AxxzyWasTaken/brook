@@ -303,7 +303,14 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
 
 // MARK: - General
 
-@implementation GeneralPane
+@implementation GeneralPane {
+    NSPopUpButton *_quitPopup;
+    id<NSObject> _quitObserver;
+}
+
+- (void)dealloc {
+    if (_quitObserver) [NSNotificationCenter.defaultCenter removeObserver:_quitObserver];
+}
 
 - (NSView *)makeContent {
     SettingsForm *f = [SettingsForm new];
@@ -327,9 +334,24 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
         [quitTitles addObject:n == 0 ? @"Never" : [NSString stringWithFormat:@"With %ld or more tabs open", (long)n]];
     }
     auto quitIt = std::find(quitOptions.begin(), quitOptions.end(), Settings.quitWarningTabs);
-    [f row:@"Ask before quitting" view:[Controls popupWithTitles:quitTitles
-                                                   selectedIndex:quitIt == quitOptions.end() ? 0 : quitIt - quitOptions.begin()
-                                                        onChange:^(NSInteger i) { Settings.quitWarningTabs = quitOptions[(size_t)i]; }]];
+    _quitPopup = [Controls popupWithTitles:quitTitles
+                             selectedIndex:quitIt == quitOptions.end() ? 0 : quitIt - quitOptions.begin()
+                                  onChange:^(NSInteger i) { Settings.quitWarningTabs = quitOptions[(size_t)i]; }];
+    [f row:@"Ask before quitting" view:_quitPopup];
+    // "Don't ask again" in the quit alert changes this setting too; keep the menu in step without rebuilding the pane.
+    if (!_quitObserver) {
+        __weak GeneralPane *weakSelf = self;
+        _quitObserver = [NSNotificationCenter.defaultCenter addObserverForName:BrookSettingsDidChangeNotification
+                                                                        object:nil
+                                                                         queue:NSOperationQueue.mainQueue
+                                                                    usingBlock:^(NSNotification *note) {
+            if (![note.userInfo[@"key"] isEqual:@"quitWarningTabs"]) return;
+            GeneralPane *self_ = weakSelf;
+            if (!self_) return;
+            auto it = std::find(quitOptions.begin(), quitOptions.end(), Settings.quitWarningTabs);
+            [self_->_quitPopup selectItemAtIndex:it == quitOptions.end() ? 0 : it - quitOptions.begin()];
+        }];
+    }
 
     [f separator];
     NSTextField *customURL = [Controls field:Settings.newTabURL placeholder:@"https://example.com" width:260
