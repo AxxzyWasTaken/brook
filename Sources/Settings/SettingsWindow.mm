@@ -42,6 +42,8 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
 /// Resizes the window itself, animated and as soon as a pane is picked, keeping the top edge put.
 /// NSTabViewController's own resize waits for the crossfade to finish and then jumps.
 @interface SettingsTabViewController : NSTabViewController <NSSearchFieldDelegate>
+/// Puts the cursor in the toolbar's "Search settings" field.
+- (void)focusSearch;
 @end
 
 static NSToolbarItemIdentifier const kSettingsSearchItem = @"BrookSettingsSearch";
@@ -86,6 +88,8 @@ struct SettingsMatch {
     }
     return _searchItem;
 }
+
+- (void)focusSearch { [_searchItem beginSearchInteraction]; }
 
 /// Every piece of text a person might search for in a view: labels, checkbox and popup titles,
 /// segment labels.
@@ -270,6 +274,14 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
 - (void)endEditing { [self.window makeFirstResponder:nil]; }
 
 - (void)windowWillClose:(NSNotification *)notification { [self endEditing]; }
+
+/// Edit > Find (⌘F) searches the settings while this window is key. Without this, the action goes
+/// on to the app delegate and opens the find bar in the browser window behind.
+- (void)find:(id)sender {
+    if ([self.window.contentViewController isKindOfClass:SettingsTabViewController.class]) {
+        [(SettingsTabViewController *)self.window.contentViewController focusSearch];
+    }
+}
 
 - (void)show { [self showPane:nil]; }
 
