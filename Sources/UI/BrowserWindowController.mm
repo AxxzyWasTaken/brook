@@ -945,6 +945,8 @@ static const CGFloat kTitleRowMinTop = 4;
     // A space may bring its own theme and tab layout.
     [self applyTabLayout];
     [self applyAppearanceSettings];
+    // Settings → Appearance → App icon "Space colour" follows the current space.
+    if (Settings.appIcon == AppIconStyleSpace) [AppDelegate applyAppIcon];
     [_chrome reloadAllWithSpaceTransition:forward];
     [_root layoutSubtreeIfNeeded];
     [self alignNavRow];
