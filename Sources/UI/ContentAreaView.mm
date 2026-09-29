@@ -20,6 +20,10 @@
         _spaceName = @"";
         _title.font = [NSFont systemFontOfSize:28 weight:NSFontWeightSemibold];
         _title.textColor = NSColor.labelColor;
+        // A long space name truncates inside the card, like the other one-line labels.
+        _title.lineBreakMode = NSLineBreakByTruncatingTail;
+        [_title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                         forOrientation:NSLayoutConstraintOrientationHorizontal];
         _hint.font = [NSFont systemFontOfSize:14];
         _hint.textColor = NSColor.secondaryLabelColor;
         NSStackView *stack = [NSStackView stackViewWithViews:@[_title, _hint]];
@@ -29,7 +33,8 @@
         [self addSubview:stack];
         [NSLayoutConstraint activateConstraints:@[
             [stack.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
-            [stack.centerYAnchor constraintEqualToAnchor:self.centerYAnchor constant:-30]
+            [stack.centerYAnchor constraintEqualToAnchor:self.centerYAnchor constant:-30],
+            [stack.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.leadingAnchor constant:24]
         ]];
     }
     return self;
