@@ -203,11 +203,11 @@
     } else if (action == @selector(reload:) || action == @selector(hardReload:) ||
                action == @selector(actualSize:) || action == @selector(zoomIn:) ||
                action == @selector(zoomOut:) || action == @selector(find:) ||
-               action == @selector(findNext:) || action == @selector(findPrevious:) ||
-               action == @selector(duplicateTab:)) {
+               action == @selector(findNext:) || action == @selector(findPrevious:)) {
         // These act on the selected tab; an empty space has none.
         return tab != nil;
-    } else if (action == @selector(copyURL:)) {
+    } else if (action == @selector(copyURL:) || action == @selector(duplicateTab:)) {
+        // A new tab with no address has nothing to copy or duplicate.
         return tab.url != nil;
     } else if (action == @selector(reopenTab:)) {
         return self.state.canReopenClosedTab;

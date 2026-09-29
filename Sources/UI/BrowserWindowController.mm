@@ -1430,13 +1430,17 @@ static const CGFloat kTitleRowMinTop = 4;
     [m addItem:[[ClosureMenuItem alloc] initWithTitle:tab.isFavorite ? @"Remove from Favorites" : @"Add to Favorites"
                                               handler:^{ [state toggleFavorite:tab]; }]];
     [m addItem:[NSMenuItem separatorItem]];
-    [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Copy Link" handler:^{
-        NSURL *url = tab.url;
-        if (!url) return;
-        [NSPasteboard.generalPasteboard clearContents];
-        [NSPasteboard.generalPasteboard setString:url.absoluteString forType:NSPasteboardTypeString];
-    }]];
-    [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Duplicate Tab" handler:^{ [state duplicate:tab]; }]];
+    NSInteger middleStart = m.numberOfItems;
+    // A new tab with no address has nothing to copy or duplicate.
+    if (tab.url) {
+        [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Copy Link" handler:^{
+            NSURL *url = tab.url;
+            if (!url) return;
+            [NSPasteboard.generalPasteboard clearContents];
+            [NSPasteboard.generalPasteboard setString:url.absoluteString forType:NSPasteboardTypeString];
+        }]];
+        [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Duplicate Tab" handler:^{ [state duplicate:tab]; }]];
+    }
     if (tab.isLoaded && tab != state.selectedTab) {
         [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Unload to Save Memory" handler:^{ [tab unload]; }]];
     }
@@ -1453,7 +1457,8 @@ static const CGFloat kTitleRowMinTop = 4;
         moveItem.submenu = sub;
         [m addItem:moveItem];
     }
-    [m addItem:[NSMenuItem separatorItem]];
+    // Keep one separator when the middle group is empty.
+    if (m.numberOfItems > middleStart) [m addItem:[NSMenuItem separatorItem]];
     if (tab.isPinned || tab.isFavorite) {
         [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Remove" handler:^{ [state remove:tab]; }]];
     } else {
