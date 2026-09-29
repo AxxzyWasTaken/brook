@@ -598,7 +598,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
         if (old) [BrowserState removeProfileData:old];
     }
     NSUInteger i = [_spaces indexOfObjectIdenticalTo:space];
-    if (i != NSNotFound && (NSInteger)i == _currentSpaceIndex) [_observer browserStateDidSwitchSpace:YES];
+    if (i != NSNotFound && (NSInteger)i == _currentSpaceIndex) [_observer browserStateDidEditCurrentSpace];
     [_observer browserStateDidChangeStructure];
     // Also with no tab: the empty page shows the space name.
     [_observer browserStateDidSelect:_selectedTab previous:_selectedTab];

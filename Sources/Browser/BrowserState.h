@@ -48,6 +48,8 @@ struct TabPosition {
 - (void)browserStateDidSelect:(BrowserTab *)tab previous:(BrowserTab *)previous;
 - (void)browserStateTabDidChange:(BrowserTab *)tab change:(TabChange)change;
 - (void)browserStateDidSwitchSpace:(BOOL)forward;
+/// The current space's name, colour or settings changed; the space itself did not change.
+- (void)browserStateDidEditCurrentSpace;
 @end
 
 /// A tab closed automatically after sitting unused (Settings → Tabs → Archive).
