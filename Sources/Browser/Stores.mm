@@ -412,7 +412,17 @@ NSNotificationName const DownloadManagerDidChangeNotification = @"BrookDownloads
 }
 
 - (void)download:(WKDownload *)download didFailWithError:(NSError *)error resumeData:(NSData *)resumeData {
-    [self itemFor:download].status = DownloadStatusFailed;
+    DownloadItem *item = [self itemFor:download];
+    item.status = DownloadStatusFailed;
+    // WebKit leaves the part it wrote under the final name. Brook can't resume, so the file is only a
+    // broken copy that looks complete and takes the name from the next try.
+    if (NSURL *partial = item.destination) {
+        NSError *removeError = nil;
+        if ([partial checkResourceIsReachableAndReturnError:nil]
+            && ![NSFileManager.defaultManager removeItemAtURL:partial error:&removeError]) {
+            NSLog(@"Brook: couldn't remove failed download %@: %@", partial.path, removeError);
+        }
+    }
     [self notify];
 }
 
