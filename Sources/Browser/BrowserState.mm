@@ -480,6 +480,8 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     return self.currentSpace.tabs.firstObject;
 }
 
+- (BOOL)canReopenClosedTab { return !_recentlyClosed.empty(); }
+
 - (void)reopenClosedTab {
     if (_recentlyClosed.empty()) return;
     ClosedTab last = _recentlyClosed.back();

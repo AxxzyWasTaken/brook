@@ -209,6 +209,8 @@
         return tab != nil;
     } else if (action == @selector(copyURL:)) {
         return tab.url != nil;
+    } else if (action == @selector(reopenTab:)) {
+        return self.state.canReopenClosedTab;
     } else if (action == @selector(selectTabN:) || action == @selector(nextTab:) ||
                action == @selector(previousTab:)) {
         // These pick from the space's visible tabs; an empty space has none to pick.

@@ -99,6 +99,8 @@ struct TabPosition {
 - (void)close:(BrowserTab *)tab;
 /// Removes a tab entirely, whatever kind it is.
 - (void)remove:(BrowserTab *)tab;
+/// YES when Reopen Closed Tab has a tab to bring back.
+@property (readonly) BOOL canReopenClosedTab;
 - (void)reopenClosedTab;
 
 - (void)move:(BrowserTab *)tab to:(TabLocation)destination index:(NSInteger)index;
