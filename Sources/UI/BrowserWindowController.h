@@ -59,8 +59,8 @@
 
 // Site settings, downloads, extensions
 - (void)showSiteInfo;
-/// The same popover, pointing at the pill icon that opened it.
-- (void)showSiteInfoFromView:(NSView *)from;
+/// Ad blocking for the current site, from the shield in the address pill (the popover points at it).
+- (void)showAdBlockFromView:(NSView *)from;
 - (void)showDownloadsFromView:(NSView *)anchor;
 - (void)presentExtensionPopup:(WKWebExtensionAction *)action;
 - (void)promptChromeWebStore;

@@ -10,7 +10,7 @@
 /// takes the pill's trailing end instead, like Safari's.
 - (instancetype)initWithExtensions:(BOOL)withExtensions;
 @property (readonly) IconButton *siteButton;
-/// The shield shown while ads and trackers are blocked; hidden otherwise.
+/// The shield shown while ad blocking is on (slashed on a site it's off for); hidden when it's off everywhere.
 @property (readonly) IconButton *adsButton;
 /// Reload / stop at the trailing end; nil when made -initWithExtensions:YES.
 @property (readonly) IconButton *reloadButton;

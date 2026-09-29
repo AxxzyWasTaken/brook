@@ -1335,21 +1335,29 @@ static const CGFloat kTitleRowMinTop = 4;
     return _onRight ? NSRectEdgeMinX : NSRectEdgeMaxX;
 }
 
-- (void)showSiteInfo { [self showSiteInfoFromView:nil]; }
-
-/// from: the pill icon that was clicked (the popover points at it); nil uses the usual anchor.
-- (void)showSiteInfoFromView:(NSView *)from {
+- (void)showSiteInfo {
     NSURL *url = _state.selectedTab.url;
     NSString *host = BrookHost(url);
     if (!url || !host) return;
+    [self showPillPopover:[[SiteInfoViewController alloc] initWithHost:host secure:[url.scheme isEqualToString:@"https"]]
+                 fromView:nil];
+}
+
+- (void)showAdBlockFromView:(NSView *)from {
+    NSString *host = BrookHost(_state.selectedTab.url);
+    if (!host) return;
+    [self showPillPopover:[[AdBlockViewController alloc] initWithHost:host] fromView:from];
+}
+
+/// from: the pill icon that was clicked (the popover points at it); nil uses the site button.
+- (void)showPillPopover:(NSViewController *)content fromView:(NSView *)from {
     NSPopover *popover = [NSPopover new];
     popover.behavior = NSPopoverBehaviorTransient;
-    popover.contentViewController = [[SiteInfoViewController alloc] initWithHost:host
-                                                                          secure:[url.scheme isEqualToString:@"https"]];
+    popover.contentViewController = content;
     NSView *anchor = from ?: (_tabsOnTop ? _topBar.siteInfoAnchor : _sidebar.siteInfoAnchor);
     NSRect anchorRect = anchor.bounds;
-    // The ads shield hides when blocking is turned off for the site, and AppKit closes a popover
-    // whose view hides. Point at the shield's place in the pill, so the popover stays open.
+    // Pill icons can hide or change while the popover is open, and AppKit closes a popover whose
+    // view hides. Point at the icon's place in the pill, so the popover stays open.
     if (from.superview) {
         anchorRect = [from convertRect:from.bounds toView:from.superview];
         anchor = from.superview;

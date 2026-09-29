@@ -216,7 +216,7 @@ static const CGFloat kRailButtonInset = 4;
     _urlPill.translatesAutoresizingMaskIntoConstraints = NO;
     _urlPill.onClick = ^{ [weakSelf.browser showCommandBarEditing:YES]; };
     _urlPill.siteButton.onClick = ^{ [weakSelf.browser showSiteInfo]; };
-    _urlPill.adsButton.onClick = ^{ [weakSelf.browser showSiteInfoFromView:weakSelf.urlPill.adsButton]; };
+    _urlPill.adsButton.onClick = ^{ [weakSelf.browser showAdBlockFromView:weakSelf.urlPill.adsButton]; };
     [self addSubview:_urlPill];
 
     _favoritesGrid.onSelect = ^(BrowserTab *tab) { [weakSelf selectTab:tab]; };

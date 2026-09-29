@@ -192,3 +192,88 @@ static NSStackView *BrookVerticalStack(NSStackView *stack) {
 }
 
 @end
+
+/// Popover shown from the shield in the address pill. Only ad blocking: the lock has the rest.
+@implementation AdBlockViewController {
+    NSString *_host;
+    NSImageView *_icon;
+    NSTextField *_status;
+}
+
+- (instancetype)initWithHost:(NSString *)host {
+    if ((self = [super initWithNibName:nil bundle:nil])) _host = [SiteSettings keyForHost:host];
+    return self;
+}
+
+- (void)loadView {
+    NSString *host = _host;
+    NSString *extension = ContentBlocker.shared.pausedFor;
+
+    NSTextField *title = [NSTextField labelWithString:host];
+    title.font = [NSFont systemFontOfSize:14 weight:NSFontWeightSemibold];
+    title.lineBreakMode = NSLineBreakByTruncatingTail;
+    title.toolTip = host;
+    [title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                    forOrientation:NSLayoutConstraintOrientationHorizontal];
+    _status = [NSTextField labelWithString:@""];
+    _status.font = [NSFont systemFontOfSize:11];
+    _status.textColor = NSColor.secondaryLabelColor;
+    _icon = [NSImageView new];
+    NSStackView *header = [NSStackView stackViewWithViews:@[_icon, BrookVerticalStack([NSStackView stackViewWithViews:@[title, _status]])]];
+    header.alignment = NSLayoutAttributeCenterY;
+    header.spacing = 8;
+
+    NSView *body;
+    if (extension) {
+        // The extension decides what it blocks; its own popup (in the extensions bar) has the per-site switch.
+        NSTextField *note = [NSTextField wrappingLabelWithString:
+            [NSString stringWithFormat:@"%@ is blocking ads and trackers instead of Brook. Use its button to change it for this site.", extension]];
+        note.font = [NSFont systemFontOfSize:11];
+        note.textColor = NSColor.secondaryLabelColor;
+        body = note;
+        [self showBlocking:YES];
+        _status.stringValue = [NSString stringWithFormat:@"Blocked by %@", extension];
+    } else {
+        NSTextField *label = [NSTextField labelWithString:@"Block ads and trackers"];
+        NSSwitch *toggle = [NSSwitch new];
+        toggle.controlSize = NSControlSizeSmall;
+        toggle.state = [SiteSettings blockAdsForHost:host] ? NSControlStateValueOn : NSControlStateValueOff;
+        toggle.accessibilityLabel = label.stringValue;
+        __weak AdBlockViewController *weakSelf = self;
+        [toggle brook_onAction:^(id c) { [weakSelf setBlocking:[(NSSwitch *)c state] == NSControlStateValueOn]; }];
+        NSStackView *row = [NSStackView stackViewWithViews:@[label, [[NSView alloc] init], toggle]];
+        row.distribution = NSStackViewDistributionFill;
+        body = row;
+        [self showBlocking:toggle.state == NSControlStateValueOn];
+    }
+
+    NSStackView *stack = [NSStackView stackViewWithViews:@[header, body]];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 12;
+    stack.edgeInsets = NSEdgeInsetsMake(16, 16, 16, 16);
+    [body.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-32].active = YES;
+    [stack.widthAnchor constraintEqualToConstant:280].active = YES;
+    self.view = stack;
+}
+
+- (void)showBlocking:(BOOL)on {
+    _icon.image = [NSImage brook_symbol:on ? @"shield.lefthalf.filled" : @"shield.slash" size:13];
+    _icon.contentTintColor = NSColor.secondaryLabelColor;
+    _status.stringValue = on ? @"Ads and trackers blocked" : @"Ad blocking off for this site";
+}
+
+/// Stores the choice and reloads the page, which is when WebKit applies it.
+- (void)setBlocking:(BOOL)on {
+    NSString *host = _host;
+    [SiteSettings updateHost:host change:^(SiteOverride *o) { o.blockAds = on ? nil : @NO; }];
+    // A parent domain turned off ("example.com" for "m.example.com") would still win; say on here.
+    if (on && ![SiteSettings blockAdsForHost:host]) {
+        [SiteSettings updateHost:host change:^(SiteOverride *o) { o.blockAds = @YES; }];
+    }
+    [self showBlocking:on];
+    BrowserTab *tab = BrowserState.shared.selectedTab;
+    if ([[SiteSettings keyForHost:BrookHost(tab.url)] isEqualToString:host]) [tab reload];
+}
+
+@end

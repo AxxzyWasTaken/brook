@@ -142,22 +142,21 @@
     [self updateAdsForHost:BrookHost(url)];
 }
 
-/// The shield shows while ads and trackers are being blocked on this site, and nothing when they
-/// aren't (off globally or for the site), so the pill only says what's true. With an ad-blocking
-/// extension installed Brook's list is paused and the extension does the blocking; the tooltip names it.
+/// The shield shows whenever ad blocking is on (Brook's list or an ad-blocking extension), slashed on a
+/// site it's turned off for, so it's also the way back. With an ad-blocking extension installed Brook's
+/// list is paused and the extension does the blocking; the tooltip names it.
 - (void)updateAdsForHost:(NSString *)host {
     NSString *extension = ContentBlocker.shared.pausedFor;
-    NSNumber *siteOverride = [SiteSettings overrideForHost:host].blockAds;
-    BOOL brookBlocks = Settings.blockAds && (!siteOverride || siteOverride.boolValue);
-    BOOL blocking = host && (extension || brookBlocks);
-    _ads.hidden = !blocking;
-    _adsWidth.constant = blocking ? 22 : 0;   // takes no room from the address while hidden
-    if (blocking) {
-        NSString *tip = extension ? [NSString stringWithFormat:@"Ads and trackers blocked by %@", extension]
-                                  : @"Ads and trackers blocked";
-        _ads.toolTip = [tip stringByAppendingString:@" — click for this site's settings"];
-        _ads.accessibilityLabel = tip;
-    }
+    BOOL shown = host && (extension || Settings.blockAds);
+    _ads.hidden = !shown;
+    _adsWidth.constant = shown ? 22 : 0;   // takes no room from the address while hidden
+    if (!shown) return;
+    BOOL blocking = extension || [SiteSettings blockAdsForHost:host];
+    [_ads setSymbol:blocking ? @"shield.lefthalf.filled" : @"shield.slash" size:11];
+    NSString *tip = extension ? [NSString stringWithFormat:@"Ads and trackers blocked by %@", extension]
+                  : blocking ? @"Ads and trackers blocked" : @"Ad blocking off for this site";
+    _ads.toolTip = tip;
+    _ads.accessibilityLabel = tip;
 }
 
 - (void)setCookieShown:(BOOL)shown {
