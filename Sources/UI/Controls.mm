@@ -214,7 +214,9 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
 - (BOOL)accessibilityPerformShowMenu {
     NSMenu *menu = [self menuForEvent:NSApp.currentEvent];
     if (!menu) return NO;
-    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, NSHeight(self.bounds) + 4) inView:self];
+    // Below the control, like the other anchored menus, so the menu does not cover it.
+    CGFloat y = self.isFlipped ? NSHeight(self.bounds) + 4 : -4;
+    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, y) inView:self];
     return YES;
 }
 
