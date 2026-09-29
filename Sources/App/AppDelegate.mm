@@ -297,6 +297,10 @@ static NSMutableDictionary<NSString *, NSString *> *sShortcutTitles;
 }
 
 + (NSArray<NSArray *> *)shortcutItems {
+    // Brook's own items, recorded once. AppKit adds its own items later (a visible "Enter Full Screen"), which
+    // Settings must not list twice and which applyShortcuts must not change.
+    static NSArray<NSArray *> *sItems;
+    if (sItems) return sItems;
     NSMutableArray *list = [NSMutableArray array];
     for (NSMenuItem *top in NSApp.mainMenu.itemArray) {
         for (NSMenuItem *item in top.submenu.itemArray) {
@@ -306,7 +310,8 @@ static NSMutableDictionary<NSString *, NSString *> *sShortcutTitles;
             [list addObject:@[top.title.length ? top.title : @"Brook", item]];
         }
     }
-    return list;
+    sItems = [list copy];
+    return sItems;
 }
 
 + (NSString *)defaultShortcutForItem:(NSMenuItem *)item {
