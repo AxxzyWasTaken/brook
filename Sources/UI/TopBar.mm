@@ -359,7 +359,10 @@ static NSAttributedString *AddressText(NSURL *url, CGFloat fontSize) {
     NSImage *icon = TabIcon(tab);
     if (_icon.image != icon) _icon.image = icon;
     [self refreshTextColor];
-    BOOL spin = tab.isLoading && tab.favicon == nil;
+    // Settings → Layout → While loading, as in the sidebar: the bar only spins icons that have none yet.
+    LoadingIndicator indicator = Settings.loadingIndicator;
+    BOOL spin = tab.isLoading && (indicator == LoadingIndicatorSpinner ||
+                                  (indicator == LoadingIndicatorBar && tab.favicon == nil));
     if (spin && !_spinner) {
         _spinner = [NSProgressIndicator new];
         _spinner.style = NSProgressIndicatorStyleSpinning;
