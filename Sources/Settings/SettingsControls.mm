@@ -22,9 +22,31 @@
 - (NSGridView *)grid { return _grid; }
 - (NSInteger)rowCount { return _rowCount; }
 
+/// Gives controls without their own text (pop-ups, fields, sliders, segments, colour wells)
+/// the row title as their accessibility label, so VoiceOver says what they set.
+static void LabelControls(NSView *view, NSString *title) {
+    if ([view isKindOfClass:NSStackView.class]) {
+        for (NSView *v in ((NSStackView *)view).arrangedSubviews) LabelControls(v, title);
+        return;
+    }
+    if (![view isKindOfClass:NSControl.class]) return;
+    if ([view isKindOfClass:NSButton.class] && ![view isKindOfClass:NSPopUpButton.class]) return;
+    if ([view isKindOfClass:NSTextField.class] && !((NSTextField *)view).isEditable) return;
+    // Cell-based controls expose the cell, not the control, as the accessibility element.
+    NSCell *cell = ((NSControl *)view).cell;
+    if (cell) {
+        if (cell.accessibilityLabel.length == 0) cell.accessibilityLabel = title;
+    } else if (view.accessibilityLabel.length == 0) {
+        view.accessibilityLabel = title;
+    }
+}
+
 - (NSGridRow *)row:(NSString *)title views:(NSArray<NSView *> *)views {
     NSTextField *label = [NSTextField labelWithString:title.length == 0 ? @"" : [title stringByAppendingString:@":"]];
     label.alignment = NSTextAlignmentRight;
+    if (title.length > 0) {
+        for (NSView *v in views) LabelControls(v, title);
+    }
     NSView *right;
     if (views.count == 1) {
         right = views[0];
