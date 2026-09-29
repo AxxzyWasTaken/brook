@@ -626,6 +626,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     NSUInteger found = [_spaces indexOfObjectIdenticalTo:space];
     if (_spaces.count <= 1 || found == NSNotFound) return;
     NSInteger idx = (NSInteger)found;
+    BOOL wasCurrent = idx == _currentSpaceIndex;
     for (BrowserTab *t in [space.pinned arrayByAddingObjectsFromArray:space.tabs]) [t unload];
     [_spaces removeObjectAtIndex:found];
     if (space.profileID) [BrowserState removeProfileData:space.profileID];
@@ -633,6 +634,12 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     if (_currentSpaceIndex >= count || idx <= _currentSpaceIndex) {
         _currentSpaceIndex = std::max<NSInteger>(0, std::min<NSInteger>(_currentSpaceIndex - (idx <= _currentSpaceIndex ? 1 : 0),
                                                                          count - 1));
+    }
+    if (!wasCurrent) {
+        // Another space went away: the current space and its selected tab stay as they are.
+        [_observer browserStateDidChangeStructure];
+        [self scheduleSave];
+        return;
     }
     [_observer browserStateDidSwitchSpace:NO];
     [_observer browserStateDidChangeStructure];
