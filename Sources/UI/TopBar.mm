@@ -230,6 +230,7 @@ static NSColor *SelectedRimColor(void) {
     _label.font = BrookUIFont(fontSize, NSFontWeightMedium);
     [self measureLabel];
     [self updateClose];
+    if (_addressWhenSelected) [self refresh];   // re-reads Address shows
 }
 
 - (void)measureLabel {
@@ -283,10 +284,17 @@ static NSParagraphStyle *OneLine() {
     return style;
 }
 
-/// The address as the selected compact tab shows it: the whole URL, set exactly like the field
-/// that replaces it on the second click, so editing doesn't shift anything.
-static NSAttributedString *AddressText(NSURL *url, CGFloat fontSize) {
-    return [[NSAttributedString alloc] initWithString:url.absoluteString ?: @""
+/// The address as the selected compact tab shows it (Settings → Layout → Address shows, as in the
+/// sidebar's address pill), set like the field that replaces it on the second click.
+static NSAttributedString *AddressText(BrowserTab *tab, CGFloat fontSize) {
+    NSURL *url = tab.url;
+    NSString *text;
+    switch (Settings.addressDisplay) {
+        case AddressDisplayFull: text = url.absoluteString ?: @""; break;
+        case AddressDisplayPageTitle: text = tab.displayTitle.length ? tab.displayTitle : [URLParser display:url]; break;
+        default: text = [URLParser display:url]; break;
+    }
+    return [[NSAttributedString alloc] initWithString:text
                                            attributes:@{NSFontAttributeName: BrookUIFont(fontSize, NSFontWeightRegular),
                                                         NSForegroundColorAttributeName: NSColor.labelColor,
                                                         NSParagraphStyleAttributeName: OneLine()}];
@@ -345,7 +353,7 @@ static NSAttributedString *AddressText(NSURL *url, CGFloat fontSize) {
     NSString *title = tab.displayTitle ?: @"";
     _showingAddress = _addressWhenSelected && _selected && !_pinnedStyle && tab.url != nil;
     NSAttributedString *text = _showingAddress
-        ? AddressText(tab.url, _fontSize ?: 13)
+        ? AddressText(tab, _fontSize ?: 13)
         : [[NSAttributedString alloc] initWithString:title
                                           attributes:@{NSFontAttributeName: _label.font, NSForegroundColorAttributeName: _label.textColor,
                                                        NSParagraphStyleAttributeName: OneLine()}];
@@ -609,6 +617,7 @@ static const CGFloat kTabGap = 2;
 - (void)setFontSize:(CGFloat)fontSize {
     _fontSize = fontSize;
     for (TopTabView *v in _tabViews) v.fontSize = fontSize;
+    if (_addressWhenSelected) self.needsLayout = YES;   // the selected tab's address may have changed length
 }
 
 - (void)setShrinkToFit:(BOOL)shrinkToFit {
