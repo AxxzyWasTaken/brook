@@ -282,7 +282,8 @@ struct LightDefault {
         _handle = [ResizeHandle new];
         _hotZone = [EdgeHotZone new];
         _fullScreenLights = [FullScreenLights new];
-        _sidebarWidth = Settings.sidebarWidth;
+        // Same range as a drag, so a stored width can't push the window past the screen.
+        _sidebarWidth = std::min<CGFloat>(420, std::max<CGFloat>(190, Settings.sidebarWidth));
         _positional = @[];
         // Older builds saved ⌘S separately from Settings → Layout → Hide sidebar; fold it in.
         if (Settings.sidebarHidden) {
