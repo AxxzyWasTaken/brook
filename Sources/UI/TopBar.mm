@@ -1371,7 +1371,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
         f.bordered = NO;
         f.drawsBackground = NO;
         f.focusRingType = NSFocusRingTypeNone;
-        f.font = [NSFont systemFontOfSize:13];
+        f.font = BrookUIFont(13, NSFontWeightRegular);
         f.textColor = NSColor.labelColor;
         f.placeholderString = @"Search or enter address";
         f.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -1379,7 +1379,7 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
         f.cell.wraps = NO;
         _addressField = f;
     }
-    _addressField.font = [NSFont systemFontOfSize:_strip.fontSize ?: 13];   // matches the address shown in the tab
+    _addressField.font = BrookUIFont(_strip.fontSize ?: 13, NSFontWeightRegular);   // matches the address shown in the tab
     _addressField.stringValue = tab.url.absoluteString ?: @"";
     NSView *anchor = [_strip beginEditing:tab field:_addressField];
     if (!anchor) return NO;
