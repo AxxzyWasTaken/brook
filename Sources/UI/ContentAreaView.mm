@@ -579,7 +579,9 @@
     if ((change & TabChangeProgress) || (change & TabChangeLoading)) [self updateProgress];
     if (change & TabChangeError) [self updateError];
     if (change & TabChangeURL) [_findBar invalidateCount];
-    if ((change & TabChangeLoaded) && tab.webView != _webView) [self showTab:tab spaceName:_empty.spaceName];
+    // Only a new web view is shown here. An unload is followed by a new selection, and showing the tab
+    // again would load a closed tab back into memory.
+    if ((change & TabChangeLoaded) && tab.webView && tab.webView != _webView) [self showTab:tab spaceName:_empty.spaceName];
 }
 
 - (void)updateError {
