@@ -95,10 +95,13 @@ static const CGFloat kIconSize = 16;
 
 - (void)applyBadgeColors {
     // A neutral badge that reads on glass in both appearances.
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     _badge.backgroundColor = [self brook_cg:[NSColor brook_dynamicLight:[NSColor colorWithWhite:0.18 alpha:0.9]
                                                                    dark:[NSColor colorWithWhite:0.92 alpha:0.95]]];
     _badgeText.foregroundColor = [self brook_cg:[NSColor brook_dynamicLight:NSColor.whiteColor
                                                                        dark:[NSColor colorWithWhite:0.1 alpha:1]]];
+    [CATransaction commit];
 }
 
 - (void)viewDidChangeEffectiveAppearance {
