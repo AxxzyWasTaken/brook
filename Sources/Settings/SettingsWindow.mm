@@ -1678,9 +1678,8 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
             return YES;
         };
         NSButton *reset = [Controls button:@"Default" action:^{
-            NSMutableDictionary *all = [Settings.shortcuts mutableCopy];
-            [all removeObjectForKey:identifier];
-            Settings.shortcuts = all;
+            // The same check as recording: another command can have this default now.
+            if (!recorder.onRecord(fallback)) NSBeep();
         }];
         reset.controlSize = NSControlSizeSmall;
         reset.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
