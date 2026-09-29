@@ -1583,6 +1583,8 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
     NSButton *resetAll = [Controls button:@"Restore All Defaults" action:^{ Settings.shortcuts = @{}; }];
     resetAll.translatesAutoresizingMaskIntoConstraints = NO;
     resetAll.enabled = overrides.count > 0;
+    // Measure the note at the width it gets beside the button, so fittingSize includes both lines.
+    note.preferredMaxLayoutWidth = 620 - 24 - 24 - 12 - resetAll.fittingSize.width;
 
     NSView *v = [NSView new];
     for (NSView *sub in @[scroll, note, resetAll]) [v addSubview:sub];
