@@ -404,7 +404,7 @@ static NSAttributedString *AddressText(BrowserTab *tab, CGFloat fontSize) {
     [self refreshTextColor];
     if (show && !_closeButton) {
         __weak TopTabView *weakSelf = self;
-        _closeButton = [[IconButton alloc] initWithSymbol:@"xmark" size:9 tooltip:@"Close Tab (⌘W)" dimension:18
+        _closeButton = [[IconButton alloc] initWithSymbol:@"xmark" size:9 tooltip:@"Close Tab" dimension:18
                                                   onClick:^{
             TopTabView *self_ = weakSelf;
             if (self_ && self_.onClose) self_.onClose(self_.tab);
