@@ -53,6 +53,7 @@ struct Row {
     NSLayoutConstraint *_pillHeight;
     NSView *_bottomBar;
     NSLayoutConstraint *_bottomHeight;
+    NSLayoutConstraint *_spacesAfterDownloads;   // on while the downloads button shows
 
     // Tabs
     SidebarScrollView *_scrollView;
@@ -282,6 +283,7 @@ static const CGFloat kRailButtonInset = 4;
 
     // Bottom bar
     _spaceStack.spacing = 2;
+    _spaceStack.distribution = NSStackViewDistributionFillEqually;   // narrowed dots stay evenly spaced
     _spaceStack.translatesAutoresizingMaskIntoConstraints = NO;
     NSView *bottom = _bottomBar;
     bottom.translatesAutoresizingMaskIntoConstraints = NO;
@@ -296,6 +298,14 @@ static const CGFloat kRailButtonInset = 4;
     // The same for the (hidden) address pill: its buttons need more width than the rail has.
     NSLayoutConstraint *pillTrailing = [_urlPill.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10];
     pillTrailing.priority = NSLayoutPriorityRequired - 1;
+    // Many spaces: the row leaves the centre first (650), then its dots narrow (750), and it never
+    // covers a button. Below required: in the icon rail the bar is narrower than its (hidden) buttons.
+    NSLayoutConstraint *spacesCenter = [_spaceStack.centerXAnchor constraintEqualToAnchor:bottom.centerXAnchor];
+    spacesCenter.priority = NSLayoutPriorityDefaultHigh - 100;
+    NSLayoutConstraint *spacesAfterFire = [_spaceStack.leadingAnchor constraintGreaterThanOrEqualToAnchor:_fireButton.trailingAnchor constant:2];
+    NSLayoutConstraint *spacesBeforeAdd = [_spaceStack.trailingAnchor constraintLessThanOrEqualToAnchor:_addSpaceButton.leadingAnchor constant:-2];
+    _spacesAfterDownloads = [_spaceStack.leadingAnchor constraintGreaterThanOrEqualToAnchor:_downloadsButton.trailingAnchor constant:2];
+    for (NSLayoutConstraint *c in @[spacesAfterFire, spacesBeforeAdd, _spacesAfterDownloads]) c.priority = NSLayoutPriorityRequired - 1;
     [NSLayoutConstraint activateConstraints:@[
         [_titleRow.heightAnchor constraintEqualToConstant:self.titleRowHeight],
         titleRowTrailing,
@@ -323,7 +333,9 @@ static const CGFloat kRailButtonInset = 4;
         [_fireButton.centerYAnchor constraintEqualToAnchor:bottom.centerYAnchor],
         [_downloadsButton.leadingAnchor constraintEqualToAnchor:_fireButton.trailingAnchor constant:2],
         [_downloadsButton.centerYAnchor constraintEqualToAnchor:bottom.centerYAnchor],
-        [_spaceStack.centerXAnchor constraintEqualToAnchor:bottom.centerXAnchor],
+        spacesCenter,
+        spacesAfterFire,
+        spacesBeforeAdd,
         [_spaceStack.centerYAnchor constraintEqualToAnchor:bottom.centerYAnchor],
         [_addSpaceButton.trailingAnchor constraintEqualToAnchor:bottom.trailingAnchor],
         [_addSpaceButton.centerYAnchor constraintEqualToAnchor:bottom.centerYAnchor],
@@ -605,6 +617,7 @@ static const CGFloat kRailButtonInset = 4;
 - (void)downloadsChanged {
     DownloadManager *dm = DownloadManager.shared;
     _downloadsButton.hidden = dm.items.count == 0;
+    _spacesAfterDownloads.active = !_downloadsButton.hidden;
     [_downloadsButton setSymbol:dm.hasActive ? @"arrow.down.circle.dotted" : @"arrow.down.circle"];
     _downloadsButton.tint = dm.hasActive ? NSColor.controlAccentColor : NSColor.secondaryLabelColor;
 }

@@ -372,7 +372,12 @@ static const CGFloat kGap = 8;
         self.toolTip = space.name;
         [self.layer addSublayer:_dot];
         self.translatesAutoresizingMaskIntoConstraints = NO;
-        _size = @[[self.widthAnchor constraintEqualToConstant:24], [self.heightAnchor constraintEqualToConstant:24]];
+        // The width gives way when many spaces share the sidebar's bottom bar, down to the current
+        // space's dot (10pt), so the row stays between the buttons beside it.
+        NSLayoutConstraint *width = [self.widthAnchor constraintEqualToConstant:24];
+        width.priority = NSLayoutPriorityDefaultHigh;
+        _size = @[width, [self.widthAnchor constraintGreaterThanOrEqualToConstant:10],
+                  [self.heightAnchor constraintEqualToConstant:24]];
         [NSLayoutConstraint activateConstraints:_size];
     }
     return self;
