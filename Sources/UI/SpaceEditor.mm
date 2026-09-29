@@ -163,16 +163,12 @@ static NSString *ArchiveTitle(NSInteger hours) {
 
         [_engine addItemWithTitle:[NSString stringWithFormat:@"Default (%@)", SearchEngines.defaultEngine.name]];
         _engine.lastItem.representedObject = nil;
-        NSArray<SearchEngine *> *engines = SearchEngines.all;
-        for (SearchEngine *e in engines) {
-            [_engine addItemWithTitle:e.name];
-            _engine.lastItem.representedObject = e.identifier;
-        }
-        if (NSString *engineID = draft.searchEngineID) {
-            NSUInteger i = [engines indexOfObjectPassingTest:^BOOL(SearchEngine *e, NSUInteger, BOOL *) {
-                return [e.identifier isEqualToString:engineID];
-            }];
-            if (i != NSNotFound) [_engine selectItemAtIndex:(NSInteger)i + 1];
+        // Items go into the menu directly: NSPopUpButton's addItemWithTitle: drops an earlier item with the
+        // same title, and two engines can have the same name.
+        for (SearchEngine *e in SearchEngines.all) {
+            NSMenuItem *item = [_engine.menu addItemWithTitle:e.name action:nil keyEquivalent:@""];
+            item.representedObject = e.identifier;
+            if (draft.searchEngineID && [e.identifier isEqualToString:draft.searchEngineID]) [_engine selectItem:item];
         }
 
         _profile.state = draft.separateProfile ? NSControlStateValueOn : NSControlStateValueOff;
