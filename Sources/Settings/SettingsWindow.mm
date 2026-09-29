@@ -349,6 +349,12 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
         id obj = ((NSPopUpButton *)c).selectedItem.representedObject;
         Settings.externalLinksSpace = [obj isKindOfClass:NSUUID.class] ? obj : nil;
     }];
+    // A long space name truncates (like the Space editor's popups) at the width of the URL fields above,
+    // so it can't widen the window.
+    [spaces.cell setLineBreakMode:NSLineBreakByTruncatingTail];
+    [spaces setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                     forOrientation:NSLayoutConstraintOrientationHorizontal];
+    [spaces.widthAnchor constraintLessThanOrEqualToConstant:260].active = YES;
     [f row:@"Open links from apps in" view:spaces];
 
     [f separator];
