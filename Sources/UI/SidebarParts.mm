@@ -6,8 +6,6 @@
     NSTextField *_label;
     IconButton *_ads;
     NSLayoutConstraint *_adsWidth;      // 0 while hidden, so it takes no room from the address
-    NSImageView *_cookie;
-    NSLayoutConstraint *_cookieWidth;   // 0 while hidden, so it takes no room from the address
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect { return [self initWithExtensions:NO]; }
@@ -17,7 +15,6 @@
         _siteButton = [[IconButton alloc] initWithSymbol:@"magnifyingglass" size:11 tooltip:@"Site Settings"
                                                dimension:22 onClick:nil];
         _label = [NSTextField labelWithString:@""];
-        _cookie = [NSImageView new];
         if (withExtensions) _extensionsBar = [[ExtensionsBar alloc] initWithButtonSize:22];
         else _reloadButton = [[IconButton alloc] initWithSymbol:@"arrow.clockwise" size:12 tooltip:[AppDelegate tooltip:@"Reload" command:@"reload:"]
                                                       dimension:24 onClick:nil];
@@ -32,11 +29,6 @@
         [_label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                          forOrientation:NSLayoutConstraintOrientationHorizontal];
         _label.translatesAutoresizingMaskIntoConstraints = NO;
-        _cookie.image = [NSImage brook_symbol:@"checkmark.shield" size:11];
-        _cookie.contentTintColor = NSColor.systemGreenColor;
-        _cookie.hidden = YES;
-        _cookie.translatesAutoresizingMaskIntoConstraints = NO;
-        _cookieWidth = [_cookie.widthAnchor constraintEqualToConstant:0];
         _ads = [[IconButton alloc] initWithSymbol:@"shield.lefthalf.filled" size:11 tooltip:nil dimension:22 onClick:nil];
         _ads.tint = NSColor.tertiaryLabelColor;
         _ads.hidden = YES;
@@ -44,7 +36,7 @@
             if (c.firstAttribute == NSLayoutAttributeWidth && c.firstItem == _ads) _adsWidth = c;
         }
         _adsWidth.constant = 0;
-        for (NSView *v in @[_siteButton, _label, _ads, _cookie]) [self addSubview:v];
+        for (NSView *v in @[_siteButton, _label, _ads]) [self addSubview:v];
 
         // Both give way when the pill is collapsed to nothing (address bar off, or the icon rail).
         NSLayoutConstraint *height = [self.heightAnchor constraintEqualToConstant:34];
@@ -57,9 +49,6 @@
             [_label.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             [_ads.leadingAnchor constraintGreaterThanOrEqualToAnchor:_label.trailingAnchor constant:4],
             [_ads.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
-            [_cookie.leadingAnchor constraintEqualToAnchor:_ads.trailingAnchor constant:2],
-            [_cookie.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
-            _cookieWidth,
         ]];
         if (ExtensionsBar *bar = _extensionsBar) {
             // The address keeps most of the pill; extension buttons get what's left (two at the
@@ -75,7 +64,7 @@
                 minLabel,
                 // "…" always shows: in a narrow sidebar the address gives way, not the last button.
                 [bar.widthAnchor constraintGreaterThanOrEqualToConstant:22],
-                [_cookie.trailingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:-2],
+                [_ads.trailingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:-4],
                 [bar.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-5],
                 [bar.topAnchor constraintEqualToAnchor:self.topAnchor],
                 [bar.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
@@ -86,7 +75,7 @@
             reload.cornerRadius = 7;
             [self addSubview:reload];
             [NSLayoutConstraint activateConstraints:@[
-                [_cookie.trailingAnchor constraintEqualToAnchor:reload.leadingAnchor constant:-4],
+                [_ads.trailingAnchor constraintEqualToAnchor:reload.leadingAnchor constant:-6],
                 [reload.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-5],
                 [reload.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
             ]];
@@ -115,7 +104,6 @@
         _siteButton.accessibilityValue = nil;
         _label.stringValue = @"Search or enter address";
         _label.textColor = NSColor.secondaryLabelColor;   // a prompt, like the placeholder in the address fields
-        [self setCookieShown:NO];
         [self updateAdsForHost:nil];
         return;
     }
@@ -136,9 +124,6 @@
         case AddressDisplayPageTitle: _label.stringValue = tab.displayTitle.length ? tab.displayTitle : [URLParser display:url]; break;
         default: _label.stringValue = [URLParser display:url]; break;
     }
-    NSString *cmp = tab.consentCMP;
-    [self setCookieShown:cmp != nil];
-    if (cmp) _cookie.toolTip = [NSString stringWithFormat:@"Cookie popup declined for you (%@)", cmp];
     [self updateAdsForHost:BrookHost(url)];
 }
 
@@ -157,11 +142,6 @@
                   : blocking ? @"Ads and trackers blocked" : @"Ad blocking off for this site";
     _ads.toolTip = tip;
     _ads.accessibilityLabel = tip;
-}
-
-- (void)setCookieShown:(BOOL)shown {
-    _cookie.hidden = !shown;
-    _cookieWidth.active = !shown;
 }
 
 /// "Address, example.com": the label names the control, the value is what it shows.

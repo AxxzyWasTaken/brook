@@ -169,7 +169,6 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
     [self unload];
     if (_homeURL) _url = _homeURL;
     _loadError = nil;
-    _consentCMP = nil;
 }
 
 - (void)load:(NSURL *)url {
@@ -372,12 +371,10 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
 }
 
 - (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
-    _consentCMP = nil;
     if (_loadError) {
         _loadError = nil;
         [_state tabDidChange:self change:TabChangeError];
     }
-    [_state tabDidChange:self change:TabChangeConsent];
 }
 
 - (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation {

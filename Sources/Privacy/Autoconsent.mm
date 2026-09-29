@@ -169,9 +169,6 @@ static NSString *const kPrivacyConfigRemote = @"https://staticcdn.duckduckgo.com
     } else if ([name isEqualToString:@"autoconsentDone"]) {
         BrowserTab *tab = [message.webView isKindOfClass:BrookWebView.class] ? ((BrookWebView *)message.webView).tab : nil;
         if (message.frameInfo.isMainFrame && tab) {
-            NSString *cmp = [body[@"cmp"] isKindOfClass:NSString.class] ? body[@"cmp"] : @"cookie popup";
-            tab.consentCMP = cmp;
-            [tab.state tabDidChange:tab change:TabChangeConsent];
             BOOL cosmetic = [body[@"isCosmetic"] isKindOfClass:NSNumber.class] ? [body[@"isCosmetic"] boolValue] : NO;
             NSString *host = BrookHost(message.frameInfo.request.URL);
             if (!cosmetic && host) {
