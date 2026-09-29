@@ -207,12 +207,6 @@
     _scroll.hasVerticalScroller = YES;
     _scroll.borderType = NSBezelBorder;
     [_scroll.heightAnchor constraintEqualToConstant:height].active = YES;
-    // Overlay the empty message on the scroll view (above its clip view, so it's visible).
-    [_scroll addSubview:_emptyLabel positioned:NSWindowAbove relativeTo:nil];
-    [NSLayoutConstraint activateConstraints:@[
-        [_emptyLabel.centerXAnchor constraintEqualToAnchor:_scroll.centerXAnchor],
-        [_emptyLabel.centerYAnchor constraintEqualToAnchor:_scroll.centerYAnchor constant:10]
-    ]];
 
     _segment.segmentCount = 2;
     [_segment setImage:[NSImage imageWithSystemSymbolName:@"plus" accessibilityDescription:@"Add"] forSegment:0];
@@ -238,6 +232,13 @@
     [_container addArrangedSubview:_scroll];
     [_container addArrangedSubview:_buttonRow];
     [_scroll.widthAnchor constraintEqualToAnchor:_container.widthAnchor].active = YES;
+    // Overlay the empty message on the scroll view. It is in the container, because the scroll view
+    // lays out its own subviews and leaves the label at its top-left corner with no width.
+    [_container addSubview:_emptyLabel positioned:NSWindowAbove relativeTo:nil];
+    [NSLayoutConstraint activateConstraints:@[
+        [_emptyLabel.centerXAnchor constraintEqualToAnchor:_scroll.centerXAnchor],
+        [_emptyLabel.centerYAnchor constraintEqualToAnchor:_scroll.centerYAnchor constant:10]
+    ]];
     return self;
 }
 
