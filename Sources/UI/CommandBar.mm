@@ -499,6 +499,8 @@ NSInteger CharacterCount(NSString *s) {
         for (BrowserTab *t in Settings.commandBarTabs ? state.allTabs : @[]) {
             if (tabs.count >= 3) break;
             if (t == selected) continue;
+            // Favorites hidden in Settings → Layout are not offered, as in the recent tabs above.
+            if (t.isFavorite && !Settings.showFavorites) continue;
             NSString *urlString = t.url.absoluteString.lowercaseString;
             if ([t.displayTitle.lowercaseString containsString:q] || (urlString && [urlString containsString:q])) {
                 [tabs addObject:t];
