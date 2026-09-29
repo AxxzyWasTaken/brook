@@ -1330,9 +1330,16 @@ static const CGFloat kTitleRowMinTop = 4;
     popover.contentViewController = [[SiteInfoViewController alloc] initWithHost:host
                                                                           secure:[url.scheme isEqualToString:@"https"]];
     NSView *anchor = from ?: (_tabsOnTop ? _topBar.siteInfoAnchor : _sidebar.siteInfoAnchor);
+    NSRect anchorRect = anchor.bounds;
+    // The ads shield hides when blocking is turned off for the site, and AppKit closes a popover
+    // whose view hides. Point at the shield's place in the pill, so the popover stays open.
+    if (from.superview) {
+        anchorRect = [from convertRect:from.bounds toView:from.superview];
+        anchor = from.superview;
+    }
     BOOL rail = !_tabsOnTop && Settings.sidebarIconsOnly && (!self.sidebarHidden || _peeking);
     if ((self.urlPillVisible || rail) && anchor.window) {
-        [popover showRelativeToRect:anchor.bounds ofView:anchor preferredEdge:self.pillPopoverEdge];
+        [popover showRelativeToRect:anchorRect ofView:anchor preferredEdge:self.pillPopoverEdge];
     } else {
         [popover showRelativeToRect:NSMakeRect(NSMidX(_content.bounds), NSMaxY(_content.bounds) - 4, 1, 1)
                              ofView:_content
