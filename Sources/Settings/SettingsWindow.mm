@@ -1023,7 +1023,16 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
     SiteOverride *o = _sites[host];
     NSString *identifier = tableColumn.identifier ?: @"";
     if ([identifier isEqualToString:@"site"]) {
-        return [NSTextField labelWithString:host];
+        NSTextField *label = [NSTextField labelWithString:host];
+        label.lineBreakMode = NSLineBreakByTruncatingTail;
+        label.toolTip = host;
+        [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                        forOrientation:NSLayoutConstraintOrientationHorizontal];
+        // In a stack, like the archive list, so the text is centred in the row with the menus.
+        // The 2pt insets keep the text on the column header's text edge.
+        NSStackView *stack = [NSStackView stackViewWithViews:@[label]];
+        stack.edgeInsets = NSEdgeInsetsMake(0, 2, 0, 2);
+        return stack;
     }
     if ([identifier isEqualToString:@"zoom"]) {
         // NaN stands for "Default" (no override).
