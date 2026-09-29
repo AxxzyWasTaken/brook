@@ -182,7 +182,11 @@
         stack.spacing = 4;
         [stack setCustomSpacing:8 afterView:_status];
         stack.edgeInsets = NSEdgeInsetsMake(4, 6, 4, 6);
-        [_field.widthAnchor constraintEqualToConstant:200].active = YES;
+        // 200 wide, but narrower (to 100) in a narrow page so the bar keeps its left margin.
+        NSLayoutConstraint *fieldWidth = [_field.widthAnchor constraintEqualToConstant:200];
+        fieldWidth.priority = NSLayoutPriorityDragThatCannotResizeWindow - 10;
+        fieldWidth.active = YES;
+        [_field.widthAnchor constraintGreaterThanOrEqualToConstant:100].active = YES;
         _glass.contentView = stack;
         [stack brook_pinEdgesTo:self];
         [self.heightAnchor constraintEqualToConstant:36].active = YES;
@@ -406,7 +410,13 @@
         [_clip addSubview:_findBar];
         _toast.translatesAutoresizingMaskIntoConstraints = NO;
         [_clip addSubview:_toast];
+        // The same 12 pt margin on the left while the page is wide enough for the narrowest bar.
+        // Below NSLayoutPriorityWindowSizeStayPut, so the bar never widens the window.
+        NSLayoutConstraint *findLeading = [_findBar.leadingAnchor constraintGreaterThanOrEqualToAnchor:_uncovered.leadingAnchor
+                                                                                             constant:12];
+        findLeading.priority = NSLayoutPriorityDragThatCannotResizeWindow;
         [NSLayoutConstraint activateConstraints:@[
+            findLeading,
             [_findBar.topAnchor constraintEqualToAnchor:_clip.topAnchor constant:10],
             [_findBar.trailingAnchor constraintEqualToAnchor:_uncovered.trailingAnchor constant:-12],
             [_toast.centerXAnchor constraintEqualToAnchor:_uncovered.centerXAnchor],
