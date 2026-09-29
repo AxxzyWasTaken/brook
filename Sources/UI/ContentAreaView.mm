@@ -569,6 +569,8 @@
 
 - (void)tabChanged:(BrowserTab *)tab change:(TabChange)change {
     if (tab != _tab) return;
+    // A new page never reports the old link as gone, so the preview ends when a load starts.
+    if ((change & TabChangeLoading) && tab.isLoading) _linkBox.hidden = YES;
     if ((change & TabChangeProgress) || (change & TabChangeLoading)) [self updateProgress];
     if (change & TabChangeError) [self updateError];
     if (change & TabChangeURL) [_findBar invalidateCount];
