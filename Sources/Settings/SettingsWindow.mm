@@ -1140,6 +1140,7 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
     l.table.headerView = nil;
     l.table.dataSource = self;
     l.table.delegate = self;
+    l.table.rowHeight = 36;
     __weak BoostsPane *weakSelf = self;
     l.onAdd = ^{
         BoostsPane *self = weakSelf;
@@ -1312,8 +1313,6 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
     stack.spacing = 1;
     return stack;
 }
-
-- (CGFloat)tableView:(NSTableView *)tableView heightOfRow:(NSInteger)row { return 36; }
 
 - (void)tableViewSelectionDidChange:(NSNotification *)notification {
     if (!_list) return;
