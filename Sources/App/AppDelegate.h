@@ -14,6 +14,10 @@
 + (NSString *)shortcutTitleForItem:(NSMenuItem *)item;
 /// Re-reads Settings.shortcuts into the menu bar.
 + (void)applyShortcuts;
+/// The current shortcut of the menu command with this shortcut ID (its action name, for example "reload:"), for display ("⌃⌘R"), or "" when it has none.
++ (NSString *)shortcutDisplayForCommand:(NSString *)identifier;
+/// A tooltip that shows the command's current shortcut: "Reload (⌘R)", or only the title when it has none.
++ (NSString *)tooltip:(NSString *)title command:(NSString *)identifier;
 /// Re-draws the Dock icon for Settings.appIcon.
 + (void)applyAppIcon;
 @end

@@ -5,6 +5,8 @@
 @interface EmptyStateView : NSView
 @property (nonatomic, strong) NSColor *accent;
 @property (nonatomic, copy) NSString *spaceName;
+/// Re-reads the New Tab shortcut for the hint (Settings → Shortcuts).
+- (void)updateHint;
 @end
 
 @implementation EmptyStateView {
@@ -15,7 +17,8 @@
 - (instancetype)initWithFrame:(NSRect)frameRect {
     if ((self = [super initWithFrame:frameRect])) {
         _title = [NSTextField labelWithString:@""];
-        _hint = [NSTextField labelWithString:@"Press ⌘T to search or open a site"];
+        _hint = [NSTextField labelWithString:@""];
+        [self updateHint];
         _accent = NSColor.controlAccentColor;
         _spaceName = @"";
         _title.font = [NSFont systemFontOfSize:28 weight:NSFontWeightSemibold];
@@ -38,6 +41,13 @@
         ]];
     }
     return self;
+}
+
+- (void)updateHint {
+    NSString *shortcut = [AppDelegate shortcutDisplayForCommand:@"newTab:"];
+    // A click on the card opens the command bar too (mouseDown:), so the hint still helps without a shortcut.
+    _hint.stringValue = shortcut.length ? [NSString stringWithFormat:@"Press %@ to search or open a site", shortcut]
+                                        : @"Click to search or open a site";
 }
 
 - (void)setAccent:(NSColor *)accent {
@@ -535,6 +545,7 @@
 
 - (void)applySettings {
     [self updateColors];
+    [_empty updateHint];
     _progress.backgroundColor = BrookAccentColor().CGColor;
     [self updateProgress];
 }

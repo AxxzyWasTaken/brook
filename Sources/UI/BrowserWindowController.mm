@@ -619,10 +619,10 @@ static const CGFloat kTitleRowMinTop = 4;
                                                            @"tabStyle", @"accentSource", @"accentColor", @"uiFont", @"closeButtons",
                                                            @"tabSubtitles", @"sidebarIconsOnly", @"loadingIndicator",
                                                            @"toolbarItems", @"addressDisplay", @"spaceTint", @"sidebarPosition",
-                                                           @"pageMargin"]];
+                                                           @"pageMargin", @"shortcuts"]];
     if ([appearanceKeys containsObject:key]) [self applyAppearanceSettings];
     if ([sidebarKeys containsObject:key]) [_chrome applySettings];
-    if ([@[@"*", @"cardShadow", @"accentSource", @"accentColor", @"loadingIndicator", @"linkPreview"] containsObject:key]) {
+    if ([@[@"*", @"cardShadow", @"accentSource", @"accentColor", @"loadingIndicator", @"linkPreview", @"shortcuts"] containsObject:key]) {
         [_content applySettings];
     }
     if ([@[@"*", @"sidebarIconsOnly", @"pageMargin", @"cornerRadius"] containsObject:key]) {

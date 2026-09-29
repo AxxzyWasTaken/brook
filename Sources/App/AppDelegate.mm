@@ -351,6 +351,20 @@ static NSMutableDictionary<NSString *, NSString *> *sShortcutTitles;
     }
 }
 
+/// Read from the settings, not the menu, so the answer is right whichever settings observer runs first.
++ (NSString *)shortcutDisplayForCommand:(NSString *)identifier {
+    for (NSArray *pair in self.shortcutItems) {
+        if (![[self shortcutIDForItem:pair[1]] isEqualToString:identifier]) continue;
+        return BrookShortcutDisplay(Settings.shortcuts[identifier] ?: sDefaultShortcuts[identifier] ?: @"");
+    }
+    return @"";
+}
+
++ (NSString *)tooltip:(NSString *)title command:(NSString *)identifier {
+    NSString *shortcut = [self shortcutDisplayForCommand:identifier];
+    return shortcut.length ? [NSString stringWithFormat:@"%@ (%@)", title, shortcut] : title;
+}
+
 // MARK: Menu bar
 
 static NSMenuItem *BrookItem(NSString *title, SEL action, NSString *key = @"",

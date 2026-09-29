@@ -311,7 +311,7 @@ static NSAttributedString *AddressText(BrowserTab *tab, CGFloat fontSize) {
     BOOL show = _selected && _onReload && !_iconOnly;
     if (show && !_reloadButton) {
         __weak TopTabView *weakSelf = self;
-        _reloadButton = [[IconButton alloc] initWithSymbol:@"arrow.clockwise" size:11 tooltip:@"Reload (⌘R)" dimension:20
+        _reloadButton = [[IconButton alloc] initWithSymbol:@"arrow.clockwise" size:11 tooltip:[AppDelegate tooltip:@"Reload" command:@"reload:"] dimension:20
                                                    onClick:^{
             TopTabView *self_ = weakSelf;
             if (self_ && self_.onReload) self_.onReload(self_.tab);
@@ -324,7 +324,8 @@ static NSAttributedString *AddressText(BrowserTab *tab, CGFloat fontSize) {
     if (!show) return;
     BOOL loading = _tab.isLoading == YES;
     [_reloadButton setSymbol:loading ? @"xmark" : @"arrow.clockwise" size:11];
-    _reloadButton.toolTip = loading ? @"Stop (⌘.)" : @"Reload (⌘R)";
+    _reloadButton.toolTip = loading ? [AppDelegate tooltip:@"Stop" command:@"stopLoading:"]
+                                        : [AppDelegate tooltip:@"Reload" command:@"reload:"];
     NSSize size = self.bounds.size;
     [_reloadButton setFrameOrigin:NSMakePoint(size.width - 4 - 20, floor(size.height / 2) - 10)];
 }
@@ -1213,14 +1214,14 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
         _favorites = [FavoritesCapsule new];
         _urlPill = [[URLPillView alloc] initWithExtensions:NO];
         _extensionsBar = [[ExtensionsBar alloc] initWithButtonSize:kFavoriteSize];
-        _newTabButton = [[IconButton alloc] initWithSymbol:@"plus" tooltip:@"New Tab (⌘T)" onClick:^{
+        _newTabButton = [[IconButton alloc] initWithSymbol:@"plus" tooltip:[AppDelegate tooltip:@"New Tab" command:@"newTab:"] onClick:^{
             [weakSelf.browser newTab];
         }];
         _downloadsButton = [[IconButton alloc] initWithSymbol:@"arrow.down.circle" tooltip:@"Downloads" onClick:^{
             TopBarView *self_ = weakSelf;
             if (self_) [self_.browser showDownloadsFromView:self_->_downloadsButton];
         }];
-        _fireButton = [[IconButton alloc] initWithSymbol:@"flame" tooltip:@"Burn Tabs & Data (⇧⌘⌫)" onClick:^{
+        _fireButton = [[IconButton alloc] initWithSymbol:@"flame" tooltip:[AppDelegate tooltip:@"Burn Tabs & Data" command:@"fire:"] onClick:^{
             [weakSelf.browser fire];
         }];
         _strip = [TabStripView new];
@@ -1412,6 +1413,9 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
 
 - (void)applySettings {
     [_nav rebuild];
+    // The tooltips show the menu's shortcuts, which Settings → Shortcuts can change.
+    _newTabButton.toolTip = [AppDelegate tooltip:@"New Tab" command:@"newTab:"];
+    _fireButton.toolTip = [AppDelegate tooltip:@"Burn Tabs & Data" command:@"fire:"];
     [self updateChrome];
     CGFloat font = Settings.tabFontSize;
     _fontSize = font;

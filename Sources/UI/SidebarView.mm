@@ -116,7 +116,7 @@ static const CGFloat kRailButtonInset = 4;
         _rowFontSize = Settings.tabFontSize;
 
         __weak SidebarView *weakSelf = self;
-        _toggleButton = [[IconButton alloc] initWithSymbol:@"sidebar.left" tooltip:@"Hide Sidebar (⌘S)" onClick:^{
+        _toggleButton = [[IconButton alloc] initWithSymbol:@"sidebar.left" tooltip:[AppDelegate tooltip:@"Hide Sidebar" command:@"toggleSidebarMenu:"] onClick:^{
             [weakSelf.browser toggleSidebar];
         }];
         _navStack = [ToolbarButtons new];
@@ -137,7 +137,7 @@ static const CGFloat kRailButtonInset = 4;
         _railTopGlass = [NSGlassEffectView new];
         _railTabsGlass = [NSGlassEffectView new];
         _railSpacesGlass = [NSGlassEffectView new];
-        _fireButton = [[IconButton alloc] initWithSymbol:@"flame" tooltip:@"Burn Tabs & Data (⇧⌘⌫)" onClick:^{
+        _fireButton = [[IconButton alloc] initWithSymbol:@"flame" tooltip:[AppDelegate tooltip:@"Burn Tabs & Data" command:@"fire:"] onClick:^{
             [weakSelf.browser fire];
         }];
         _downloadsButton = [[IconButton alloc] initWithSymbol:@"arrow.down.circle" tooltip:@"Downloads" onClick:^{
@@ -399,6 +399,9 @@ static const CGFloat kRailButtonInset = 4;
     BOOL rail = Settings.sidebarIconsOnly;
     _navStack.hidden = rail;
     _toggleButton.hidden = rail;
+    // The tooltips show the menu's shortcuts, which Settings → Shortcuts can change.
+    _toggleButton.toolTip = [AppDelegate tooltip:@"Hide Sidebar" command:@"toggleSidebarMenu:"];
+    _fireButton.toolTip = [AppDelegate tooltip:@"Burn Tabs & Data" command:@"fire:"];
     // The symbol shows the panel on the side where the sidebar is.
     [_toggleButton setSymbol:Settings.sidebarPosition == SidebarPositionRight ? @"sidebar.right" : @"sidebar.left"];
     _railStack.hidden = !rail;
@@ -669,6 +672,7 @@ static const CGFloat kRailButtonInset = 4;
         cell.onPress = ^{ [weakSelf.browser newTab]; };
         cell.fontSize = _rowFontSize;
         cell.iconOnly = Settings.sidebarIconsOnly;
+        cell.toolTip = [AppDelegate tooltip:@"New Tab" command:@"newTab:"];
         return cell;
     }
     }

@@ -19,13 +19,12 @@
         _label = [NSTextField labelWithString:@""];
         _cookie = [NSImageView new];
         if (withExtensions) _extensionsBar = [[ExtensionsBar alloc] initWithButtonSize:22];
-        else _reloadButton = [[IconButton alloc] initWithSymbol:@"arrow.clockwise" size:12 tooltip:@"Reload (⌘R)"
+        else _reloadButton = [[IconButton alloc] initWithSymbol:@"arrow.clockwise" size:12 tooltip:[AppDelegate tooltip:@"Reload" command:@"reload:"]
                                                       dimension:24 onClick:nil];
 
         self.cornerRadius = 10;
         self.baseColor = Palette.pill;
         self.hoverColor = [Palette.pill colorWithAlphaComponent:0.12];
-        self.toolTip = @"Search or enter address (⌘L)";
 
         _label.font = [NSFont systemFontOfSize:13 weight:NSFontWeightRegular];
         _label.textColor = NSColor.labelColor;
@@ -100,10 +99,12 @@
 
 - (void)updateWithTab:(BrowserTab *)tab {
     _extensionsBar.tab = tab;
+    self.toolTip = [AppDelegate tooltip:@"Search or enter address" command:@"openLocation:"];
     BOOL loading = tab.isLoading == YES;
     _reloadButton.enabled = tab != nil;
     [_reloadButton setSymbol:loading ? @"xmark" : @"arrow.clockwise" size:12];
-    _reloadButton.toolTip = loading ? @"Stop (⌘.)" : @"Reload (⌘R)";
+    _reloadButton.toolTip = loading ? [AppDelegate tooltip:@"Stop" command:@"stopLoading:"]
+                                        : [AppDelegate tooltip:@"Reload" command:@"reload:"];
     NSURL *url = tab.url;
     if (!tab || !url) {
         [_siteButton setSymbol:@"magnifyingglass" size:11];
@@ -499,11 +500,11 @@ static const CGFloat kMoreButtonWidth = 18;
 
 static NSString *ToolbarItemTooltip(ToolbarItem item) {
     switch (item) {
-        case ToolbarItemBack: return @"Back (⌘[)";
-        case ToolbarItemForward: return @"Forward (⌘])";
-        case ToolbarItemReload: return @"Reload (⌘R)";
-        case ToolbarItemCopyLink: return @"Copy Link (⇧⌘C)";
-        case ToolbarItemNewTab: return @"New Tab (⌘T)";
+        case ToolbarItemBack: return [AppDelegate tooltip:@"Back" command:@"back:"];
+        case ToolbarItemForward: return [AppDelegate tooltip:@"Forward" command:@"forward:"];
+        case ToolbarItemReload: return [AppDelegate tooltip:@"Reload" command:@"reload:"];
+        case ToolbarItemCopyLink: return [AppDelegate tooltip:@"Copy Link" command:@"copyURL:"];
+        case ToolbarItemNewTab: return [AppDelegate tooltip:@"New Tab" command:@"newTab:"];
         default: return ToolbarItemTitle(item);
     }
 }
@@ -575,7 +576,8 @@ static NSString *ToolbarItemTooltip(ToolbarItem item) {
             case ToolbarItemReload:
                 b.enabled = tab != nil;
                 [b setSymbol:loading ? @"xmark" : @"arrow.clockwise"];
-                b.toolTip = loading ? @"Stop (⌘.)" : @"Reload (⌘R)";
+                b.toolTip = loading ? [AppDelegate tooltip:@"Stop" command:@"stopLoading:"]
+                                        : [AppDelegate tooltip:@"Reload" command:@"reload:"];
                 break;
             case ToolbarItemNewTab: break;
             default: b.enabled = tab.url != nil; break;

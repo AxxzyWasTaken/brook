@@ -367,7 +367,6 @@
         _label = [NSTextField labelWithString:@"New Tab"];
         _fontSize = 13;
         self.identifier = NewTabCellView.reuseID;
-        self.toolTip = @"New Tab (⌘T)";
         _background.cornerRadius = 9;
         _background.translatesAutoresizingMaskIntoConstraints = NO;
         [self addSubview:_background];
@@ -436,7 +435,10 @@
 - (BOOL)isAccessibilityElement { return YES; }
 - (NSAccessibilityRole)accessibilityRole { return NSAccessibilityButtonRole; }
 - (NSString *)accessibilityLabel { return @"New Tab"; }
-- (NSString *)accessibilityHelp { return @"⌘T"; }
+- (NSString *)accessibilityHelp {
+    NSString *shortcut = [AppDelegate shortcutDisplayForCommand:@"newTab:"];
+    return shortcut.length ? shortcut : nil;
+}
 - (NSArray *)accessibilityChildren { return nil; }
 - (BOOL)accessibilityPerformPress {
     if (!self.onPress) return NO;
