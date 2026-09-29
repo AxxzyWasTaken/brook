@@ -730,7 +730,10 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
     l.emptyLabel.stringValue = @"No archived tabs";
     _list = l;
     [l reload];
-    [f row:@"" view:l.container];
+    // The list has no text baseline (as with Layout's toolbar grid): top-align it in its row.
+    NSGridRow *archiveRow = [f row:@"" view:l.container];
+    archiveRow.rowAlignment = NSGridRowAlignmentNone;
+    archiveRow.yPlacement = NSGridCellPlacementTop;
     return [f view];
 }
 
