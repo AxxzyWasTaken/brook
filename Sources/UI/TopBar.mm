@@ -1335,7 +1335,8 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
         [_strip.leadingAnchor constraintEqualToAnchor:_favorites.trailingAnchor constant:8],
         [_strip.trailingAnchor constraintEqualToAnchor:_extensionsGlass.leadingAnchor constant:-8],
         [_strip.centerYAnchor constraintEqualToAnchor:_toolbar.centerYAnchor],
-        withPriority([_strip.widthAnchor constraintGreaterThanOrEqualToConstant:320], 750),
+        // Below NSLayoutPriorityWindowSizeStayPut, so it never widens the window past its minimum.
+        withPriority([_strip.widthAnchor constraintGreaterThanOrEqualToConstant:320], NSLayoutPriorityDragThatCannotResizeWindow),
         [tools.leadingAnchor constraintEqualToAnchor:_newTabButton.trailingAnchor constant:6],
         [_toolbar.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-8],
     ];
