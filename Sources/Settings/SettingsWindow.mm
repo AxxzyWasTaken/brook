@@ -477,14 +477,20 @@ static NSColorWell *HexWell(NSString *hex, void (^onChange)(NSString *hex)) {
     NSView *opacity = [Controls sliderWithMin:0.3 max:1 value:(double)Settings.chromeOpacity width:160 ticks:0
                                        format:^NSString *(double v) { return [NSString stringWithFormat:@"%ld%%", (long)round(v * 100)]; }
                                      onChange:^(double v) { Settings.chromeOpacity = (CGFloat)v; }];
-    for (NSView *v in opacity.subviews) if ([v isKindOfClass:NSControl.class]) ((NSControl *)v).enabled = Settings.chromeMaterial == ChromeMaterialSolid;
     __weak NSView *weakOpacity = opacity;
+    void (^enableOpacity)(BOOL) = ^(BOOL on) {
+        for (NSView *v in weakOpacity.subviews) {
+            if ([v isKindOfClass:NSTextField.class]) ((NSTextField *)v).textColor = on ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor;
+            else if ([v isKindOfClass:NSControl.class]) ((NSControl *)v).enabled = on;
+        }
+    };
+    enableOpacity(Settings.chromeMaterial == ChromeMaterialSolid);
     [f row:@"Sidebar material" views:@[
         [Controls segmentedWithTitles:EnumTitles(ChromeMaterialCount, ^(NSInteger i) { return ChromeMaterialTitle((ChromeMaterial)i); })
                         selectedIndex:Settings.chromeMaterial
                              onChange:^(NSInteger i) {
             Settings.chromeMaterial = (ChromeMaterial)i;
-            for (NSView *v in weakOpacity.subviews) if ([v isKindOfClass:NSControl.class]) ((NSControl *)v).enabled = i == ChromeMaterialSolid;
+            enableOpacity(i == ChromeMaterialSolid);
         }],
         opacity
     ]];
