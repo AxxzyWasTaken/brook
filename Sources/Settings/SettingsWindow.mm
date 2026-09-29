@@ -214,6 +214,9 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
 @end
 
 /// The ⌘, window: a native toolbar-tabbed preferences window like Safari's.
+@interface SettingsWindowController () <NSWindowDelegate>
+@end
+
 @implementation SettingsWindowController
 
 + (SettingsWindowController *)shared {
@@ -254,8 +257,18 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
     window.toolbarStyle = NSWindowToolbarStylePreference;
     window.releasedWhenClosed = NO;
     [window setFrameAutosaveName:@"BrookSettings"];
-    return [super initWithWindow:window];
+    if (!(self = [super initWithWindow:window])) return nil;
+    window.delegate = self;
+    // A quit doesn't close the window, so end the edit here too.
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(endEditing)
+                                               name:NSApplicationWillTerminateNotification object:nil];
+    return self;
 }
+
+/// Text fields save when editing ends, and closing the window or quitting doesn't end it on its own.
+- (void)endEditing { [self.window makeFirstResponder:nil]; }
+
+- (void)windowWillClose:(NSNotification *)notification { [self endEditing]; }
 
 - (void)show { [self showPane:nil]; }
 
