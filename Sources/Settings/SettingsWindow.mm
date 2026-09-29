@@ -1659,6 +1659,18 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
                     NSString *used = now[otherID] ?: [AppDelegate defaultShortcutForItem:other[1]];
                     if ([used isEqualToString:shortcut]) return NO;
                 }
+                // Also the menu commands that Settings does not list (Edit, Window, AppKit's own items):
+                // AppKit clears a key equivalent that another menu item already has.
+                NSMutableArray<NSMenu *> *menus = [NSMutableArray arrayWithObject:NSApp.mainMenu];
+                while (menus.count) {
+                    NSMenu *menu = menus.lastObject;
+                    [menus removeLastObject];
+                    for (NSMenuItem *menuItem in menu.itemArray) {
+                        if (menuItem.submenu) [menus addObject:menuItem.submenu];
+                        if (menuItem == item || [[AppDelegate shortcutIDForItem:menuItem] isEqualToString:identifier]) continue;
+                        if ([BrookShortcutString(menuItem.keyEquivalent, menuItem.keyEquivalentModifierMask) isEqualToString:shortcut]) return NO;
+                    }
+                }
             }
             NSMutableDictionary *all = [Settings.shortcuts mutableCopy];
             if ([shortcut isEqualToString:fallback]) [all removeObjectForKey:identifier]; else all[identifier] = shortcut;
