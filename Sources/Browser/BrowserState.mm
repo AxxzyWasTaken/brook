@@ -49,6 +49,11 @@ static NSString *StringFromJSON(id v) {
     return [v isKindOfClass:NSString.class] ? v : nil;
 }
 
+/// An empty array for anything that isn't one, so a damaged session file can't throw in a for-in loop.
+static NSArray *ArrayFromJSON(id v) {
+    return [v isKindOfClass:NSArray.class] ? v : @[];
+}
+
 /// Every site a saved session's favorites and tabs point at (not the archive, which only the
 /// Settings list shows).
 static NSSet<NSString *> *HostsInRecord(NSDictionary *record) {
@@ -166,7 +171,7 @@ NSNotificationName const BrowserStateArchiveDidChangeNotification = @"BrookArchi
     NSArray *spaceRecords = [record isKindOfClass:NSDictionary.class] ? record[@"spaces"] : nil;
     if ([spaceRecords isKindOfClass:NSArray.class] && spaceRecords.count > 0) {
         [FaviconStore.shared warmHosts:HostsInRecord(record)];   // restored tabs draw with their icons
-        for (NSDictionary *r in record[@"favorites"]) {
+        for (NSDictionary *r in ArrayFromJSON(record[@"favorites"])) {
             if (BrowserTab *t = [self makeTab:r favorite:YES pinned:NO]) [_favorites addObject:t];
         }
         for (NSDictionary *sr in spaceRecords) {
@@ -174,10 +179,10 @@ NSNotificationName const BrowserStateArchiveDidChangeNotification = @"BrookArchi
             Space *s = [[Space alloc] initWithID:UUIDFromJSON(sr[@"id"]) ?: [NSUUID UUID]
                                             name:StringFromJSON(sr[@"name"]) ?: @"Space"
                                         colorHex:StringFromJSON(sr[@"color"]) ?: Palette.spaceColors[0][1]];
-            for (NSDictionary *r in sr[@"pinned"]) {
+            for (NSDictionary *r in ArrayFromJSON(sr[@"pinned"])) {
                 if (BrowserTab *t = [self makeTab:r favorite:NO pinned:YES]) [s.pinned addObject:t];
             }
-            for (NSDictionary *r in sr[@"tabs"]) {
+            for (NSDictionary *r in ArrayFromJSON(sr[@"tabs"])) {
                 if (BrowserTab *t = [self makeTab:r favorite:NO pinned:NO]) [s.tabs addObject:t];
             }
             s.lastSelectedID = UUIDFromJSON(sr[@"lastSelected"]);
@@ -193,9 +198,11 @@ NSNotificationName const BrowserStateArchiveDidChangeNotification = @"BrookArchi
             s.archiveHours = [hours isKindOfClass:NSNumber.class] ? @(std::max<NSInteger>(0, [hours integerValue])) : nil;
             [_spaces addObject:s];
         }
-        _currentSpaceIndex = std::min(std::max<NSInteger>(0, [record[@"currentSpace"] integerValue]),
+        if (_spaces.count == 0) [_spaces addObject:[[Space alloc] initWithName:@"Personal" colorHex:Palette.spaceColors[0][1]]];
+        id current = record[@"currentSpace"];
+        _currentSpaceIndex = std::min(std::max<NSInteger>(0, [current isKindOfClass:NSNumber.class] ? [current integerValue] : 0),
                                       (NSInteger)_spaces.count - 1);
-        for (NSDictionary *a in record[@"archived"]) {
+        for (NSDictionary *a in ArrayFromJSON(record[@"archived"])) {
             if (ArchivedTab *t = ArchivedFromRecord(a)) [_archived addObject:t];
         }
         [self applyLaunchBehavior];
