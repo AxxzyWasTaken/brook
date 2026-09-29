@@ -392,11 +392,20 @@ static const CGFloat kGap = 8;
 - (NSString *)accessibilityLabel { return _space.name; }
 - (id)accessibilityValue { return _opensMenu ? nil : @(_isCurrent); }
 
-- (void)updateLayer {
-    [super updateLayer];
+// The rail's dot is sized by its glass after it's built, so the dot is placed on every layout,
+// not only when the colours are drawn.
+- (void)layout {
+    [super layout];
     CGFloat d = self.isCurrent ? 10 : 7;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     _dot.frame = CGRectMake((self.bounds.size.width - d) / 2, (self.bounds.size.height - d) / 2, d, d);
     _dot.cornerRadius = d / 2;
+    [CATransaction commit];
+}
+
+- (void)updateLayer {
+    [super updateLayer];
     _dot.backgroundColor = [self.space.color colorWithAlphaComponent:self.isCurrent ? 1 : 0.55].CGColor;
     _dot.borderWidth = self.isCurrent ? 2 : 0;
     _dot.borderColor = [self brook_cg:[NSColor brook_dynamicLight:[NSColor colorWithWhite:1 alpha:0.9]
