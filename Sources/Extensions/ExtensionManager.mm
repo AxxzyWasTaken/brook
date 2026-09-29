@@ -670,7 +670,8 @@ static const unsigned long long kAdBlockerRulesetBytes = 100 * 1024;
   openNewTabUsingConfiguration:(WKWebExtensionTabConfiguration *)configuration
            forExtensionContext:(WKWebExtensionContext *)extensionContext
              completionHandler:(void (^)(id<WKWebExtensionTab> newTab, NSError *error))completionHandler {
-    BrowserTab *tab = [BrowserState.shared openTabWithURL:configuration.url inSpace:nil after:nil select:YES loadNow:NO];
+    BrowserTab *tab = [BrowserState.shared openTabWithURL:configuration.url inSpace:nil after:nil
+                                                   select:configuration.shouldBeActive loadNow:NO];
     [tab materialize];
     completionHandler(tab, nil);
 }
