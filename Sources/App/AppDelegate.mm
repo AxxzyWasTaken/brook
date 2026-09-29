@@ -171,8 +171,8 @@
 - (void)zoomOut:(id)sender { [self.wc zoomBy:-0.1]; }
 - (void)actualSize:(id)sender { [self.wc resetZoom]; }
 - (void)find:(id)sender { [self.wc showFind]; }
-- (void)findNext:(id)sender { [self.wc.content.findBar searchForward:YES]; }
-- (void)findPrevious:(id)sender { [self.wc.content.findBar searchForward:NO]; }
+- (void)findNext:(id)sender { [self.wc.content findAgain:YES]; }
+- (void)findPrevious:(id)sender { [self.wc.content findAgain:NO]; }
 - (void)nextTab:(id)sender { [self.state selectNext:1]; }
 - (void)previousTab:(id)sender { [self.state selectNext:-1]; }
 - (void)selectTabN:(NSMenuItem *)sender { [self.state selectIndex:sender.tag]; }

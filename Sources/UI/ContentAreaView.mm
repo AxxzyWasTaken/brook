@@ -649,4 +649,13 @@
     [_findBar focus];
 }
 
+- (void)findAgain:(BOOL)forward {
+    // A closed bar still holds the page it last searched, which may no longer be in front.
+    if (_findBar.hidden) {
+        [self showFind];
+        [_findBar invalidateCount];
+    }
+    [_findBar searchForward:forward];
+}
+
 @end

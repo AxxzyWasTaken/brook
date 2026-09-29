@@ -30,6 +30,8 @@
 - (void)showTab:(BrowserTab *)tab spaceName:(NSString *)spaceName;
 - (void)tabChanged:(BrowserTab *)tab change:(TabChange)change;
 - (void)showFind;
+/// ⌘G / ⇧⌘G: opens the find bar on the current page if it is closed, then goes to the next match.
+- (void)findAgain:(BOOL)forward;
 /// Re-reads the page shadow, accent and loading-indicator settings.
 - (void)applySettings;
 @end
