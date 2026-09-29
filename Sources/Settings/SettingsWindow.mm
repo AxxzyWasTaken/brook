@@ -219,7 +219,7 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
 @end
 
 /// The ⌘, window: a native toolbar-tabbed preferences window like Safari's.
-@interface SettingsWindowController () <NSWindowDelegate>
+@interface SettingsWindowController () <NSWindowDelegate, NSMenuItemValidation>
 @end
 
 @implementation SettingsWindowController
@@ -281,6 +281,16 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
     if ([self.window.contentViewController isKindOfClass:SettingsTabViewController.class]) {
         [(SettingsTabViewController *)self.window.contentViewController focusSearch];
     }
+}
+
+/// Find Next and Find Previous (⌘G, ⇧⌘G) step through page matches. The settings search has none, so
+/// they stay off while this window is key and do not open the find bar in the browser window behind.
+- (void)findNext:(id)sender {}
+- (void)findPrevious:(id)sender {}
+
+- (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
+    if (menuItem.action == @selector(findNext:) || menuItem.action == @selector(findPrevious:)) return NO;
+    return YES;
 }
 
 - (void)show { [self showPane:nil]; }
