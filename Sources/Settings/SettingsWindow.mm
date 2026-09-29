@@ -979,6 +979,10 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
 - (NSView *)makeContent {
     _sites = SiteSettings.all;
     _hosts = [_sites.allKeys sortedArrayUsingSelector:@selector(compare:)];
+    // ⌘+ / ⌘− and the Site Info popover change site settings while the pane is open.
+    [NSNotificationCenter.defaultCenter removeObserver:self name:BrookSettingsDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsChanged:)
+                                               name:BrookSettingsDidChangeNotification object:nil];
     SettingsForm *f = [SettingsForm new];
     static const std::vector<double> zooms = {0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5};
     NSMutableArray<NSString *> *zoomTitles = [NSMutableArray array];
@@ -1028,6 +1032,30 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
     sitesRow.yPlacement = NSGridCellPlacementTop;
     [f note:@"Zooming a page with ⌘+ / ⌘− remembers the level for that site. Click the lock in the address bar to change settings for the site you're on."];
     return [f viewWithWidth:880];
+}
+
+- (void)settingsChanged:(NSNotification *)note {
+    if (![note.userInfo[@"key"] isEqual:@"siteSettings"]) return;
+    // Later, so a menu in the table is not replaced while its own action runs.
+    __weak WebsitesPane *weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf reloadSites]; });
+}
+
+- (void)reloadSites {
+    NSDictionary<NSString *, SiteOverride *> *sites = SiteSettings.all;
+    if (!_list || [sites isEqualToDictionary:_sites]) return;
+    NSInteger row = _list.table.selectedRow;
+    NSString *selected = row >= 0 && row < (NSInteger)_hosts.count ? _hosts[(NSUInteger)row] : nil;
+    _sites = sites;
+    _hosts = [sites.allKeys sortedArrayUsingSelector:@selector(compare:)];
+    [_list reload];
+    // Keep the same site selected, so "-" removes the site that the user selected.
+    NSUInteger index = selected ? [_hosts indexOfObject:selected] : NSNotFound;
+    if (index != NSNotFound) {
+        [_list.table selectRowIndexes:[NSIndexSet indexSetWithIndex:index] byExtendingSelection:NO];
+    } else {
+        [_list.table deselectAll:nil];
+    }
 }
 
 - (void)promptAddSite {
