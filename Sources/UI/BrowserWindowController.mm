@@ -1453,7 +1453,12 @@ static const CGFloat kTitleRowMinTop = 4;
         for (Space *space in state.spaces) {
             if (space == tabSpace) continue;
             [sub addItem:[[ClosureMenuItem alloc] initWithTitle:space.name handler:^{
-                [state move:tab to:TabLocation::tabsIn(space) index:0];
+                // A pinned tab stays pinned in the new space (as a drag does), at the end like Pin Tab.
+                if (tab.isPinned) {
+                    [state move:tab to:TabLocation::pinnedIn(space) index:(NSInteger)space.pinned.count];
+                } else {
+                    [state move:tab to:TabLocation::tabsIn(space) index:0];
+                }
             }]];
         }
         moveItem.submenu = sub;
