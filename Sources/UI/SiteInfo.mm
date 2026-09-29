@@ -29,6 +29,11 @@ static NSStackView *BrookVerticalStack(NSStackView *stack) {
 
     NSTextField *title = [NSTextField labelWithString:host];
     title.font = [NSFont systemFontOfSize:14 weight:NSFontWeightSemibold];
+    // A long host ends with an ellipsis inside the 330-pt popover (like the Websites list), full host in the tooltip.
+    title.lineBreakMode = NSLineBreakByTruncatingTail;
+    title.toolTip = host;
+    [title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                    forOrientation:NSLayoutConstraintOrientationHorizontal];
     NSTextField *status = [NSTextField labelWithString:secure ? @"Connection is secure" : @"Connection is not secure"];
     status.font = [NSFont systemFontOfSize:11];
     status.textColor = secure ? NSColor.secondaryLabelColor : NSColor.systemOrangeColor;
