@@ -193,6 +193,11 @@
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
     SEL action = menuItem.action;
     BrowserTab *tab = self.state.selectedTab;
+    if (_windowController.window.attachedSheet != nil && action != @selector(showSettings:) &&
+        action != @selector(showMainWindow:) && action != @selector(toggleCookiePopups:)) {
+        // A sheet is modal to the browser window: its tabs, spaces and page stay untouched until it closes.
+        return NO;
+    }
     if (action == @selector(toggleCookiePopups:)) {
         menuItem.state = Settings.blockCookiePopups ? NSControlStateValueOn : NSControlStateValueOff;
     } else if (action == @selector(stopLoading:)) {
