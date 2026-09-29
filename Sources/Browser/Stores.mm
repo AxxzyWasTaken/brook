@@ -279,6 +279,28 @@ static NSImage *ReadIcon(NSURL *file) {
     }];
 }
 
+- (void)clearKeepingHosts:(NSSet<NSString *> *)keep {
+    NSMutableDictionary<NSString *, NSImage *> *kept = [NSMutableDictionary dictionary];
+    for (NSString *h in keep) if (NSImage *img = [_memory objectForKey:h]) kept[h] = img;
+    [_memory removeAllObjects];
+    [kept enumerateKeysAndObjectsUsingBlock:^(NSString *h, NSImage *img, BOOL *) { [self->_memory setObject:img forKey:h]; }];
+    [_misses removeAllObjects];
+    NSMutableSet<NSString *> *keepNames = [NSMutableSet set];
+    for (NSString *h in keep) [keepNames addObject:[self fileForHost:h].lastPathComponent];
+    NSURL *dir = _dir;
+    dispatch_barrier_async(_io, ^{
+        NSFileManager *fm = NSFileManager.defaultManager;
+        NSError *error = nil;
+        NSArray<NSURL *> *files = [fm contentsOfDirectoryAtURL:dir includingPropertiesForKeys:nil options:0 error:&error];
+        if (!files) { NSLog(@"Brook: could not list the favicon cache: %@", error); return; }
+        for (NSURL *f in files) {
+            if ([keepNames containsObject:f.lastPathComponent]) continue;
+            NSError *removeError = nil;
+            if (![fm removeItemAtURL:f error:&removeError]) NSLog(@"Brook: could not remove %@: %@", f.path, removeError);
+        }
+    });
+}
+
 @end
 
 // MARK: - Downloads

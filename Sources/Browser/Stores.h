@@ -47,6 +47,8 @@ FOUNDATION_EXPORT NSNotificationName const FaviconStoreDidLoadIconNotification;
 /// the main queue, with nil on failure. Concurrent requests for one host share a fetch; misses
 /// are remembered.
 - (void)iconForHost:(NSString *)host completion:(void (^)(NSImage *icon))completion;
+/// Forgets every icon, in memory and on disk, except those of the given hosts.
+- (void)clearKeepingHosts:(NSSet<NSString *> *)keep;
 @end
 
 // MARK: - Downloads

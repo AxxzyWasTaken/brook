@@ -661,6 +661,10 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
         s.lastSelectedID = nil;
     }
     for (BrowserTab *t in _favorites) [t resetToHome];
+    // Site icons show which sites were visited: keep only those of the tabs that stay.
+    NSMutableSet<NSString *> *keep = [NSMutableSet set];
+    for (BrowserTab *t in self.allTabs) if (NSString *h = BrookHost(t.url)) [keep addObject:h];
+    [FaviconStore.shared clearKeepingHosts:keep];
     _recentlyClosed.clear();
     [_archived removeAllObjects];
     [NSNotificationCenter.defaultCenter postNotificationName:BrowserStateArchiveDidChangeNotification object:self];
