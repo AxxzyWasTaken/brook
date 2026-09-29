@@ -327,6 +327,8 @@ static const CFTimeInterval kCatchUpDuration = 0.08;
 static const CGFloat kHotZoneWidth = 24;
 /// Distance from the sidebar's leading edge to the full-screen traffic lights (matches the real ones).
 static const CGFloat kFullScreenLightsInset = 10;
+/// Closest the row beside the traffic lights comes to the top of the sidebar or top panel.
+static const CGFloat kTitleRowMinTop = 4;
 
 - (void)buildLayout {
     _root.material = NSVisualEffectMaterialUnderWindowBackground;
@@ -814,8 +816,12 @@ static const CGFloat kFullScreenLightsInset = 10;
     // Only the left side keeps macOS's position as a floor; on the right it just follows the sidebar.
     CGFloat dx = _onRight && !_tabsOnTop ? self.sidebarRestingMinX + padX - close.x
                                          : std::max<CGFloat>(0, _inset + padX - close.x);
+    // The row beside the lights can't come closer to the top than kTitleRowMinTop (-alignNavRow);
+    // a taller row (the top panel's toolbar) brings the lights down so they stay level with it.
+    CGFloat rowCentre = _inset + kTitleRowMinTop + _chrome.titleRowHeight / 2;
+    CGFloat level = rowCentre - height / 2 - close.fromTop;
     // Stay inside the titlebar, or the buttons get clipped and stop taking clicks.
-    CGFloat dy = std::min<CGFloat>(std::max<CGFloat>(0, _inset + padTop - close.fromTop),
+    CGFloat dy = std::min<CGFloat>(std::max<CGFloat>({0, _inset + padTop - close.fromTop, level}),
                                    bar.bounds.size.height - close.fromTop - height - 2);
     for (NSUInteger i = 0; i < 3; i++) {
         NSButton *b = buttons[i];
@@ -879,7 +885,7 @@ static const CGFloat kFullScreenLightsInset = 10;
     CGFloat chromeTop = _root.bounds.size.height - _inset;
     CGFloat top = chromeTop - NSMidY(zoomRect) - chrome.titleRowHeight / 2;
     CGFloat leading = NSMaxX(zoomRect) - self.sidebarRestingMinX + 8;
-    chrome.titleRowTop.constant = std::max<CGFloat>(4, top);
+    chrome.titleRowTop.constant = std::max<CGFloat>(kTitleRowMinTop, top);
     chrome.titleRowLeading.constant = std::max<CGFloat>(8, leading);
 }
 
