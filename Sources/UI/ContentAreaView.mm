@@ -173,6 +173,11 @@
         _status.textColor = NSColor.secondaryLabelColor;
         _status.alignment = NSTextAlignmentRight;
         [_status setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+        // Room for the longest usual status, so the bar (pinned at its right edge) keeps one width
+        // and the field does not move while the user types.
+        _status.stringValue = @"No matches";
+        [_status.widthAnchor constraintGreaterThanOrEqualToConstant:ceil(_status.intrinsicContentSize.width)].active = YES;
+        _status.stringValue = @"";
         NSStackView *stack = [NSStackView stackViewWithViews:@[_field, _status, _prev, _next, _done]];
         stack.spacing = 4;
         [stack setCustomSpacing:8 afterView:_status];
