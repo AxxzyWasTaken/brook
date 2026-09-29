@@ -77,7 +77,9 @@
         _detail.font = [NSFont systemFontOfSize:13];
         _detail.textColor = NSColor.secondaryLabelColor;
         _detail.alignment = NSTextAlignmentCenter;
-        _detail.preferredMaxLayoutWidth = 420;
+        // No fixed wrap width: the detail wraps to the room it has (at most 420), so a narrow window doesn't clip it.
+        [_detail setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                          forOrientation:NSLayoutConstraintOrientationHorizontal];
         _retry.bezelStyle = NSBezelStyleGlass;
         _retry.controlSize = NSControlSizeLarge;
         _retry.target = self;
@@ -94,7 +96,9 @@
         [NSLayoutConstraint activateConstraints:@[
             [stack.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
             [stack.centerYAnchor constraintEqualToAnchor:self.centerYAnchor constant:-30],
-            [stack.widthAnchor constraintLessThanOrEqualToConstant:440]
+            [stack.widthAnchor constraintLessThanOrEqualToConstant:440],
+            [stack.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.leadingAnchor constant:24],
+            [_detail.widthAnchor constraintLessThanOrEqualToConstant:420]
         ]];
     }
     return self;
