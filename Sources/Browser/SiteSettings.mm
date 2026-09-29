@@ -126,18 +126,28 @@ static NSDictionary<NSString *, SiteOverride *> *sSiteCache;
 
 + (void)invalidate { sSiteCache = nil; }
 
-/// The override for a host, falling back to its parent domains ("m.example.com" → "example.com").
+/// The override for a host. Each unset field comes from the nearest parent domain that sets it
+/// ("m.example.com" → "example.com").
 + (SiteOverride *)overrideForHost:(NSString *)host {
-    if (!host) return [SiteOverride new];
+    SiteOverride *r = [SiteOverride new];
+    if (!host) return r;
     NSString *h = [self keyForHost:host];
     NSDictionary<NSString *, SiteOverride *> *map = self.all;
     while (true) {
         SiteOverride *o = map[h];
-        if (o) return [o copy];
+        if (o) {
+            if (!r.zoom) r.zoom = o.zoom;
+            if (!r.javascript) r.javascript = o.javascript;
+            if (!r.autoplay) r.autoplay = o.autoplay;
+            if (!r.cookiePopups) r.cookiePopups = o.cookiePopups;
+            if (!r.forceDark) r.forceDark = o.forceDark;
+            if (!r.userAgent) r.userAgent = o.userAgent;
+            if (!r.blockAds) r.blockAds = o.blockAds;
+        }
         NSRange dot = [h rangeOfString:@"."];
-        if (dot.location == NSNotFound) return [SiteOverride new];
+        if (dot.location == NSNotFound) return r;
         NSString *rest = [h substringFromIndex:dot.location + 1];
-        if (![rest containsString:@"."]) return [SiteOverride new];
+        if (![rest containsString:@"."]) return r;
         h = rest;
     }
 }

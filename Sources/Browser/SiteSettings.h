@@ -30,7 +30,8 @@
 /// Every override, keyed by site. Setting it drops empty overrides and saves (posts "siteSettings").
 @property (class, copy) NSDictionary<NSString *, SiteOverride *> *all;
 + (void)invalidate;
-/// The override for a host, falling back to its parent domains ("m.example.com" → "example.com").
+/// The override for a host. Each unset field comes from the nearest parent domain that sets it
+/// ("m.example.com" → "example.com").
 /// Never nil (an empty override when nothing matches or host is nil).
 + (SiteOverride *)overrideForHost:(NSString *)host;
 /// Mutates (a copy of) the host's override and saves.
