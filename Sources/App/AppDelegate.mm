@@ -209,6 +209,10 @@
         return tab != nil;
     } else if (action == @selector(copyURL:)) {
         return tab.url != nil;
+    } else if (action == @selector(selectTabN:) || action == @selector(nextTab:) ||
+               action == @selector(previousTab:)) {
+        // These pick from the space's visible tabs; an empty space has none to pick.
+        return self.state.visibleTabs.count > 0;
     } else if (action == @selector(togglePin:)) {
         menuItem.title = tab.isPinned == YES ? @"Unpin Tab" : @"Pin Tab";
         return tab != nil;
