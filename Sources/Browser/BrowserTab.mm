@@ -323,6 +323,11 @@ static void *kTabKVOContext = &kTabKVOContext;
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
     if (NSURL *url = webView.URL) [HistoryStore.shared recordURL:url title:webView.title];
+    // A page with no <title> keeps the last page's title otherwise; drop it so the URL shows.
+    if (!webView.title.length && _title.length) {
+        _title = @"";
+        [_state tabDidChange:self change:TabChangeTitle];
+    }
     [self refreshFavicon];
 }
 
