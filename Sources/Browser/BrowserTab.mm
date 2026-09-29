@@ -130,10 +130,16 @@ static void *kTabKVOContext = &kTabKVOContext;
 }
 
 - (void)reload {
+    // After a failed navigation, retry the address that failed, not the page still on screen.
+    BOOL failed = _loadError != nil;
     _loadError = nil;
     [_state tabDidChange:self change:TabChangeError];
     if (BrookWebView *wv = _webView) {
-        if (!wv.URL && _url) [wv loadRequest:[NSURLRequest requestWithURL:_url]]; else [wv reload];
+        if (_url && (!wv.URL || (failed && ![wv.URL isEqual:_url]))) {
+            [wv loadRequest:[NSURLRequest requestWithURL:_url]];
+        } else {
+            [wv reload];
+        }
     } else {
         [self materialize];
     }
@@ -343,6 +349,20 @@ static void *kTabKVOContext = &kTabKVOContext;
     // Cancelled loads, and "frame load interrupted" (downloads, policy changes), aren't errors.
     if ([ns.domain isEqualToString:NSURLErrorDomain] && ns.code == NSURLErrorCancelled) return;
     if ([ns.domain isEqualToString:@"WebKitErrorDomain"] && (ns.code == 102 || ns.code == 204)) return;
+    // A page that fails before it commits leaves the web view on the previous page; name the
+    // address that failed so the pill, the tab and Try Again all refer to it.
+    NSURL *failing = ns.userInfo[NSURLErrorFailingURLErrorKey];
+    if ([failing isKindOfClass:NSURL.class] && ![failing isEqual:_url]) {
+        BOOL hostChanged = !SameHost(BrookHost(failing), BrookHost(_url));
+        _url = failing;
+        _title = @"";
+        TabChange change = TabChangeURL | TabChangeTitle;
+        if (hostChanged) {
+            self.favicon = [FaviconStore.shared cachedIconForHost:BrookHost(failing)];
+            change |= TabChangeFavicon;
+        }
+        [_state tabDidChange:self change:change];
+    }
     _loadError = [ns.localizedDescription copy];
     [_state tabDidChange:self change:TabChangeError];
 }

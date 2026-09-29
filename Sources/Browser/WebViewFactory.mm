@@ -93,6 +93,13 @@ static WKUserScript *sDarkScript;
 
 @implementation BrookWebView
 
+// The menu's Reload goes to the first responder, and WKWebView answers it itself. Route it through the tab,
+// so that a page that failed to load is loaded again instead of the last page that did load.
+- (IBAction)reload:(id)sender {
+    if (BrowserTab *tab = self.tab) [tab reload];
+    else [super reload:sender];
+}
+
 - (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event {
     [super willOpenMenu:menu withEvent:event];
     for (NSMenuItem *item in menu.itemArray) {
