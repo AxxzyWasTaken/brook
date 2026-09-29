@@ -21,6 +21,7 @@
 @end
 
 @interface BoostsPane : RebuildingPane <NSTableViewDataSource, NSTableViewDelegate, NSTextViewDelegate>
+- (void)selectBoostID:(NSUUID *)identifier;
 @end
 
 @interface AdvancedPane : RebuildingPane
@@ -287,6 +288,15 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
     if (!self.window.isVisible) [self.window center];
     [self showWindow:nil];
     [self.window makeKeyAndOrderFront:nil];
+}
+
+- (void)showBoost:(NSUUID *)identifier {
+    NSTabViewController *tabs = [self.window.contentViewController isKindOfClass:NSTabViewController.class]
+        ? (NSTabViewController *)self.window.contentViewController : nil;
+    for (NSTabViewItem *item in tabs.tabViewItems) {
+        if ([item.viewController isKindOfClass:BoostsPane.class]) [(BoostsPane *)item.viewController selectBoostID:identifier];
+    }
+    [self showPane:@"Boosts"];
 }
 
 @end
@@ -1369,6 +1379,14 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
     if (row >= 0) [_list.table reloadDataForRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row]
                                          columnIndexes:[NSIndexSet indexSetWithIndex:0]];
     [_saveDebounce call:^{ [WebViewFactory reloadSiteScripts]; }];
+}
+
+- (void)selectBoostID:(NSUUID *)identifier {
+    if (!identifier) return;
+    [self saveEditor];
+    _selectedID = identifier;
+    // A rebuild reads the current list, so a boost that was just added shows too.
+    if (self.isViewLoaded) [self rebuild];
 }
 
 - (void)textDidChange:(NSNotification *)notification { [self saveEditor]; }

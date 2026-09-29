@@ -10,4 +10,6 @@
 - (void)show;
 /// Selects the pane whose label matches ("General", "Boosts", …), then shows.
 - (void)showPane:(NSString *)pane;
+/// Shows the Boosts pane with the boost that has this identifier selected.
+- (void)showBoost:(NSUUID *)identifier;
 @end

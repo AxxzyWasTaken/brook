@@ -150,13 +150,16 @@ static NSStackView *BrookVerticalStack(NSStackView *stack) {
     NSButton *boost = [Controls button:boostTitle action:^{
         SiteInfoViewController *self = weakSelf;
         if (!self) return;
+        NSUUID *identifier = boosts.firstObject.identifier;
         if (noBoosts) {
-            [Boosts save:[[Boost alloc] initWithName:self->_host site:self->_host
-                                                 css:[NSString stringWithFormat:@"/* CSS for %@ */\n", self->_host]
-                                                  js:@""]];
+            Boost *b = [[Boost alloc] initWithName:self->_host site:self->_host
+                                               css:[NSString stringWithFormat:@"/* CSS for %@ */\n", self->_host]
+                                                js:@""];
+            [Boosts save:b];
+            identifier = b.identifier;
         }
         [self dismissController:nil];
-        [SettingsWindowController.shared showPane:@"Boosts"];
+        [SettingsWindowController.shared showBoost:identifier];
     }];
     NSButton *reload = [Controls button:@"Reload" action:^{
         [weakSelf dismissController:nil];
