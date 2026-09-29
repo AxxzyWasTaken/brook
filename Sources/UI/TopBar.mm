@@ -1291,6 +1291,8 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
         [_extensionsBar.trailingAnchor constraintEqualToAnchor:extensionsHolder.trailingAnchor constant:-kFavoritePad],
         [_extensionsBar.topAnchor constraintEqualToAnchor:extensionsHolder.topAnchor],
         [_extensionsBar.bottomAnchor constraintEqualToAnchor:extensionsHolder.bottomAnchor],
+        // "…" always shows whole: in a narrow window favorites and the tab track give way, not it.
+        [_extensionsBar.widthAnchor constraintGreaterThanOrEqualToConstant:kFavoriteSize],
         [_newTabButton.leadingAnchor constraintEqualToAnchor:_extensionsGlass.trailingAnchor constant:4],
         [_newTabButton.centerYAnchor constraintEqualToAnchor:_toolbar.centerYAnchor],
         [tools.trailingAnchor constraintEqualToAnchor:_toolbar.trailingAnchor],
