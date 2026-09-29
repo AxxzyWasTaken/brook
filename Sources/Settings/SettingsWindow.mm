@@ -324,17 +324,13 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
 
     NSPopUpButton *spaces = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [spaces addItemWithTitle:@"Current space"];
-    NSArray<Space *> *allSpaces = BrowserState.shared.spaces;
-    for (Space *s in allSpaces) {
-        [spaces addItemWithTitle:s.name];
-        spaces.lastItem.representedObject = s.identifier;
-    }
+    // Items go into the menu directly: NSPopUpButton's addItemWithTitle: drops an earlier item with the
+    // same title, and two spaces can share a name.
     NSUUID *linkSpace = Settings.externalLinksSpace;
-    if (linkSpace) {
-        NSUInteger i = [allSpaces indexOfObjectPassingTest:^BOOL(Space *s, NSUInteger, BOOL *) {
-            return [s.identifier isEqual:linkSpace];
-        }];
-        if (i != NSNotFound) [spaces selectItemAtIndex:(NSInteger)i + 1];
+    for (Space *s in BrowserState.shared.spaces) {
+        NSMenuItem *item = [spaces.menu addItemWithTitle:s.name action:nil keyEquivalent:@""];
+        item.representedObject = s.identifier;
+        if ([s.identifier isEqual:linkSpace]) [spaces selectItem:item];
     }
     [spaces brook_onAction:^(id c) {
         id obj = ((NSPopUpButton *)c).selectedItem.representedObject;
