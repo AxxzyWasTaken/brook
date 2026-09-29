@@ -914,7 +914,13 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
             ? NSColor.systemRedColor : NSColor.labelColor;
     }];
     if ([field.cell isKindOfClass:NSTextFieldCell.class]) ((NSTextFieldCell *)field.cell).sendsActionOnEndEditing = YES;
-    return field;
+    // In a stack, like the archive and website lists, so the text is centred in the row instead of at its top.
+    // The 2pt insets keep the text on the column header's text edge.
+    [field setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                    forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSStackView *stack = [NSStackView stackViewWithViews:@[field]];
+    stack.edgeInsets = NSEdgeInsetsMake(0, 2, 0, 2);
+    return stack;
 }
 
 @end
