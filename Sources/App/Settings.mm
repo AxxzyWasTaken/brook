@@ -398,7 +398,11 @@ BROOK_FLAG(commandBarSuggestions, setCommandBarSuggestions, @"commandBarSuggesti
 
 + (NSDictionary<NSString *, NSDictionary *> *)appearancePresets {
     id v = [D() objectForKey:@"appearancePresets"];
-    return [v isKindOfClass:NSDictionary.class] ? v : @{};
+    if (![v isKindOfClass:NSDictionary.class]) return @{};
+    for (id key in v) {   // one bad entry rejects the whole dictionary, like the other stored lists
+        if (![key isKindOfClass:NSString.class] || ![v[key] isKindOfClass:NSDictionary.class]) return @{};
+    }
+    return v;
 }
 + (void)setAppearancePresets:(NSDictionary<NSString *, NSDictionary *> *)v {
     [self store:v.count ? v : nil key:@"appearancePresets"];
