@@ -72,6 +72,8 @@
             minLabel.priority = NSLayoutPriorityRequired - 1;
             [NSLayoutConstraint activateConstraints:@[
                 minLabel,
+                // "…" always shows: in a narrow sidebar the address gives way, not the last button.
+                [bar.widthAnchor constraintGreaterThanOrEqualToConstant:22],
                 [_cookie.trailingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:-2],
                 [bar.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-5],
                 [bar.topAnchor constraintEqualToAnchor:self.topAnchor],
