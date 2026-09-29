@@ -371,8 +371,14 @@ NSInteger CharacterCount(NSString *s) {
     NSRect pf = parent.frame;
     CGFloat w = std::min<CGFloat>(std::max<CGFloat>(560, NSWidth(a)), NSWidth(pf) - 16);
     CGFloat x = std::clamp<CGFloat>(NSMinX(a), NSMinX(pf) + 8, NSMaxX(pf) - 8 - w);
+    // Below the bar if the rows fit there; else on the side with more room (a tab low in the icon
+    // rail opens it upward), showing only the rows that fit. The rest stay a scroll away.
+    CGFloat below = NSMinY(b) - 6 - (NSMinY(pf) + 8), above = NSMaxY(pf) - 8 - (NSMaxY(b) + 6);
+    BOOL up = (CGFloat)rows * _rowHeight + 16 > below && above > below;
+    NSInteger fit = (NSInteger)std::floor(((up ? above : below) - 16) / _rowHeight);
+    rows = std::max<NSInteger>(1, std::min(rows, fit));
     CGFloat h = (CGFloat)rows * _rowHeight + 16;
-    [_panel setFrame:NSMakeRect(x, NSMinY(b) - 6 - h, w, h) display:YES];
+    [_panel setFrame:NSMakeRect(x, up ? NSMaxY(b) + 6 : NSMinY(b) - 6 - h, w, h) display:YES];
     if (!_panel.isVisible) {
         [parent addChildWindow:_panel ordered:NSWindowAbove];
         _panel.alphaValue = 0;
