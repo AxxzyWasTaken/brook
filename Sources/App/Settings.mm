@@ -386,7 +386,11 @@ BROOK_FLAG(commandBarSuggestions, setCommandBarSuggestions, @"commandBarSuggesti
 
 + (NSDictionary<NSString *, NSString *> *)shortcuts {
     id v = [D() objectForKey:@"shortcuts"];
-    return [v isKindOfClass:NSDictionary.class] ? v : @{};
+    if (![v isKindOfClass:NSDictionary.class]) return @{};
+    for (id key in v) {   // one bad entry rejects the whole dictionary, like the other stored lists
+        if (![key isKindOfClass:NSString.class] || ![v[key] isKindOfClass:NSString.class]) return @{};
+    }
+    return v;
 }
 + (void)setShortcuts:(NSDictionary<NSString *, NSString *> *)v { [self store:v.count ? v : nil key:@"shortcuts"]; }
 
