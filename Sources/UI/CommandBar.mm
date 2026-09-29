@@ -517,6 +517,9 @@ NSInteger CharacterCount(NSString *s) {
     }
     _suggestions = std::move(list);
     [_table reloadData];
+    // Make the rows before selecting one: a row made already selected keeps a non-vibrant look
+    // after the selection moves on, so its labels draw dimmer than every other row's.
+    [_table layoutSubtreeIfNeeded];
     if (!_suggestions.empty()) [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
     if (_attachedField) [self layoutAttached];
     else if (_panel.isVisible) [self layoutPanel];
