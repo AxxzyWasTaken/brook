@@ -1248,6 +1248,13 @@ static BOOL BoostsEqual(Boost *a, Boost *b) {
     split.alignment = NSLayoutAttributeTop;
     split.spacing = 20;
     split.edgeInsets = NSEdgeInsetsMake(24, 24, 24, 24);
+    // Top alignment gives each column only a soft bottom inset at the split's hugging priority (250).
+    // The short list column then pulled the pane as short as the tall editor pushed it (the editor lost
+    // its inset), and the list stretched its +/- row. Keep the inset required, as SettingsForm does
+    // for the other panes, and hug below the columns' own 250 so that each column keeps its size.
+    for (NSView *column in split.arrangedSubviews)
+        [split.bottomAnchor constraintGreaterThanOrEqualToAnchor:column.bottomAnchor constant:24].active = YES;
+    [split setHuggingPriority:NSLayoutPriorityDefaultLow - 50 forOrientation:NSLayoutConstraintOrientationVertical];
     [split.widthAnchor constraintEqualToConstant:780].active = YES;
     if (!_selectedID || [self indexOfID:_selectedID] == NSNotFound) _selectedID = _boosts.firstObject.identifier;
     [self selectCurrent];
