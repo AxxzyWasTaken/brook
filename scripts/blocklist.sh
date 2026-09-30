@@ -6,7 +6,7 @@
 # The converter is only a build tool; it isn't linked into or shipped with Brook.
 # All lists are converted together into one rule list: a list's exceptions (ignore-previous-rules)
 # only override its own earlier rules, so with a list each, one could block what another allows.
-# One list of ~134k rules; WebKit's cap is 150k, checked below.
+# One list of ~132k rules; WebKit's cap is 150k, checked below.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -42,7 +42,13 @@ if [ "$discarded" != 0 ]; then
     echo "error: $discarded rules over WebKit's 150,000-rule cap were dropped" >&2
     exit 1
 fi
-jq -r .safariRulesJSON "$WORK/result.json" > "$WORK/blocklist.json"
+jq -r .safariRulesJSON "$WORK/result.json" > "$WORK/converted.json"
+# The lists overlap, so ~1.5k rules come out twice. Keep each rule's last copy only: an exception
+# (ignore-previous-rules) between two copies cancels the first but not the second, so the last copy
+# is the one that decides, and blocking is unchanged.
+jq -c 'to_entries | group_by(.value | tojson) | map(max_by(.key)) | sort_by(.key) | map(.value)' \
+    "$WORK/converted.json" > "$WORK/blocklist.json"
+rules=$(jq length "$WORK/blocklist.json")
 rm -f "$OUT"
 compression_tool -encode -a lzfse -i "$WORK/blocklist.json" -o "$OUT"
 echo "$rules rules, $(wc -c < "$OUT" | tr -d ' ') bytes -> $OUT"
