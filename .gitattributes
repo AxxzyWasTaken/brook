@@ -1,0 +1,4 @@
+# Third-party bundles, not Brook's own code: keep them out of GitHub's language stats.
+Resources/scriptlets-main.js linguist-vendored
+Resources/scriptlets-isolated.js linguist-vendored
+Resources/autoconsent-bundle.js linguist-vendored
