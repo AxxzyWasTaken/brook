@@ -82,6 +82,7 @@
 - (void)applicationWillTerminate:(NSNotification *)notification {
     [self.state saveNow];
     [HistoryStore.shared saveNow];
+    [DownloadManager.shared discardUnfinished];   // nothing to resume them from after quitting
     BrookFinishBackgroundWrites();   // the saves above are queued; don't quit before they land
 }
 
@@ -200,7 +201,6 @@
 - (void)installExtensionFile:(id)sender { [self.wc promptInstallFile]; }
 - (void)showMainWindow:(id)sender { [self.wc showWindow:nil]; }
 
-- (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
 // Web Inspector: WebKit's own, through the private `_inspector` (_WKInspector), the one Safari's Develop
 // menu drives. Each selector is checked first, so a WebKit without them leaves the items doing nothing.
 - (id)selectedInspector {
@@ -227,6 +227,7 @@ static BOOL InspectorVisible(id inspector) {
     InspectorSend(inspector, @"toggleElementSelection");
 }
 
+- (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
     SEL action = menuItem.action;
     BrowserTab *tab = self.state.selectedTab;
     NSWindow *sheet = _windowController.window.attachedSheet;
@@ -249,12 +250,12 @@ static BOOL InspectorVisible(id inspector) {
     } else if (action == @selector(showSiteSettings:) || action == @selector(printPage:) ||
                action == @selector(togglePictureInPicture:)) {
         return BrookHost(tab.url) != nil;
-    } else if (action == @selector(reload:) || action == @selector(hardReload:) ||
     } else if (action == @selector(toggleWebInspector:)) {
         menuItem.title = InspectorVisible(self.selectedInspector) ? @"Hide Web Inspector" : @"Show Web Inspector";
         return self.selectedInspector != nil;
     } else if (action == @selector(showJavaScriptConsole:) || action == @selector(inspectElement:)) {
         return self.selectedInspector != nil;
+    } else if (action == @selector(reload:) || action == @selector(hardReload:) ||
                action == @selector(actualSize:) || action == @selector(zoomIn:) ||
                action == @selector(zoomOut:) || action == @selector(find:) ||
                action == @selector(findNext:) || action == @selector(findPrevious:)) {
@@ -516,11 +517,11 @@ static NSString *BrookKey(unichar c) {
         separator(),
         item(@"Settings for This Website…", @selector(showSiteSettings:)),
         separator(),
-        item(@"Enter Full Screen", @selector(toggleFullScreen:), @"f", cmd | ctrl),
         item(@"Show Web Inspector", @selector(toggleWebInspector:), @"i", cmd | opt),
         item(@"Show JavaScript Console", @selector(showJavaScriptConsole:), @"j", cmd | opt),
         item(@"Inspect Element", @selector(inspectElement:), @"c", cmd | opt),
         separator(),
+        item(@"Enter Full Screen", @selector(toggleFullScreen:), @"f", cmd | ctrl),
     ]);
 
     NSMutableArray<NSMenuItem *> *spaceItems = [NSMutableArray arrayWithArray:@[

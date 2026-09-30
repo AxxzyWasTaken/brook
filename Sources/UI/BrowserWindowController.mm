@@ -1855,9 +1855,9 @@ static NSImage *SpaceDotImage(NSColor *color) {
 
 // MARK: - Downloads popover
 
-/// One download: its name, then a progress bar, a Show in Finder button or "Failed". Kept for the
-/// download's lifetime and updated in place, so VoiceOver and keyboard focus stay put while the
-/// progress ticks.
+/// One download: its name, then a progress bar and a pause button while it runs, and below it what
+/// happened ("Paused", "Failed") with Resume/Retry, or Show in Finder. Kept for the download's lifetime and
+/// updated in place, so VoiceOver and keyboard focus stay put while the progress ticks.
 @interface DownloadRowView : NSStackView
 @property (readonly) DownloadItem *item;
 - (instancetype)initWithItem:(DownloadItem *)item;
@@ -1866,9 +1866,20 @@ static NSImage *SpaceDotImage(NSColor *color) {
 
 @implementation DownloadRowView {
     NSTextField *_name;
+    NSStackView *_running;   // bar + pause
     NSProgressIndicator *_bar;
+    NSButton *_pause;
+    NSStackView *_stopped;   // status + resume
+    NSTextField *_status;
+    NSButton *_resume;
     NSButton *_reveal;
-    NSTextField *_failed;
+}
+
+static NSButton *DownloadInlineButton(NSString *title, id target, SEL action) {
+    NSButton *b = [NSButton buttonWithTitle:title target:target action:action];
+    b.bezelStyle = NSBezelStyleInline;
+    b.controlSize = NSControlSizeSmall;
+    return b;
 }
 
 - (instancetype)initWithItem:(DownloadItem *)item {
@@ -1882,15 +1893,23 @@ static NSImage *SpaceDotImage(NSColor *color) {
         _bar = [NSProgressIndicator new];
         _bar.indeterminate = NO;
         _bar.controlSize = NSControlSizeSmall;
-        _reveal = [NSButton buttonWithTitle:@"Show in Finder" target:self action:@selector(revealInFinder)];
-        _reveal.bezelStyle = NSBezelStyleInline;
-        _reveal.controlSize = NSControlSizeSmall;
-        _failed = [NSTextField labelWithString:@"Failed"];
-        _failed.textColor = NSColor.systemRedColor;
-        _failed.font = [NSFont systemFontOfSize:11];
-        for (NSView *v in @[_name, _bar, _reveal, _failed]) [self addArrangedSubview:v];
+        _pause = [NSButton buttonWithImage:[NSImage brook_symbol:@"pause.circle.fill" size:13] ?: [NSImage new]
+                                    target:self action:@selector(pause)];
+        _pause.bordered = NO;
+        _pause.contentTintColor = NSColor.secondaryLabelColor;
+        _pause.toolTip = @"Pause";
+        _pause.accessibilityLabel = @"Pause";
+        _running = [NSStackView stackViewWithViews:@[_bar, _pause]];
+        _running.spacing = 6;
+        _status = [NSTextField labelWithString:@""];
+        _status.font = [NSFont systemFontOfSize:11];
+        _resume = DownloadInlineButton(@"Resume", self, @selector(resume));
+        _stopped = [NSStackView stackViewWithViews:@[_status, _resume]];
+        _stopped.spacing = 8;
+        _reveal = DownloadInlineButton(@"Show in Finder", self, @selector(revealInFinder));
+        for (NSView *v in @[_name, _running, _stopped, _reveal]) [self addArrangedSubview:v];
         [_name.widthAnchor constraintEqualToAnchor:self.widthAnchor].active = YES;
-        [_bar.widthAnchor constraintEqualToAnchor:self.widthAnchor].active = YES;
+        [_running.widthAnchor constraintEqualToAnchor:self.widthAnchor].active = YES;
         self.orientation = NSUserInterfaceLayoutOrientationVertical;
         self.alignment = NSLayoutAttributeLeading;
         self.spacing = 4;
@@ -1904,11 +1923,21 @@ static NSImage *SpaceDotImage(NSColor *color) {
     DownloadItem *item = _item;
     if (![_name.stringValue isEqualToString:item.filename ?: @""]) _name.stringValue = item.filename ?: @"";
     DownloadStatus status = item.status;
-    _bar.hidden = status != DownloadStatusActive;
+    _running.hidden = status != DownloadStatusActive;
     _reveal.hidden = status != DownloadStatusFinished;
-    _failed.hidden = status != DownloadStatusFailed;
+    _stopped.hidden = status != DownloadStatusPaused && status != DownloadStatusFailed;
     if (status == DownloadStatusActive) _bar.doubleValue = item.fraction * 100;
+    if (!_stopped.hidden) {
+        BOOL paused = status == DownloadStatusPaused;
+        _status.stringValue = paused ? @"Paused" : @"Failed";
+        _status.textColor = paused ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+        // With nothing kept to carry on from, it starts again: say so.
+        _resume.title = paused || item.resumeData ? @"Resume" : @"Retry";
+    }
 }
+
+- (void)pause { [DownloadManager.shared pause:_item]; }
+- (void)resume { [DownloadManager.shared resume:_item]; }
 
 - (void)revealInFinder {
     if (NSURL *dest = _item.destination) [NSWorkspace.sharedWorkspace activateFileViewerSelectingURLs:@[dest]];

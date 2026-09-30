@@ -53,15 +53,20 @@ FOUNDATION_EXPORT NSNotificationName const FaviconStoreDidLoadIconNotification;
 
 // MARK: - Downloads
 
-typedef NS_ENUM(NSInteger, DownloadStatus) { DownloadStatusActive, DownloadStatusFinished, DownloadStatusFailed };
+typedef NS_ENUM(NSInteger, DownloadStatus) {
+    DownloadStatusActive, DownloadStatusFinished, DownloadStatusFailed, DownloadStatusPaused
+};
 
 @interface DownloadItem : NSObject
 - (instancetype)initWithDownload:(WKDownload *)download;
+/// The download running now: a resumed or retried download is a new WKDownload under the same item.
 @property (readonly) WKDownload *download;
 @property (copy) NSString *filename;     // default "Download"
 @property (copy) NSURL *destination;
 @property DownloadStatus status;
 @property (readonly) double fraction;
+/// Paused, or failed partway: where WebKit can carry on from. nil when it has to start again.
+@property (readonly) NSData *resumeData;
 @end
 
 /// Posted when downloads change ("BrookDownloadsDidChange"), object = the manager.
@@ -74,4 +79,10 @@ FOUNDATION_EXPORT NSNotificationName const DownloadManagerDidChangeNotification;
 @property (readonly) BOOL hasActive;
 - (void)track:(WKDownload *)download;
 - (void)clearFinished;
+/// Stops a running download, keeping what it has so far to resume from.
+- (void)pause:(DownloadItem *)item;
+/// Carries on a paused or failed download from where it stopped, or starts it again if it can't.
+- (void)resume:(DownloadItem *)item;
+/// Deletes the partial files of downloads that never finished (at quit: resume data doesn't outlive the app).
+- (void)discardUnfinished;
 @end

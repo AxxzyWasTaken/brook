@@ -307,17 +307,27 @@ static NSImage *ReadIcon(NSURL *file) {
 
 NSNotificationName const DownloadManagerDidChangeNotification = @"BrookDownloadsDidChange";
 
-@implementation DownloadItem
+@implementation DownloadItem {
+    @public
+    WKDownload *_download;
+    NSData *_resumeData;
+    NSURLRequest *_request;       // for Retry when there's nothing to resume from
+    __weak WKWebView *_webView;   // started from; WebKit resumes a download through a web view
+}
 
 - (instancetype)initWithDownload:(WKDownload *)download {
     if ((self = [super init])) {
         _download = download;
+        _request = download.originalRequest;
+        _webView = download.webView;
         _filename = @"Download";
         _status = DownloadStatusActive;
     }
     return self;
 }
 
+- (WKDownload *)download { return _download; }
+- (NSData *)resumeData { return _resumeData; }
 - (double)fraction { return _download.progress.fractionCompleted; }
 
 @end
@@ -352,15 +362,74 @@ NSNotificationName const DownloadManagerDidChangeNotification = @"BrookDownloads
 }
 
 - (void)clearFinished {
+    NSMutableArray *gone = [NSMutableArray array];
     [_items filterUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(DownloadItem *i, NSDictionary *b) {
+        if (i.status != DownloadStatusActive) [gone addObject:i];
         return i.status == DownloadStatusActive;
     }]];
+    // A paused or failed download cleared from the list can't be resumed any more: its part goes too.
+    for (DownloadItem *i in gone) if (i.status != DownloadStatusFinished) [self removePartial:i];
     [self notify];
 }
 
 - (DownloadItem *)itemFor:(WKDownload *)d {
-    for (DownloadItem *i in _items) if (i.download == d) return i;
+    for (DownloadItem *i in _items) if (i->_download == d) return i;
     return nil;
+}
+
+- (void)removePartial:(DownloadItem *)item {
+    NSURL *partial = item.destination;
+    if (!partial || ![partial checkResourceIsReachableAndReturnError:nil]) return;
+    NSError *error = nil;
+    if (![NSFileManager.defaultManager removeItemAtURL:partial error:&error])
+        NSLog(@"Brook: couldn't remove unfinished download %@: %@", partial.path, error);
+}
+
+- (void)pause:(DownloadItem *)item {
+    if (item.status != DownloadStatusActive) return;
+    WKDownload *download = item->_download;
+    // Paused before the cancel: WebKit reports the cancel as a failure too, and that path would
+    // otherwise delete the part this pause keeps.
+    item.status = DownloadStatusPaused;
+    [self notify];
+    [download cancel:^(NSData *resumeData) {
+        if (item->_download != download) return;
+        item->_resumeData = resumeData;
+        [self notify];
+    }];
+}
+
+- (void)resume:(DownloadItem *)item {
+    if (item.status != DownloadStatusPaused && item.status != DownloadStatusFailed) return;
+    WKWebView *wv = item->_webView ?: BrowserState.shared.selectedTab.webView;
+    if (!wv) return;
+    NSData *data = item->_resumeData;
+    item->_resumeData = nil;
+    item.status = DownloadStatusActive;
+    [self notify];
+    void (^adopt)(WKDownload *) = ^(WKDownload *download) {
+        if (!download) { item.status = DownloadStatusFailed; [self notify]; return; }
+        download.delegate = self;
+        item->_download = download;
+        item->_webView = download.webView ?: wv;
+        [self notify];
+    };
+    if (data) {
+        // Carries on into the file it was writing: WebKit doesn't ask for a destination again.
+        [wv resumeDownloadFromResumeData:data completionHandler:adopt];
+    } else if (item->_request) {
+        [self removePartial:item];
+        [wv startDownloadUsingRequest:item->_request completionHandler:adopt];
+    } else {
+        item.status = DownloadStatusFailed;
+        [self notify];
+    }
+}
+
+- (void)discardUnfinished {
+    for (DownloadItem *i in _items) {
+        if (i.status == DownloadStatusPaused || i.status == DownloadStatusFailed) [self removePartial:i];
+    }
 }
 
 - (void)notify {
@@ -435,16 +504,12 @@ NSNotificationName const DownloadManagerDidChangeNotification = @"BrookDownloads
 
 - (void)download:(WKDownload *)download didFailWithError:(NSError *)error resumeData:(NSData *)resumeData {
     DownloadItem *item = [self itemFor:download];
+    if (!item || item.status == DownloadStatusPaused) return;   // paused: the cancel answer handles it
     item.status = DownloadStatusFailed;
-    // WebKit leaves the part it wrote under the final name. Brook can't resume, so the file is only a
-    // broken copy that looks complete and takes the name from the next try.
-    if (NSURL *partial = item.destination) {
-        NSError *removeError = nil;
-        if ([partial checkResourceIsReachableAndReturnError:nil]
-            && ![NSFileManager.defaultManager removeItemAtURL:partial error:&removeError]) {
-            NSLog(@"Brook: couldn't remove failed download %@: %@", partial.path, removeError);
-        }
-    }
+    item->_resumeData = resumeData;
+    // Without resume data, WebKit's part under the final name is only a broken copy that looks complete
+    // and takes the name from the next try. With it, the part is what Resume carries on from.
+    if (!resumeData) [self removePartial:item];
     [self notify];
 }
 
