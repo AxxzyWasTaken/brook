@@ -3,7 +3,7 @@
 // GeneralPane, AppearancePane, TabsPane, SearchPane, WebsitesPane, BoostsPane and AdvancedPane
 // stay private to SettingsWindow.mm.
 
-/// The ⌘, window: a native toolbar-tabbed preferences window like Safari's.
+/// The ⌘, window, laid out like a browser window: a glass sidebar of panes beside a rounded card.
 @interface SettingsWindowController : NSWindowController
 @property (class, readonly) SettingsWindowController *shared;
 /// Always go through +shared.

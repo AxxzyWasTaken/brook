@@ -39,14 +39,127 @@ static NSArray<NSString *> *EnumTitles(NSInteger count, NSString *(^title)(NSInt
 
 // MARK: - Window
 
-/// Resizes the window itself, animated and as soon as a pane is picked, keeping the top edge put.
-/// NSTabViewController's own resize waits for the crossfade to finish and then jumps.
-@interface SettingsTabViewController : NSTabViewController <NSSearchFieldDelegate>
-/// Puts the cursor in the toolbar's "Search settings" field.
-- (void)focusSearch;
+/// Holds the panes and switches between them (crossfading). SettingsRootViewController shows its
+/// view in the card and sizes the window around the selected pane.
+@interface SettingsTabViewController : NSTabViewController
+/// A pane was picked, or the picked pane's preferred size changed.
+@property (copy) void (^onPaneChange)(void);
 @end
 
-static NSToolbarItemIdentifier const kSettingsSearchItem = @"BrookSettingsSearch";
+@implementation SettingsTabViewController
+
+- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item {
+    [super tabView:tabView didSelectTabViewItem:item];
+    if (self.onPaneChange) self.onPaneChange();
+}
+
+// Not passed to super: the root view controller sizes the window itself.
+- (void)preferredContentSizeDidChangeForViewController:(NSViewController *)vc {
+    if (vc == self.tabView.selectedTabViewItem.viewController && self.onPaneChange) self.onPaneChange();
+}
+
+@end
+
+/// One pane in the settings sidebar, drawn like a sidebar tab: symbol, title, and the tab's hover
+/// and selected fills. An accessibility radio button, like the tabs.
+@interface SettingsPaneRow : HoverControl
+- (instancetype)initWithTitle:(NSString *)title symbol:(NSString *)symbol;
+@property (nonatomic) BOOL selected;
+/// Searching, and nothing in this pane matches.
+@property (nonatomic) BOOL dimmed;
+/// Settings → Appearance → Font.
+- (void)applyFont;
+@end
+
+@implementation SettingsPaneRow {
+    NSImageView *_icon;
+    NSTextField *_label;
+}
+
+- (instancetype)initWithTitle:(NSString *)title symbol:(NSString *)symbol {
+    if ((self = [super initWithFrame:NSZeroRect])) {
+        self.cornerRadius = 9;   // a tab row's
+        self.accessibilityLabel = title;
+        _icon = [NSImageView imageViewWithImage:[NSImage brook_symbol:symbol size:13]];
+        _icon.imageScaling = NSImageScaleNone;
+        _icon.contentTintColor = NSColor.secondaryLabelColor;
+        _label = [NSTextField labelWithString:title];
+        _label.lineBreakMode = NSLineBreakByTruncatingTail;
+        for (NSView *v in @[_icon, _label]) {
+            v.translatesAutoresizingMaskIntoConstraints = NO;
+            [self addSubview:v];
+        }
+        self.translatesAutoresizingMaskIntoConstraints = NO;
+        [NSLayoutConstraint activateConstraints:@[
+            [self.heightAnchor constraintEqualToConstant:30],
+            [_icon.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10],
+            [_icon.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+            [_icon.widthAnchor constraintEqualToConstant:16],
+            [_label.leadingAnchor constraintEqualToAnchor:_icon.trailingAnchor constant:9],
+            [_label.trailingAnchor constraintLessThanOrEqualToAnchor:self.trailingAnchor constant:-8],
+            [_label.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+        ]];
+        [self applyFont];
+    }
+    return self;
+}
+
+- (void)applyFont { _label.font = BrookUIFont(13, NSFontWeightMedium); }
+
+- (void)setSelected:(BOOL)selected {
+    _selected = selected;
+    self.isHighlightedState = selected;
+    _icon.contentTintColor = selected ? NSColor.labelColor : NSColor.secondaryLabelColor;
+}
+
+- (void)setDimmed:(BOOL)dimmed {
+    _dimmed = dimmed;
+    self.alphaValue = dimmed ? 0.4 : 1;
+}
+
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityRadioButtonRole; }
+- (id)accessibilityValue { return @(_selected); }
+- (NSArray *)accessibilityChildren { return nil; }   // the symbol and title are the label
+
+@end
+
+/// The rounded card the selected pane sits on, like the page card in a browser window.
+@interface SettingsCardView : NSView
+@end
+
+@implementation SettingsCardView
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    if ((self = [super initWithFrame:frameRect])) {
+        self.wantsLayer = YES;
+        self.layer.masksToBounds = YES;
+        self.layer.cornerCurve = kCACornerCurveContinuous;
+    }
+    return self;
+}
+
+- (BOOL)wantsUpdateLayer { return YES; }
+
+- (void)updateLayer {
+    self.layer.backgroundColor = [self brook_cg:NSColor.textBackgroundColor];
+    self.layer.borderColor = [self brook_cg:BrookFill(0, 0.08, 1, 0.1)];
+    self.layer.borderWidth = self.layer.cornerRadius == 0 ? 0 : 0.5;
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    self.needsDisplay = YES;
+}
+
+@end
+
+/// Width of the settings sidebar.
+static const CGFloat kSettingsSidebarWidth = 200;
+/// Height of the titlebar (the empty unified toolbar makes it this tall); the search field sits
+/// just under the traffic lights.
+static const CGFloat kSettingsTitlebarHeight = 52;
+/// Space around the sidebar's search field and rows.
+static const CGFloat kSettingsSidebarPadding = 10;
 
 /// One place a search hit: the pane it's in and the control or label that matched.
 struct SettingsMatch {
@@ -54,42 +167,268 @@ struct SettingsMatch {
     __weak NSView *view;
 };
 
-@implementation SettingsTabViewController {
-    NSSearchToolbarItem *_searchItem;
+/// The ⌘, window's content, laid out like a browser window: a glass sidebar with the search field
+/// and one row per pane, beside a rounded card showing the selected pane. The window resizes to
+/// each pane, animated and keeping its top edge put.
+@interface SettingsRootViewController : NSViewController <NSSearchFieldDelegate>
+- (instancetype)initWithTabs:(SettingsTabViewController *)tabs;
+/// Puts the cursor in the sidebar's "Search settings" field.
+- (void)focusSearch;
+/// Sizes the window to the selected pane (animated when it's on screen).
+- (void)fitWindow;
+@end
+
+@implementation SettingsRootViewController {
+    SettingsTabViewController *_tabs;
+    NSGlassEffectView *_glass;
+    NSSearchField *_searchField;
+    NSStackView *_rows;
+    SettingsCardView *_card;
+    NSTextField *_title;
+    NSArray<NSLayoutConstraint *> *_margins;   // each one's constant is ± the page margin
+    NSLayoutConstraint *_searchTop;            // follows the traffic lights down (-placeTrafficLights)
+    id<NSObject> _settingsObserver;
     std::vector<SettingsMatch> _matches;
     size_t _matchIndex;
     NSMutableArray<NSView *> *_highlighted;
+    /// Where macOS put each traffic light (x, distance from the titlebar's top), before we moved it.
+    std::vector<NSPoint> _lightDefaults;
+    BOOL _lightsPlacementQueued;
+}
+
+- (instancetype)initWithTabs:(SettingsTabViewController *)tabs {
+    if ((self = [super initWithNibName:nil bundle:nil])) _tabs = tabs;
+    return self;
+}
+
+- (void)dealloc {
+    if (_settingsObserver) [NSNotificationCenter.defaultCenter removeObserver:_settingsObserver];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+- (void)loadView {
+    // The window's own backdrop, as in a browser window.
+    NSVisualEffectView *root = [NSVisualEffectView new];
+    root.material = NSVisualEffectMaterialUnderWindowBackground;
+    root.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+    root.state = NSVisualEffectStateFollowsWindowActiveState;
+    self.view = root;
+
+    _searchField = [NSSearchField new];
+    _searchField.placeholderString = @"Search settings";
+    _searchField.delegate = self;
+    _searchField.sendsWholeSearchString = NO;
+    _searchField.translatesAutoresizingMaskIntoConstraints = NO;
+
+    _rows = [NSStackView new];
+    _rows.orientation = NSUserInterfaceLayoutOrientationVertical;
+    _rows.alignment = NSLayoutAttributeWidth;
+    _rows.spacing = 2;
+    _rows.translatesAutoresizingMaskIntoConstraints = NO;
+    NSArray<NSTabViewItem *> *items = _tabs.tabViewItems;
+    for (NSUInteger i = 0; i < items.count; i++) {
+        SettingsPaneRow *row = [[SettingsPaneRow alloc] initWithTitle:items[i].label symbol:items[i].identifier];
+        __weak SettingsTabViewController *weakTabs = _tabs;
+        row.onClick = ^{ weakTabs.selectedTabViewItemIndex = (NSInteger)i; };
+        [_rows addArrangedSubview:row];
+    }
+
+    NSView *side = [NSView new];
+    [side addSubview:_searchField];
+    [side addSubview:_rows];
+    _glass = [NSGlassEffectView new];
+    _glass.contentView = side;
+    _glass.translatesAutoresizingMaskIntoConstraints = NO;
+    [root addSubview:_glass];
+
+    _card = [SettingsCardView new];
+    _card.translatesAutoresizingMaskIntoConstraints = NO;
+    [root addSubview:_card];
+    _title = [NSTextField labelWithString:@""];
+    _title.translatesAutoresizingMaskIntoConstraints = NO;
+    [_card addSubview:_title];
+    [self addChildViewController:_tabs];
+    NSTabView *tabView = _tabs.tabView;
+    tabView.tabViewType = NSNoTabsNoBorder;
+    tabView.drawsBackground = NO;
+    NSView *panes = _tabs.view;
+    panes.translatesAutoresizingMaskIntoConstraints = NO;
+    [_card addSubview:panes];
+
+    CGFloat pad = kSettingsSidebarPadding;
+    // Under the traffic lights, wherever the glass's top edge is.
+    _searchTop = [_searchField.topAnchor constraintEqualToAnchor:root.topAnchor constant:kSettingsTitlebarHeight];
+    _margins = @[
+        [_glass.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+        [_glass.topAnchor constraintEqualToAnchor:root.topAnchor],
+        [root.bottomAnchor constraintEqualToAnchor:_glass.bottomAnchor],
+        [_card.leadingAnchor constraintEqualToAnchor:_glass.trailingAnchor],
+        [_card.topAnchor constraintEqualToAnchor:root.topAnchor],
+        [root.trailingAnchor constraintEqualToAnchor:_card.trailingAnchor],
+        [root.bottomAnchor constraintEqualToAnchor:_card.bottomAnchor],
+    ];
+    [NSLayoutConstraint activateConstraints:_margins];
+    [NSLayoutConstraint activateConstraints:@[
+        [_glass.widthAnchor constraintEqualToConstant:kSettingsSidebarWidth],
+        _searchTop,
+        [_searchField.leadingAnchor constraintEqualToAnchor:side.leadingAnchor constant:pad],
+        [_searchField.trailingAnchor constraintEqualToAnchor:side.trailingAnchor constant:-pad],
+        [_rows.topAnchor constraintEqualToAnchor:_searchField.bottomAnchor constant:pad],
+        [_rows.leadingAnchor constraintEqualToAnchor:side.leadingAnchor constant:pad],
+        [_rows.trailingAnchor constraintEqualToAnchor:side.trailingAnchor constant:-pad],
+        // The window is never shorter than the sidebar, whatever resizes it (NSTabViewController
+        // also sizes it to the pane after each crossfade).
+        [_rows.bottomAnchor constraintLessThanOrEqualToAnchor:side.bottomAnchor constant:-pad],
+        [_title.topAnchor constraintEqualToAnchor:_card.topAnchor constant:18],
+        [_title.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor constant:24],
+        [panes.topAnchor constraintEqualToAnchor:_title.bottomAnchor constant:4],
+        [panes.leadingAnchor constraintEqualToAnchor:_card.leadingAnchor],
+        [panes.trailingAnchor constraintEqualToAnchor:_card.trailingAnchor],
+        [panes.bottomAnchor constraintEqualToAnchor:_card.bottomAnchor],
+    ]];
+    [self applyAppearance];
+    [self paneChanged];
+
+    __weak SettingsRootViewController *weakSelf = self;
+    _tabs.onPaneChange = ^{ [weakSelf paneChanged]; };
+    _settingsObserver = [NSNotificationCenter.defaultCenter addObserverForName:BrookSettingsDidChangeNotification
+                                                                        object:nil
+                                                                         queue:NSOperationQueue.mainQueue
+                                                                    usingBlock:^(NSNotification *note) {
+        id key = note.userInfo[@"key"];
+        if (![key isKindOfClass:NSString.class] || [@[@"*", @"pageMargin", @"cornerRadius", @"uiFont"] containsObject:key]) {
+            [weakSelf applyAppearance];
+            [weakSelf fitWindow];
+        }
+    }];
+}
+
+/// Settings → Appearance: the page margin, corner radius and font, as in a browser window.
+- (void)applyAppearance {
+    CGFloat m = Settings.pageMargin, r = Settings.cornerRadius;
+    for (NSLayoutConstraint *c in _margins) c.constant = m;
+    _glass.cornerRadius = r == 0 ? 0 : r + 2;
+    _card.layer.cornerRadius = r;
+    _card.needsDisplay = YES;
+    [self placeTrafficLights];
+    _title.font = BrookUIFont(15, NSFontWeightSemibold);
+    for (SettingsPaneRow *row in _rows.arrangedSubviews) [row applyFont];
+}
+
+- (void)viewDidAppear {
+    [super viewDidAppear];
+    // AppKit puts the traffic lights back at the window's corner whenever it re-tiles the title
+    // bar (resizing, retitling), so put them back in the sidebar each time, as a browser window does.
+    NSButton *close = [self.view.window standardWindowButton:NSWindowCloseButton];
+    if (!close) return;
+    [NSNotificationCenter.defaultCenter removeObserver:self name:NSViewFrameDidChangeNotification object:close];
+    close.postsFrameChangedNotifications = YES;
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(trafficLightsMoved:)
+                                               name:NSViewFrameDidChangeNotification object:close];
+    [self placeTrafficLights];
+}
+
+- (void)trafficLightsMoved:(NSNotification *)note {
+    // AppKit ignores moves made while it's still placing them, so wait a turn. Coalesced: one
+    // retile moves all three, and placing them posts this again.
+    if (_lightsPlacementQueued) return;
+    _lightsPlacementQueued = YES;
+    __weak SettingsRootViewController *weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        SettingsRootViewController *self_ = weakSelf;
+        if (!self_) return;
+        self_->_lightsPlacementQueued = NO;
+        [self_ placeTrafficLights];
+    });
+}
+
+/// Keeps the traffic lights inside the sidebar glass's rounded corner however big the page margin
+/// and corner radius are, never closer to the corner than macOS put them (the browser window's rule).
+- (void)placeTrafficLights {
+    NSWindow *w = self.view.window;
+    NSMutableArray<NSButton *> *buttons = [NSMutableArray array];
+    for (NSWindowButton t : {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
+        if (NSButton *b = [w standardWindowButton:t]) [buttons addObject:b];
+    }
+    NSView *bar = buttons.firstObject.superview;
+    if (buttons.count != 3 || !bar) return;
+    CGFloat barHeight = NSHeight(bar.bounds);
+    if (_lightDefaults.empty()) {
+        for (NSButton *b in buttons) _lightDefaults.push_back(NSMakePoint(NSMinX(b.frame), barHeight - NSMaxY(b.frame)));
+    }
+    NSPoint close = _lightDefaults[0];
+    CGFloat m = Settings.pageMargin, r = _glass.cornerRadius, height = NSHeight(buttons[0].frame);
+    CGFloat dx = std::max<CGFloat>(0, m + std::max<CGFloat>(close.x - 8, r * 0.55) - close.x);
+    // Stay inside the titlebar, or the buttons get clipped and stop taking clicks.
+    CGFloat dy = std::min<CGFloat>(std::max<CGFloat>(0, m + std::max<CGFloat>(close.y - 8, r * 0.55) - close.y),
+                                   barHeight - close.y - height - 2);
+    for (NSUInteger i = 0; i < 3; i++) {
+        NSPoint d = _lightDefaults[i];
+        NSPoint origin = NSMakePoint(d.x + dx, barHeight - d.y - dy - NSHeight(buttons[i].frame));
+        if (!NSEqualPoints(buttons[i].frame.origin, origin)) [buttons[i] setFrameOrigin:origin];
+    }
+    // The search field keeps its gap below the lights as they move down.
+    CGFloat searchTop = kSettingsTitlebarHeight + std::max<CGFloat>(0, dy);
+    if (_searchTop.constant != searchTop) {
+        _searchTop.constant = searchTop;
+        [self fitWindow];
+    }
+}
+
+- (void)paneChanged {
+    NSInteger selected = _tabs.selectedTabViewItemIndex;
+    NSArray<NSView *> *rows = _rows.arrangedSubviews;
+    for (NSInteger i = 0; i < (NSInteger)rows.count; i++) ((SettingsPaneRow *)rows[(NSUInteger)i]).selected = i == selected;
+    NSString *label = selected >= 0 ? _tabs.tabViewItems[(NSUInteger)selected].label : @"";
+    _title.stringValue = label;
+    self.view.window.title = label;   // hidden, but the Window menu and Mission Control use it
+    [self fitWindow];
+}
+
+/// Window content size for the selected pane: the card fits the pane (below its title), and the
+/// window is never shorter than the sidebar.
+- (NSSize)contentSizeForPane:(NSViewController *)vc {
+    NSSize pane = vc.preferredContentSize;
+    CGFloat m = Settings.pageMargin;
+    CGFloat header = 18 + _title.intrinsicContentSize.height + 4;
+    CGFloat sidebar = _searchTop.constant + _searchField.intrinsicContentSize.height + kSettingsSidebarPadding
+        + _rows.fittingSize.height + kSettingsSidebarPadding + m;
+    return NSMakeSize(std::ceil(m + kSettingsSidebarWidth + m + pane.width + m),
+                      std::ceil(std::max(sidebar, m + header + pane.height + m)));
+}
+
+- (void)fitWindow {
+    NSWindow *w = self.view.window;
+    NSViewController *vc = _tabs.tabView.selectedTabViewItem.viewController;
+    if (!w || !vc || vc.preferredContentSize.width <= 0 || vc.preferredContentSize.height <= 0) return;
+    NSSize size = [self contentSizeForPane:vc];
+    NSRect content = [w contentRectForFrameRect:w.frame];
+    NSRect target = [w frameRectForContentRect:NSMakeRect(NSMinX(content), NSMaxY(content) - size.height,
+                                                          size.width, size.height)];
+    if (NSEqualRects(target, w.frame)) return;
+    if (!w.isVisible) {
+        [w setFrame:target display:NO];
+        return;
+    }
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+        ctx.duration = [w animationResizeTime:target];
+        ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+        [w.animator setFrame:target display:YES];
+    }];
+}
+
+- (void)selectPaneOffset:(NSInteger)offset {
+    NSInteger count = (NSInteger)_tabs.tabViewItems.count;
+    if (count == 0) return;
+    _tabs.selectedTabViewItemIndex = (_tabs.selectedTabViewItemIndex + offset + count) % count;
 }
 
 // MARK: Search
 
-// The tab view controller is the toolbar's delegate; the search field goes at the trailing end.
-- (NSArray<NSToolbarItemIdentifier> *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar {
-    return [[super toolbarDefaultItemIdentifiers:toolbar]
-        arrayByAddingObjectsFromArray:@[NSToolbarFlexibleSpaceItemIdentifier, kSettingsSearchItem]];
+- (void)focusSearch {
+    [self.view.window makeFirstResponder:_searchField];
+    [_searchField selectText:nil];
 }
-
-- (NSArray<NSToolbarItemIdentifier> *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar {
-    return [[super toolbarAllowedItemIdentifiers:toolbar]
-        arrayByAddingObjectsFromArray:@[NSToolbarFlexibleSpaceItemIdentifier, kSettingsSearchItem]];
-}
-
-- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar itemForItemIdentifier:(NSToolbarItemIdentifier)identifier
-    willBeInsertedIntoToolbar:(BOOL)flag {
-    if (![identifier isEqualToString:kSettingsSearchItem]) {
-        return [super toolbar:toolbar itemForItemIdentifier:identifier willBeInsertedIntoToolbar:flag];
-    }
-    if (!_searchItem) {
-        _searchItem = [[NSSearchToolbarItem alloc] initWithItemIdentifier:kSettingsSearchItem];
-        _searchItem.searchField.placeholderString = @"Search settings";
-        _searchItem.searchField.delegate = self;
-        _searchItem.searchField.sendsWholeSearchString = NO;
-        _searchItem.preferredWidthForSearchField = 160;
-    }
-    return _searchItem;
-}
-
-- (void)focusSearch { [_searchItem beginSearchInteraction]; }
 
 /// Every piece of text a person might search for in a view: labels, checkbox and popup titles,
 /// segment labels.
@@ -122,43 +461,54 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)command {
     if (command == @selector(insertNewline:)) { [self search:YES]; return YES; }
     if (command == @selector(cancelOperation:)) {
-        _searchItem.searchField.stringValue = @"";
+        _searchField.stringValue = @"";
         [self search:NO];
         return NO;
     }
+    // Up and Down step through the panes, like the arrow keys in a sidebar.
+    if (command == @selector(moveUp:)) { [self selectPaneOffset:-1]; return YES; }
+    if (command == @selector(moveDown:)) { [self selectPaneOffset:1]; return YES; }
     return NO;
 }
 
-/// Highlights what matches in the best pane; Return steps through the matches, pane by pane.
+/// Highlights what matches in the best pane and dims the panes with no match; Return steps through
+/// the matches, pane by pane.
 - (void)search:(BOOL)next {
     for (NSView *v in _highlighted) v.layer.backgroundColor = nil;
     _highlighted = [NSMutableArray array];
-    NSString *query = BrookTrim(_searchItem.searchField.stringValue);
+    NSString *query = BrookTrim(_searchField.stringValue);
+    NSArray<NSTabViewItem *> *items = _tabs.tabViewItems;
     if (!next) {
         _matches.clear();
         _matchIndex = 0;
+        if (query.length > 0) {
+            NSArray<NSString *> *words = [query componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+            for (NSInteger i = 0; i < (NSInteger)items.count; i++) {
+                NSViewController *vc = items[(NSUInteger)i].viewController;
+                NSString *paneTitle = items[(NSUInteger)i].label;
+                CollectText(vc.view, ^(NSView *view, NSString *text) {
+                    NSString *haystack = [paneTitle stringByAppendingFormat:@" %@", text];
+                    for (NSString *w in words) {
+                        if (w.length && [haystack rangeOfString:w options:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch].location == NSNotFound) return;
+                    }
+                    // The text itself has to match something typed, not just the pane's name.
+                    BOOL own = NO;
+                    for (NSString *w in words) own = own || (w.length && [text rangeOfString:w options:NSCaseInsensitiveSearch].location != NSNotFound);
+                    if (own) self->_matches.push_back({i, view});
+                });
+            }
+            // Stay on the current pane when it has a match.
+            NSInteger current = _tabs.selectedTabViewItemIndex;
+            for (size_t m = 0; m < _matches.size(); m++) {
+                if (_matches[m].pane == current) { _matchIndex = m; break; }
+            }
+        }
+        NSArray<NSView *> *rows = _rows.arrangedSubviews;
+        for (NSInteger i = 0; i < (NSInteger)rows.count; i++) {
+            BOOL hit = std::any_of(_matches.begin(), _matches.end(), [i](const SettingsMatch &m) { return m.pane == i; });
+            ((SettingsPaneRow *)rows[(NSUInteger)i]).dimmed = query.length > 0 && !hit;
+        }
         if (query.length == 0) return;
-        NSArray<NSTabViewItem *> *items = self.tabViewItems;
-        NSArray<NSString *> *words = [query componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-        for (NSInteger i = 0; i < (NSInteger)items.count; i++) {
-            NSViewController *vc = items[(NSUInteger)i].viewController;
-            NSString *paneTitle = items[(NSUInteger)i].label;
-            CollectText(vc.view, ^(NSView *view, NSString *text) {
-                NSString *haystack = [paneTitle stringByAppendingFormat:@" %@", text];
-                for (NSString *w in words) {
-                    if (w.length && [haystack rangeOfString:w options:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch].location == NSNotFound) return;
-                }
-                // The text itself has to match something typed, not just the pane's name.
-                BOOL own = NO;
-                for (NSString *w in words) own = own || (w.length && [text rangeOfString:w options:NSCaseInsensitiveSearch].location != NSNotFound);
-                if (own) self->_matches.push_back({i, view});
-            });
-        }
-        // Stay on the current pane when it has a match.
-        NSInteger current = self.selectedTabViewItemIndex;
-        for (size_t m = 0; m < _matches.size(); m++) {
-            if (_matches[m].pane == current) { _matchIndex = m; break; }
-        }
     } else if (!_matches.empty()) {
         // Next pane that has matches.
         NSInteger pane = _matches[_matchIndex].pane;
@@ -168,14 +518,7 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
     }
     if (_matches.empty()) { if (query.length) NSBeep(); return; }
     NSInteger pane = _matches[_matchIndex].pane;
-    if (self.selectedTabViewItemIndex != pane) {
-        self.selectedTabViewItemIndex = pane;
-        NSSearchField *field = _searchItem.searchField;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [field.window makeFirstResponder:field];
-            field.currentEditor.selectedRange = NSMakeRange(field.stringValue.length, 0);
-        });
-    }
+    if (_tabs.selectedTabViewItemIndex != pane) _tabs.selectedTabViewItemIndex = pane;   // the field keeps focus
     NSColor *accent = [NSColor.controlAccentColor colorWithAlphaComponent:0.22];
     for (const SettingsMatch &m : _matches) {
         NSView *v = m.view;
@@ -188,41 +531,16 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
     [_matches[_matchIndex].view scrollRectToVisible:_matches[_matchIndex].view.bounds];
 }
 
-- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item {
-    [super tabView:tabView didSelectTabViewItem:item];
-    [self fitWindowTo:item.viewController];
-}
-
-- (void)preferredContentSizeDidChangeForViewController:(NSViewController *)vc {
-    if (vc == self.tabView.selectedTabViewItem.viewController) [self fitWindowTo:vc];
-}
-
-- (void)fitWindowTo:(NSViewController *)vc {
-    NSWindow *w = self.view.window;
-    NSSize size = vc.preferredContentSize;
-    if (!w || size.width <= 0 || size.height <= 0) return;
-    NSRect content = [w contentRectForFrameRect:w.frame];
-    NSRect target = [w frameRectForContentRect:NSMakeRect(NSMinX(content), NSMaxY(content) - size.height,
-                                                          size.width, size.height)];
-    if (NSEqualRects(target, w.frame)) return;
-    if (!w.isVisible) {
-        [w setFrame:target display:NO];
-        return;
-    }
-    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
-        ctx.duration = [w animationResizeTime:target];
-        ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
-        [w.animator setFrame:target display:YES];
-    }];
-}
-
 @end
 
-/// The ⌘, window: a native toolbar-tabbed preferences window like Safari's.
+/// The ⌘, window, laid out like a browser window (see SettingsRootViewController).
 @interface SettingsWindowController () <NSWindowDelegate, NSMenuItemValidation>
 @end
 
-@implementation SettingsWindowController
+@implementation SettingsWindowController {
+    SettingsTabViewController *_tabs;
+    SettingsRootViewController *_root;
+}
 
 + (SettingsWindowController *)shared {
     static SettingsWindowController *shared;
@@ -232,10 +550,9 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
 }
 
 - (instancetype)initPrivate {
-    NSTabViewController *tabs = [SettingsTabViewController new];
-    tabs.tabStyle = NSTabViewControllerTabStyleToolbar;
+    SettingsTabViewController *tabs = [SettingsTabViewController new];
+    tabs.tabStyle = NSTabViewControllerTabStyleUnspecified;
     tabs.transitionOptions = NSViewControllerTransitionCrossfade | NSViewControllerTransitionAllowUserInteraction;
-    tabs.canPropagateSelectedChildViewControllerTitle = YES;
     NSArray<NSArray *> *panes = @[
         @[@"General", @"gearshape", [GeneralPane new]],
         @[@"Appearance", @"paintbrush", [AppearancePane new]],
@@ -249,22 +566,30 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
         @[@"Advanced", @"gearshape.2", [AdvancedPane new]]
     ];
     for (NSArray *p in panes) {
-        NSString *title = p[0];
-        NSString *symbol = p[1];
         NSViewController *vc = p[2];
-        vc.title = title;
+        vc.title = p[0];
         NSTabViewItem *item = [NSTabViewItem tabViewItemWithViewController:vc];
-        item.label = title;
-        item.image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:title];
+        item.label = p[0];
+        item.identifier = p[1];   // the sidebar row's symbol
         [tabs addTabViewItem:item];
     }
-    NSWindow *window = [NSWindow windowWithContentViewController:tabs];
-    window.styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable;
-    window.toolbarStyle = NSWindowToolbarStylePreference;
+    SettingsRootViewController *root = [[SettingsRootViewController alloc] initWithTabs:tabs];
+    NSWindow *window = [NSWindow windowWithContentViewController:root];
+    window.styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskFullSizeContentView;
+    window.titleVisibility = NSWindowTitleHidden;
+    window.titlebarAppearsTransparent = YES;
+    window.movableByWindowBackground = YES;
+    // An empty unified toolbar makes the titlebar taller, which puts the traffic lights inside
+    // the sidebar's corner, as in a browser window.
+    window.toolbar = [[NSToolbar alloc] initWithIdentifier:@"BrookSettingsToolbar"];
+    window.toolbarStyle = NSWindowToolbarStyleUnified;
     window.releasedWhenClosed = NO;
     [window setFrameAutosaveName:@"BrookSettings"];
     if (!(self = [super initWithWindow:window])) return nil;
+    _tabs = tabs;
+    _root = root;
     window.delegate = self;
+    [root fitWindow];   // the saved frame keeps its place; the size follows the pane
     // A quit doesn't close the window, so end the edit here too.
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(endEditing)
                                                name:NSApplicationWillTerminateNotification object:nil];
@@ -278,11 +603,7 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
 
 /// Edit > Find (⌘F) searches the settings while this window is key. Without this, the action goes
 /// on to the app delegate and opens the find bar in the browser window behind.
-- (void)find:(id)sender {
-    if ([self.window.contentViewController isKindOfClass:SettingsTabViewController.class]) {
-        [(SettingsTabViewController *)self.window.contentViewController focusSearch];
-    }
-}
+- (void)find:(id)sender { [_root focusSearch]; }
 
 /// Find Next and Find Previous (⌘G, ⇧⌘G) step through page matches. The settings search has none, so
 /// they stay off while this window is key and do not open the find bar in the browser window behind.
@@ -298,20 +619,17 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
 
 - (void)importPasswords {
     [self showPane:@"Passwords"];
-    NSTabViewController *tabs = (NSTabViewController *)self.window.contentViewController;
-    for (NSTabViewItem *item in tabs.tabViewItems) {
+    for (NSTabViewItem *item in _tabs.tabViewItems) {
         if ([item.viewController isKindOfClass:PasswordsPane.class]) [(PasswordsPane *)item.viewController beginImport];
     }
 }
 
 - (void)showPane:(NSString *)pane {
-    NSTabViewController *tabs = [self.window.contentViewController isKindOfClass:NSTabViewController.class]
-        ? (NSTabViewController *)self.window.contentViewController : nil;
-    if (pane && tabs) {
-        NSArray<NSTabViewItem *> *items = tabs.tabViewItems;
+    if (pane) {
+        NSArray<NSTabViewItem *> *items = _tabs.tabViewItems;
         for (NSUInteger i = 0; i < items.count; i++) {
             if ([items[i].label isEqualToString:pane]) {
-                tabs.selectedTabViewItemIndex = (NSInteger)i;
+                _tabs.selectedTabViewItemIndex = (NSInteger)i;
                 break;
             }
         }
@@ -322,9 +640,7 @@ static void CollectText(NSView *view, void (^found)(NSView *view, NSString *text
 }
 
 - (void)showBoost:(NSUUID *)identifier {
-    NSTabViewController *tabs = [self.window.contentViewController isKindOfClass:NSTabViewController.class]
-        ? (NSTabViewController *)self.window.contentViewController : nil;
-    for (NSTabViewItem *item in tabs.tabViewItems) {
+    for (NSTabViewItem *item in _tabs.tabViewItems) {
         if ([item.viewController isKindOfClass:BoostsPane.class]) [(BoostsPane *)item.viewController selectBoostID:identifier];
     }
     [self showPane:@"Boosts"];
