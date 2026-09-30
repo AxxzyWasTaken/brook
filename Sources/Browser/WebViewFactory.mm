@@ -84,6 +84,11 @@ static WKUserScript *sDarkScript;
     c.preferences.elementFullscreenEnabled = YES;
     c.preferences.fraudulentWebsiteWarningEnabled = YES;
     c.preferences.javaScriptCanOpenWindowsAutomatically = NO;
+    // Picture in Picture is off by default in a Mac WKWebView (the public switch is iOS-only); Safari turns it
+    // on through the same preference. Skipped if WebKit ever drops it.
+    static SEL setPiP = NSSelectorFromString(@"_setAllowsPictureInPictureMediaPlayback:");
+    if ([c.preferences respondsToSelector:setPiP])
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(c.preferences, setPiP, YES);
     c.mediaTypesRequiringUserActionForPlayback = AutoplayPolicyMediaTypes(autoplay);
     c.allowsAirPlayForMediaPlayback = YES;
     c.webExtensionController = ExtensionManager.shared.controller;

@@ -169,6 +169,7 @@
 - (void)duplicateTab:(id)sender { BrowserTab *t = self.state.selectedTab; if (t) [self.state duplicate:t]; }
 - (void)copyURL:(id)sender { [self.wc copyURL]; }
 - (void)toggleReader:(id)sender { [self.wc toggleReader]; }
+- (void)togglePictureInPicture:(id)sender { [self.wc togglePictureInPicture]; }
 - (void)toggleSidebarMenu:(id)sender { [self.wc toggleSidebar]; }
 - (void)reload:(id)sender { [self.state.selectedTab reload]; }
 - (void)hardReload:(id)sender { [self.state.selectedTab.webView reloadFromOrigin]; }
@@ -217,7 +218,8 @@
     } else if (action == @selector(toggleReader:)) {
         menuItem.title = tab.readerOn == YES ? @"Hide Reader" : @"Show Reader";
         return BrookHost(tab.url) != nil;
-    } else if (action == @selector(showSiteSettings:) || action == @selector(printPage:)) {
+    } else if (action == @selector(showSiteSettings:) || action == @selector(printPage:) ||
+               action == @selector(togglePictureInPicture:)) {
         return BrookHost(tab.url) != nil;
     } else if (action == @selector(reload:) || action == @selector(hardReload:) ||
                action == @selector(actualSize:) || action == @selector(zoomIn:) ||
@@ -474,6 +476,7 @@ static NSString *BrookKey(unichar c) {
         item(@"Stop", @selector(stopLoading:), @"."),
         separator(),
         item(@"Show Reader", @selector(toggleReader:), @"r", cmd | opt),
+        item(@"Picture in Picture", @selector(togglePictureInPicture:), @"p", cmd | opt),
         item(@"Actual Size", @selector(actualSize:), @"0"),
         item(@"Zoom In", @selector(zoomIn:), @"="),
         item(@"Zoom Out", @selector(zoomOut:), @"-"),

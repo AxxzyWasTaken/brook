@@ -1448,6 +1448,31 @@ static const CGFloat kTitleRowMinTop = 4;
     }];
 }
 
+- (void)togglePictureInPicture {
+    WKWebView *wv = _state.selectedTab.webView;
+    if (!wv) return;
+    // The playing video wins, then the largest one on the page; a video already in PiP comes back out.
+    // Runs as a user gesture (evaluateJavaScript's default), which the PiP request needs.
+    static NSString *source =
+        @"const pip = document.pictureInPictureElement;\n"
+         "if (pip) { await document.exitPictureInPicture(); return 'off'; }\n"
+         "const area = v => v.offsetWidth * v.offsetHeight;\n"
+         "const videos = [...document.querySelectorAll('video')].filter(v => v.readyState > 0 && area(v) > 0);\n"
+         "const video = videos.filter(v => !v.paused && !v.ended).sort((a, b) => area(b) - area(a))[0] ||\n"
+         "              videos.sort((a, b) => area(b) - area(a))[0];\n"
+         "if (!video) return 'none';\n"
+         "video.removeAttribute('disablepictureinpicture');\n"
+         "if (video.requestPictureInPicture) await video.requestPictureInPicture();\n"
+         "else video.webkitSetPresentationMode('picture-in-picture');\n"
+         "return 'on';";
+    static WKContentWorld *world = [WKContentWorld worldWithName:@"BrookPiP"];
+    __weak BrowserWindowController *weakSelf = self;
+    [wv callAsyncJavaScript:source arguments:nil inFrame:nil inContentWorld:world completionHandler:^(id result, NSError *error) {
+        if ([result isEqual:@"none"]) [weakSelf showToast:@"No video on this page"];
+        else if (error) [weakSelf showToast:@"This video can't play in Picture in Picture"];
+    }];
+}
+
 - (void)zoomBy:(CGFloat)delta { [self zoomWithDelta:delta]; }
 - (void)resetZoom { [self zoomWithDelta:std::nullopt]; }
 

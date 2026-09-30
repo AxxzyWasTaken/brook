@@ -52,6 +52,8 @@
 - (void)shareFromView:(NSView *)anchor;
 /// Shows the page's article in a clean reading view, or goes back to the page.
 - (void)toggleReader;
+/// Puts the page's video into Picture in Picture, or brings it back.
+- (void)togglePictureInPicture;
 /// Steps to the next/previous zoom level and remembers it for the site, like Safari.
 - (void)zoomBy:(CGFloat)delta;
 /// Back to the default zoom.
