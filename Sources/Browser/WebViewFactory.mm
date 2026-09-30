@@ -18,6 +18,7 @@ NSNotificationName const BrookHoveredLinkNotification = @"BrookHoveredLink";
 
 static WKUserScript *sBoostScript;
 static WKUserScript *sDarkScript;
+static WKUserScript *sHideScript;
 static NSArray<WKUserScript *> *sScriptlets = @[];
 
 /// Makes sites treat Brook like Safari (same engine), so nothing serves a degraded page.
@@ -58,6 +59,7 @@ static WKUserScript *BundledScript(NSString *name, WKUserScriptInjectionTime tim
         [AutoconsentHandler.shared installHandlersInto:ucc];
         [ChromeWebStoreBridge.shared installHandlersInto:ucc];
         [PasswordAutofill.shared installInto:ucc];
+        [ElementHider.shared installHandlersInto:ucc];
         WKContentWorld *linkWorld = [WKContentWorld worldWithName:@"BrookLinks"];
         [ucc addScriptMessageHandler:[HoveredLinkHandler new] contentWorld:linkWorld name:@"brookLink"];
         [ucc addUserScript:[[WKUserScript alloc] initWithSource:
@@ -79,31 +81,36 @@ static WKUserScript *BundledScript(NSString *name, WKUserScriptInjectionTime tim
                                             self.typingWorld)) [ucc addUserScript:s];
         if (WKUserScript *s = AutoconsentHandler.shared.userScript) [ucc addUserScript:s];
         if (WKUserScript *s = ChromeWebStoreBridge.shared.userScript) [ucc addUserScript:s];
+        if (WKUserScript *s = ElementHider.shared.pickerScript) [ucc addUserScript:s];
         sBoostScript = Boosts.userScript;
         sDarkScript = SiteSettings.forceDarkScript;
+        sHideScript = ElementHider.shared.styleScript;
         if (sBoostScript) [ucc addUserScript:sBoostScript];
         if (sDarkScript) [ucc addUserScript:sDarkScript];
+        if (sHideScript) [ucc addUserScript:sHideScript];
     });
     return ucc;
 }
 
-/// Swaps in the current ad-blocking scriptlets, Boosts and force-dark scripts. WebKit can only remove all
+/// Swaps in the current ad-blocking scriptlets, Boosts, force-dark and hidden-element scripts. WebKit can only remove all
 /// scripts at once, so every other script (including ones web extensions added) is put back as it was.
 /// Pages pick up the change on their next load.
 + (void)reloadSiteScripts {
     WKUserContentController *ucc = self.userContentController;
     NSMutableArray<WKUserScript *> *keep = [NSMutableArray array];
     for (WKUserScript *s in ucc.userScripts)
-        if (s != sBoostScript && s != sDarkScript && ![sScriptlets containsObject:s]) [keep addObject:s];
+        if (s != sBoostScript && s != sDarkScript && s != sHideScript && ![sScriptlets containsObject:s]) [keep addObject:s];
     sScriptlets = ContentBlocker.shared.scriptletScripts;
     sBoostScript = Boosts.userScript;
     sDarkScript = SiteSettings.forceDarkScript;
+    sHideScript = ElementHider.shared.styleScript;
     [ucc removeAllUserScripts];
     // Scriptlets first: at document start they must patch the page before anything else runs.
     for (WKUserScript *s in sScriptlets) [ucc addUserScript:s];
     for (WKUserScript *s in keep) [ucc addUserScript:s];
     if (sBoostScript) [ucc addUserScript:sBoostScript];
     if (sDarkScript) [ucc addUserScript:sDarkScript];
+    if (sHideScript) [ucc addUserScript:sHideScript];
 }
 
 /// Website data for a space: its own store when it has a separate profile, otherwise the shared one.

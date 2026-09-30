@@ -135,7 +135,7 @@ static NSUserDefaults *D(void) { return NSUserDefaults.standardUserDefaults; }
                       @"quitWarningTabs", @"commandBarTabs", @"commandBarHistory", @"commandBarSuggestions",
                       @"commandBarRows", @"commandBarPosition", @"downloadFolder", @"askDownloadLocation",
                       @"defaultZoom", @"javascriptEnabled", @"autoplay", @"blockCookiePopups", @"blockAds",
-                      @"siteNotifications", @"sitePermissions",
+                      @"siteNotifications", @"sitePermissions", @"hiddenElements",
                       @"offerToSavePasswords", @"autofillPasswords",
                       @"defaultSearchEngine", @"searchEngines", @"siteSettings", @"boosts", @"shortcuts",
                       @"appearancePresets"];

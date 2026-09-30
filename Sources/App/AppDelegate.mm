@@ -220,6 +220,8 @@ static BOOL InspectorVisible(id inspector) {
     id inspector = self.selectedInspector;
     InspectorSend(inspector, InspectorVisible(inspector) ? @"close" : @"show");
 }
+- (void)toggleHiding:(id)sender { [self.wc toggleHiding]; }
+- (void)showHiddenElements:(id)sender { [self.wc showHiddenElements]; }
 - (void)showJavaScriptConsole:(id)sender { InspectorSend(self.selectedInspector, @"showConsole"); }
 - (void)inspectElement:(id)sender {
     id inspector = self.selectedInspector;
@@ -247,7 +249,10 @@ static BOOL InspectorVisible(id inspector) {
     } else if (action == @selector(toggleReader:)) {
         menuItem.title = tab.readerOn == YES ? @"Hide Reader" : @"Show Reader";
         return BrookHost(tab.url) != nil;
-    } else if (action == @selector(showSiteSettings:) || action == @selector(printPage:) ||
+    } else if (action == @selector(toggleHiding:)) {
+        menuItem.title = self.wc.hiding ? @"Stop Hiding Elements" : @"Hide Elements…";
+        return self.wc.hiding || BrookHost(tab.url) != nil;
+    } else if (action == @selector(showHiddenElements:) || action == @selector(showSiteSettings:) || action == @selector(printPage:) ||
                action == @selector(togglePictureInPicture:)) {
         return BrookHost(tab.url) != nil;
     } else if (action == @selector(toggleWebInspector:)) {
@@ -516,6 +521,8 @@ static NSString *BrookKey(unichar c) {
         item(@"Zoom Out", @selector(zoomOut:), @"-"),
         separator(),
         item(@"Settings for This Website…", @selector(showSiteSettings:)),
+        item(@"Hide Elements…", @selector(toggleHiding:), @"h", cmd | shift),
+        item(@"Hidden on This Site…", @selector(showHiddenElements:), @"u", cmd | shift),
         separator(),
         item(@"Show Web Inspector", @selector(toggleWebInspector:), @"i", cmd | opt),
         item(@"Show JavaScript Console", @selector(showJavaScriptConsole:), @"j", cmd | opt),

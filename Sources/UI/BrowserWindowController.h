@@ -61,6 +61,12 @@
 
 // Site settings, downloads, extensions
 - (void)showSiteInfo;
+/// Hiding things on pages: ⇧⌘H picks (again stops), ⌘Z while picking undoes, ⇧⌘U lists what's hidden.
+- (void)toggleHiding;
+- (void)stopHiding;
+- (void)undoHiding;
+- (void)showHiddenElements;
+@property (readonly, getter=isHiding) BOOL hiding;
 /// Ad blocking for the current site, from the shield in the address pill (the popover points at it).
 - (void)showAdBlockFromView:(NSView *)from;
 - (void)showDownloadsFromView:(NSView *)anchor;

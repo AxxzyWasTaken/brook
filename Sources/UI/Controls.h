@@ -44,4 +44,6 @@ FOUNDATION_EXPORT NSPasteboardType const BrookTabPasteboardType;
 /// Small rounded label that floats over the page for a moment.
 @interface ToastView : NSView
 - (void)showText:(NSString *)text;
+/// Shown until set to nil (a mode's instructions, e.g. while picking things to hide); a showText passes over it.
+@property (nonatomic, copy) NSString *hint;
 @end

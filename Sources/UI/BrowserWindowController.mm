@@ -216,6 +216,8 @@ struct MorphStart {
 
 @implementation BrowserWindowController {
     BrowserState *_state;
+    /// The page being picked from while hiding things (⇧⌘H); nil when not picking.
+    __weak WKWebView *_hidingIn;
     NSVisualEffectView *_root;
     NSView *_tint;
     NSGlassEffectView *_sidebarGlass;
@@ -1088,6 +1090,7 @@ static const CGFloat kTitleRowMinTop = 4;
 
 - (void)browserStateDidSelect:(BrowserTab *)tab previous:(BrowserTab *)previous {
     if (tab != previous) [self endRailAddressEditing];   // editing belongs to the tab it started in
+    if (tab.webView != _hidingIn) [self stopHiding];     // so does picking things to hide
     [_content showTab:tab spaceName:_state.currentSpace.name];
     [_chrome updateSelection];
     WKWebView *wv = tab.webView;
@@ -1098,6 +1101,8 @@ static const CGFloat kTitleRowMinTop = 4;
 }
 
 - (void)browserStateTabDidChange:(BrowserTab *)tab change:(TabChange)change {
+    // A new page is a new picker, asleep: the old one went with the old page.
+    if ((change & TabChangeURL) && tab.webView == _hidingIn) [self stopHiding];
     [_chrome tabChanged:tab change:change];
     [_content tabChanged:tab change:change];
     if (tab == _state.selectedTab && (change & TabChangeTitle)) self.window.title = tab.displayTitle;
@@ -1527,6 +1532,77 @@ static const CGFloat kTitleRowMinTop = 4;
     if (!url || !host) return;
     [self showPillPopover:[[SiteInfoViewController alloc] initWithHost:host secure:[url.scheme isEqualToString:@"https"]]
                  fromView:nil];
+}
+
+// MARK: Hiding things on pages
+
+/// ⇧⌘H: point at anything on the page and it goes, for good, on this site. Again (or Esc) stops.
+- (void)toggleHiding {
+    if (_hidingIn) { [self stopHiding]; return; }
+    WKWebView *wv = _state.selectedTab.webView;
+    if (!wv || !BrookHost(wv.URL)) return;
+    [self startHidingIn:wv];
+}
+
+- (void)startHidingIn:(WKWebView *)wv {
+    _hidingIn = wv;
+    __weak BrowserWindowController *weakSelf = self;
+    ElementHider.shared.onPick = ^(WKWebView *from, NSString *selector, NSString *label, NSString *note) {
+        BrowserWindowController *me = weakSelf;
+        if (!me || from != me->_hidingIn) return;
+        NSString *host = BrookHost(from.URL);
+        if (!host) return;
+        [ElementHider.shared hide:selector label:label note:note onHost:host];
+        [ElementHider.shared applyIn:from host:host];
+        [me showToast:[NSString stringWithFormat:@"%@ hidden", label]];
+    };
+    ElementHider.shared.onPickingEnded = ^(WKWebView *from) {
+        BrowserWindowController *me = weakSelf;
+        if (me && from == me->_hidingIn) [me stopHiding];
+    };
+    ElementHider.shared.onUndo = ^(WKWebView *from) {
+        BrowserWindowController *me = weakSelf;
+        if (me && from == me->_hidingIn) [me undoHiding];
+    };
+    [ElementHider.shared startPickingIn:wv];
+    [self.window makeFirstResponder:wv];   // Esc and ⌘Z reach the picker
+    _content.toast.hint = @"Click anything to hide it   ⌘Z undo   esc done";
+}
+
+- (void)stopHiding {
+    WKWebView *wv = _hidingIn;
+    if (!wv) return;
+    _hidingIn = nil;
+    [ElementHider.shared stopPickingIn:wv];
+    _content.toast.hint = nil;
+}
+
+- (BOOL)isHiding { return _hidingIn != nil; }
+
+/// ⌘Z while picking: the last thing taken off comes back.
+- (void)undoHiding {
+    WKWebView *wv = _hidingIn ?: _state.selectedTab.webView;
+    NSString *host = BrookHost(wv.URL);
+    HiddenElement *back = host ? [ElementHider.shared undoOnHost:host] : nil;
+    if (!back) return;
+    [ElementHider.shared applyIn:wv host:host];
+    [self showToast:[NSString stringWithFormat:@"%@ is back", back.label]];
+}
+
+/// ⇧⌘U: what's hidden on this site, and the way back.
+- (void)showHiddenElements {
+    WKWebView *wv = _state.selectedTab.webView;
+    NSString *host = BrookHost(wv.URL);
+    if (!host) return;
+    [self stopHiding];
+    __weak BrowserWindowController *weakSelf = self;
+    __weak WKWebView *weakView = wv;
+    HiddenElementsViewController *panel = [[HiddenElementsViewController alloc] initWithHost:host webView:wv onHideMore:^{
+        BrowserWindowController *me = weakSelf;
+        WKWebView *view = weakView;
+        if (me && view && view == me->_state.selectedTab.webView) [me startHidingIn:view];
+    }];
+    [self showPillPopover:panel fromView:nil];
 }
 
 - (void)showAdBlockFromView:(NSView *)from {

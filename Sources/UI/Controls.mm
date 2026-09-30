@@ -338,13 +338,33 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
     }];
     __weak ToastView *weakSelf = self;
     dispatch_block_t work = dispatch_block_create((dispatch_block_flags_t)0, ^{
+        ToastView *me = weakSelf;
+        if (!me) return;
+        // A standing hint comes back after a passing message instead of the toast going.
+        if (me->_hint.length) { me->_label.stringValue = me->_hint; return; }
         [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
             ctx.duration = 0.3;
-            weakSelf.animator.alphaValue = 0;
+            me.animator.alphaValue = 0;
         }];
     });
     _hideWork = work;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), work);
+}
+
+- (void)setHint:(NSString *)hint {
+    _hint = [hint copy];
+    if (_hideWork) dispatch_block_cancel(_hideWork);
+    _hideWork = nil;
+    if (hint.length) {
+        _label.stringValue = hint;
+        NSAccessibilityPostNotificationWithUserInfo(NSApp, NSAccessibilityAnnouncementRequestedNotification, @{
+            NSAccessibilityAnnouncementKey: hint, NSAccessibilityPriorityKey: @(NSAccessibilityPriorityMedium),
+        });
+    }
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+        ctx.duration = hint.length ? 0.18 : 0.3;
+        self.animator.alphaValue = hint.length ? 1 : 0;
+    }];
 }
 
 @end
