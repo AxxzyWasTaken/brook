@@ -599,9 +599,28 @@ NSInteger CharacterCount(NSString *s) {
     } else if (selector == @selector(insertNewline:)) {
         [self commitRow:_table.selectedRow]; return YES;
     } else if (selector == @selector(cancelOperation:)) {
-        [self dismiss]; return YES;
+        BOOL untyped = BrookTrim(_input.stringValue).length == 0;
+        [self dismiss];
+        if (untyped) [self closeUntouchedNewTab];
+        return YES;
     }
     return NO;
+}
+
+/// A new tab never sent anywhere is itself what's open: Escape takes it away, back to the tab used last
+/// (as Search does). Anything typed keeps it; so does being the only tab.
+- (void)closeUntouchedNewTab {
+    BrowserState *state = BrowserState.shared;
+    BrowserTab *blank = state.selectedTab;
+    if (!blank || blank.url || blank.isPinned || blank.isFavorite || blank.webView.backForwardList.currentItem) return;
+    BrowserTab *back = nil;
+    for (BrowserTab *t in state.visibleTabs) {
+        if (t == blank) continue;
+        if (!back || [t.lastActive compare:back.lastActive] == NSOrderedDescending) back = t;
+    }
+    if (!back) return;
+    [state selectTab:back];
+    [state remove:blank];
 }
 
 - (void)move:(NSInteger)delta {
