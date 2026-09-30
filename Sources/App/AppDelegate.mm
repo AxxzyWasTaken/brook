@@ -127,7 +127,9 @@
         DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0,
         DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL, dispatch_get_main_queue());
     dispatch_source_set_event_handler(source, ^{
-        [BrowserState.shared hibernateOlderThan:60];
+        // A warning puts tabs unseen for five minutes to sleep; critical, every tab but the one on screen.
+        BOOL critical = (dispatch_source_get_data(source) & DISPATCH_MEMORYPRESSURE_CRITICAL) != 0;
+        [BrowserState.shared hibernateOlderThan:critical ? 0 : 300];
     });
     dispatch_resume(source);
     _memoryPressure = source;

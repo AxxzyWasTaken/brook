@@ -1658,7 +1658,7 @@ static const CGFloat kTitleRowMinTop = 4;
         [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Duplicate Tab" handler:^{ [state duplicate:tab]; }]];
     }
     if (tab.isLoaded && tab != state.selectedTab) {
-        [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Unload to Save Memory" handler:^{ [tab unload]; }]];
+        [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Unload to Save Memory" handler:^{ [tab hibernate]; }]];
     }
     if (state.spaces.count > 1) {
         NSMenuItem *moveItem = [[NSMenuItem alloc] initWithTitle:@"Move to Space" action:nil keyEquivalent:@""];

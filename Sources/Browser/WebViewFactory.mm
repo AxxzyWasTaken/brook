@@ -23,6 +23,11 @@ static NSArray<WKUserScript *> *sScriptlets = @[];
 /// Makes sites treat Brook like Safari (same engine), so nothing serves a degraded page.
 + (NSString *)userAgentSuffix { return @"Version/26.0 Safari/605.1.15"; }
 
++ (WKContentWorld *)typingWorld {
+    static WKContentWorld *world = [WKContentWorld worldWithName:@"BrookTyping"];
+    return world;
+}
+
 /// A bundled script, or nil if it's missing from the app.
 static WKUserScript *BundledScript(NSString *name, WKUserScriptInjectionTime time, BOOL mainFrameOnly, WKContentWorld *world) {
     NSURL *file = [NSBundle.mainBundle URLForResource:name withExtension:@"js"];
@@ -70,6 +75,8 @@ static WKUserScript *BundledScript(NSString *name, WKUserScriptInjectionTime tim
         // In the page's own world, before its scripts: live players set playbackRate through the prototype.
         if (WKUserScript *s = BundledScript(@"live-rate", WKUserScriptInjectionTimeAtDocumentStart, NO,
                                             WKContentWorld.pageWorld)) [ucc addUserScript:s];
+        if (WKUserScript *s = BundledScript(@"typed-text", WKUserScriptInjectionTimeAtDocumentStart, YES,
+                                            self.typingWorld)) [ucc addUserScript:s];
         if (WKUserScript *s = AutoconsentHandler.shared.userScript) [ucc addUserScript:s];
         if (WKUserScript *s = ChromeWebStoreBridge.shared.userScript) [ucc addUserScript:s];
         sBoostScript = Boosts.userScript;

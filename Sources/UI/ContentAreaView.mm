@@ -367,6 +367,7 @@
     NSLayoutGuide *_uncovered;
     NSBackgroundExtensionView *_extension;
     NSView *_pageHost;
+    NSImageView *_wakeCover;   // a hibernated tab's picture, under its web view until the page draws
     NSLayoutConstraint *_uncoveredLeading;
     NSLayoutConstraint *_uncoveredTrailing;
 }
@@ -418,6 +419,13 @@
         [_clip addSubview:_extension];
         [_extension brook_pinEdgesTo:_clip];
         [self pin:_pageHost toGuide:_uncovered];
+
+        _wakeCover = [NSImageView new];
+        _wakeCover.imageScaling = NSImageScaleAxesIndependently;
+        _wakeCover.hidden = YES;
+        _wakeCover.frame = _pageHost.bounds;
+        _wakeCover.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        [_pageHost addSubview:_wakeCover];
 
         _empty.translatesAutoresizingMaskIntoConstraints = NO;
         [_clip addSubview:_empty];
@@ -579,6 +587,7 @@
         _errorView.hidden = YES;
         _progress.opacity = 0;
         _findBar.hidden = YES;
+        [self updateWakeCover];
         return;
     }
     _empty.hidden = YES;
@@ -586,9 +595,10 @@
     if (wv.superview != _pageHost) {
         wv.frame = _pageHost.bounds;
         wv.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-        [_pageHost addSubview:wv];
+        [_pageHost addSubview:wv positioned:NSWindowAbove relativeTo:_wakeCover];
     }
     _webView = wv;
+    [self updateWakeCover];
     [self updateError];
     [self updateProgress];
     if (!_findBar.hidden) {
@@ -605,9 +615,16 @@
     if ((change & TabChangeProgress) || (change & TabChangeLoading)) [self updateProgress];
     if (change & TabChangeError) [self updateError];
     if (change & TabChangeURL) [_findBar invalidateCount];
+    if (change & TabChangePainted) [self updateWakeCover];
     // Only a new web view is shown here. An unload is followed by a new selection, and showing the tab
     // again would load a closed tab back into memory.
     if ((change & TabChangeLoaded) && tab.webView && tab.webView != _webView) [self showTab:tab spaceName:_empty.spaceName];
+}
+
+- (void)updateWakeCover {
+    NSImage *cover = _tab.wakeCover;
+    _wakeCover.image = cover;
+    _wakeCover.hidden = cover == nil;
 }
 
 - (void)updateError {

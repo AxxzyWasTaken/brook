@@ -721,7 +721,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
         __weak BrowserState *weakSelf = self;
         [tab isBusy:^(BOOL busy) {
             if (busy) return;
-            if (tab != weakSelf.selectedTab) [tab unload];
+            if (tab != weakSelf.selectedTab) [tab hibernate];
         }];
     }
 }

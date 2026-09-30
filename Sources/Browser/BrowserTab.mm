@@ -32,6 +32,10 @@ static SEL SetPageMutedSelector(void) {
 
 static const NSUInteger kMediaAudioMuted = 1 << 0;
 
+/// _WKRenderingProgressEventFirstVisuallyNonEmptyLayout: the moment Safari takes down the picture it shows
+/// while a page comes back.
+static const NSUInteger kFirstVisuallyNonEmptyLayout = 1 << 1;
+
 @implementation BrowserTab {
     /// The web view whose properties we observe (nil when nothing is observed).
     WKWebView *_observed;
@@ -39,6 +43,8 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
     NSMutableDictionary<NSString *, NSNumber *> *_mediaPermissions;   // WKPermissionDecision
     NSDate *_lastCrash;          // web content process crashes in a row, each soon after the one before
     NSInteger _crashesInARow;
+    id _sleepState;              // the web view's interactionState when it hibernated; used by the next materialize
+    NSData *_sleepPicture;       // JPEG of the page when it hibernated
 }
 
 - (instancetype)initWithID:(NSUUID *)identifier url:(NSURL *)url title:(NSString *)title {
@@ -48,6 +54,7 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
         _title = [title copy] ?: @"";
         _lastActive = [NSDate date];
         _progress = 0;
+        _painted = YES;
         _mediaPermissions = [NSMutableDictionary dictionary];
         if (NSString *host = BrookHost(url)) {
             _favicon = [FaviconStore.shared cachedIconForHost:host];
@@ -130,6 +137,31 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
     [self observe:wv];
     // A new web view starts with sound; a tab muted before it unloaded stays muted.
     if (_isMuted && BrowserTab.canMute) [self applyMuteTo:wv];
+    // A view that is about to load a page stays transparent until WebKit says it has drawn something, so
+    // the card's background shows instead of a white flash (idea from Search by Office Commun, MIT).
+    _painted = YES;
+    static SEL observeProgress = NSSelectorFromString(@"_setObservedRenderingProgressEvents:");
+    if ((isPopup || _url) && [wv respondsToSelector:observeProgress]) {
+        ((void (*)(id, SEL, NSUInteger))objc_msgSend)(wv, observeProgress, kFirstVisuallyNonEmptyLayout);
+        _painted = NO;
+        wv.alphaValue = 0;
+        // A page that never lays anything out (or a WebKit that never reports it) still comes in.
+        __weak BrowserTab *weakSelf = self;
+        __weak BrookWebView *weakWV = wv;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            BrowserTab *self_ = weakSelf;
+            if (self_ && weakWV && self_.webView == weakWV) [self_ showPainted];
+        });
+    }
+    // A tab waking from hibernate goes back to the same page, history and scroll position. Only a tab
+    // that is still at the address it slept on: anything that sent it elsewhere drops the saved state.
+    id sleepState = _sleepState;
+    NSData *picture = _sleepPicture;
+    _sleepState = nil;
+    _sleepPicture = nil;
+    if (picture && !isPopup) {
+        _wakeCover = [[NSImage alloc] initWithData:picture];
+    }
     if (!isPopup && _url) {
         NSURL *url = _url;
         __weak BrookWebView *weakWV = wv;
@@ -138,7 +170,13 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
             [ExtensionManager.shared whenLoaded:^{
                 BrookWebView *w = weakWV;
                 // Skip if the tab was unloaded or has already been sent somewhere else meanwhile.
-                if (w && !w.URL && !w.isLoading) [w loadRequest:[NSURLRequest requestWithURL:url]];
+                if (!w || w.URL || w.isLoading) return;
+                if (sleepState) {
+                    w.interactionState = sleepState;
+                    // A state WebKit couldn't use leaves the view empty; load the address instead.
+                    if (w.URL || w.isLoading) return;
+                }
+                [w loadRequest:[NSURLRequest requestWithURL:url]];
             }];
         }];
     }
@@ -149,6 +187,27 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
 
 /// Frees the web content process memory. The tab stays in the sidebar and reloads on demand.
 - (void)unload {
+    [self forgetSleep];
+    [self dropWebView];
+}
+
+/// Pinned tabs and favorites return to their home page when closed. Unload already forgot any sleep state.
+- (void)resetToHome {
+    [self unload];
+    if (_homeURL) _url = _homeURL;
+    _loadError = nil;
+}
+
+- (void)forgetSleep {
+    _sleepState = nil;
+    _sleepPicture = nil;
+    if (_wakeCover) {
+        _wakeCover = nil;
+        [_state tabDidChange:self change:TabChangePainted];
+    }
+}
+
+- (void)dropWebView {
     BrookWebView *wv = _webView;
     if (!wv) return;
     [PasswordAutofill.shared dismissForWebView:wv];
@@ -162,19 +221,52 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
     _isLoading = NO;
     _progress = 0;
     _readerOn = NO;
+    _painted = YES;
     [_state tabDidChange:self change:TabChangeLoading | TabChangeLoaded];
 }
 
-/// Pinned tabs and favorites return to their home page when closed.
-- (void)resetToHome {
-    [self unload];
-    if (_homeURL) _url = _homeURL;
-    _loadError = nil;
+/// Takes the page's picture off the main thread as a JPEG, as Search does (small, and decoded only on wake).
+static void SnapshotJPEG(WKWebView *wv, void (^done)(NSData *jpeg)) {
+    [wv takeSnapshotWithConfiguration:nil completionHandler:^(NSImage *image, NSError *error) {
+        CGImageRef cg = [image CGImageForProposedRect:NULL context:nil hints:nil];
+        if (!cg) { done(nil); return; }
+        CGImageRetain(cg);
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithCGImage:cg];
+            NSData *data = [rep representationUsingType:NSBitmapImageFileTypeJPEG
+                                             properties:@{NSImageCompressionFactor: @0.55}];
+            CGImageRelease(cg);
+            dispatch_async(dispatch_get_main_queue(), ^{ done(data); });
+        });
+    }];
+}
+
+- (void)hibernate {
+    BrookWebView *wv = _webView;
+    if (!wv || self == _state.selectedTab) return;
+    __weak BrowserTab *weakSelf = self;
+    __weak BrookWebView *weakWV = wv;
+    SnapshotJPEG(wv, ^(NSData *jpeg) {
+        BrowserTab *self_ = weakSelf;
+        // Selected again, or already unloaded, while the picture was taken: leave it.
+        if (!self_ || !weakWV || self_.webView != weakWV || self_ == self_.state.selectedTab) return;
+        [self_ sleepWithPicture:jpeg];
+    });
+}
+
+- (void)sleepWithPicture:(NSData *)jpeg {
+    BrookWebView *wv = _webView;
+    // A page still loading has no settled state; it reloads from its address instead.
+    id state = wv.isLoading || _loadError ? nil : wv.interactionState;
+    [self dropWebView];
+    _sleepState = state;
+    _sleepPicture = state ? jpeg : nil;
 }
 
 - (void)load:(NSURL *)url {
     _url = url;
     _loadError = nil;
+    [self forgetSleep];
     BrookWebView *wv = [self materialize];
     [wv loadRequest:[NSURLRequest requestWithURL:url]];
     [_state tabDidChange:self change:TabChangeURL | TabChangeError];
@@ -204,8 +296,20 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
         completion(YES);
         return;
     }
+    for (DownloadItem *item in DownloadManager.shared.items) {
+        if (item.status == DownloadStatusActive && item.download.webView == wv) { completion(YES); return; }
+    }
+    // A sign-in popup (or any page this tab opened) on screen may still hand its answer back here.
+    if (_state.selectedTab.parentTab == self) { completion(YES); return; }
+    __weak BrookWebView *weakWV = wv;
     [wv requestMediaPlaybackStateWithCompletionHandler:^(WKMediaPlaybackState state) {
-        completion(state == WKMediaPlaybackStatePlaying);
+        BrookWebView *w = weakWV;
+        if (state == WKMediaPlaybackStatePlaying || !w) { completion(state == WKMediaPlaybackStatePlaying); return; }
+        // Text typed and not sent can't come back after a reload; nor can a (paused) video out in PiP.
+        [w evaluateJavaScript:@"!!(globalThis.brookHoldsTyping && brookHoldsTyping()) || !!document.pictureInPictureElement"
+                      inFrame:nil inContentWorld:WebViewFactory.typingWorld completionHandler:^(id result, NSError *error) {
+            completion([result isKindOfClass:NSNumber.class] && [result boolValue]);
+        }];
     }];
 }
 
@@ -284,6 +388,32 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
 
 // MARK: - Navigation
 
+/// WKNavigationDelegatePrivate: called only for the events asked for in materialize.
+- (void)_webView:(WKWebView *)webView renderingProgressDidChange:(NSUInteger)events {
+    if (webView == _webView && (events & kFirstVisuallyNonEmptyLayout)) [self showPainted];
+}
+
+/// The page has drawn: fade the web view in, then take the wake picture down once the fade is over.
+- (void)showPainted {
+    BrookWebView *wv = _webView;
+    if (!wv || _painted) return;
+    _painted = YES;
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+        context.duration = NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion ? 0 : 0.12;
+        wv.animator.alphaValue = 1;
+    }];
+    [_state tabDidChange:self change:TabChangePainted];
+    if (!_wakeCover) return;
+    __weak BrowserTab *weakSelf = self;
+    NSImage *cover = _wakeCover;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        BrowserTab *self_ = weakSelf;
+        if (!self_ || self_->_wakeCover != cover) return;
+        self_->_wakeCover = nil;
+        [self_.state tabDidChange:self_ change:TabChangePainted];
+    });
+}
+
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction
             preferences:(WKWebpagePreferences *)preferences
         decisionHandler:(void (^)(WKNavigationActionPolicy, WKWebpagePreferences *))decisionHandler {
@@ -322,6 +452,18 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
     }
 }
 
+/// ⌘-click or middle-click asks for a new tab. WKNavigationAction.buttonNumber is a button mask
+/// (left 1, right 2, middle 4), unlike NSEvent.buttonNumber, where the middle button is 2.
+static BOOL WantsNewTab(WKNavigationAction *action) {
+    return (action.modifierFlags & NSEventModifierFlagCommand) || (action.buttonNumber & (1 << 2));
+}
+
+/// Such a tab opens in the background by default (Settings); ⇧ flips it.
+static BOOL NewTabSelects(WKNavigationAction *action) {
+    BOOL shift = (action.modifierFlags & NSEventModifierFlagShift) != 0;
+    return Settings.linksOpenInBackground ? shift : !shift;
+}
+
 - (WKNavigationActionPolicy)decidePolicyFor:(WKNavigationAction *)navigationAction {
     NSURL *url = navigationAction.request.URL;
     if (!url) return WKNavigationActionPolicyAllow;
@@ -337,12 +479,11 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
         return WKNavigationActionPolicyCancel;
     }
 
-    // ⌘-click or middle-click opens a new tab: in the background by default (⇧ flips it).
-    BOOL isMainFrameLink = navigationAction.navigationType == WKNavigationTypeLinkActivated;
-    if (isMainFrameLink && ((navigationAction.modifierFlags & NSEventModifierFlagCommand) || navigationAction.buttonNumber == 2)) {
-        BOOL shift = (navigationAction.modifierFlags & NSEventModifierFlagShift) != 0;
-        BOOL foreground = Settings.linksOpenInBackground ? shift : !shift;
-        [_state openTabWithURL:url inSpace:nil after:self select:foreground loadNow:YES];
+    // A tab's first page always loads in that tab. "Open Link in New Tab" arrives in the new tab as a link
+    // click carrying the right-click; sending it on again would leave the new tab empty.
+    BOOL hasPage = _webView.backForwardList.currentItem != nil;
+    if (hasPage && navigationAction.navigationType == WKNavigationTypeLinkActivated && WantsNewTab(navigationAction)) {
+        [_state openTabWithURL:url inSpace:nil after:self select:NewTabSelects(navigationAction) loadNow:YES];
         return WKNavigationActionPolicyCancel;
     }
     return WKNavigationActionPolicyAllow;
@@ -388,6 +529,8 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
 }
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+    // A page with nothing to lay out never reports a first frame; done is done, and it is shown.
+    [self showPainted];
     if (NSURL *url = webView.URL) [HistoryStore.shared recordURL:url title:webView.title];
     // A page from the back-forward cache keeps its reader overlay, so ask the page, not the last toggle.
     _readerOn = NO;
@@ -413,6 +556,7 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
 }
 
 - (void)handleError:(NSError *)ns {
+    [self showPainted];
     // Cancelled loads, and "frame load interrupted" (downloads, policy changes), aren't errors.
     if ([ns.domain isEqualToString:NSURLErrorDomain] && ns.code == NSURLErrorCancelled) return;
     if ([ns.domain isEqualToString:@"WebKitErrorDomain"] && (ns.code == 102 || ns.code == 204)) return;
@@ -435,6 +579,7 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
 }
 
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
+    [self showPainted];
     // Reload after a crash, but not without end: a page that crashes on each load stops after the
     // third crash in a row and shows the error view, whose Try Again reloads it.
     NSDate *now = [NSDate date];
@@ -494,8 +639,8 @@ static const NSUInteger kMediaAudioMuted = 1 << 0;
     if (!state) return nil;
     BrowserTab *tab = [BrowserTab popupWithConfiguration:configuration];
     tab.parentTab = self;
-    BOOL background = (navigationAction.modifierFlags & NSEventModifierFlagCommand) || navigationAction.buttonNumber == 2;
-    [state insertPopup:tab after:self select:!background];
+    BOOL select = WantsNewTab(navigationAction) ? NewTabSelects(navigationAction) : YES;
+    [state insertPopup:tab after:self select:select];
     return [tab materialize];
 }
 

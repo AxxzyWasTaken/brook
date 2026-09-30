@@ -13,6 +13,8 @@ typedef NS_OPTIONS(NSUInteger, TabChange) {
     TabChangeError = 1 << 7,
     TabChangeLoaded = 1 << 8,
     TabChangeMuted = 1 << 9,
+    /// The web view drew its first frame (see `painted`), or its wake picture went.
+    TabChangePainted = 1 << 10,
 };
 
 /// Errors from tab actions that Brook cannot do ("BrookTabError").
@@ -59,17 +61,28 @@ NSError *BrowserTabError(NSString *message);
 
 @property (readonly) NSString *displayTitle;
 @property (readonly) BOOL isLoaded;
+/// NO from when a web view that has a page to load is made until WebKit reports its first non-empty frame.
+/// Until then the web view is transparent, so the card's own background shows instead of a white flash.
+@property (readonly) BOOL painted;
+/// A picture of the page as it went to sleep (see hibernate), shown under the woken page until it draws.
+@property (readonly) NSImage *wakeCover;
 
 /// Mutes or unmutes the page audio. Returns NO and sets `error` when WebKit has no page mute.
 - (BOOL)setMuted:(BOOL)muted error:(NSError **)error;
 - (BrookWebView *)materialize;
 /// Frees the web content process memory. The tab stays in the sidebar and reloads on demand.
+/// Forgets any sleep state (history, scroll position, picture) kept by hibernate.
 - (void)unload;
+/// Unloads the tab but keeps its back/forward list, scroll position and a picture of the page, so it
+/// wakes where it was. Does nothing to the selected tab. Doesn't check isBusy; callers that should, do.
+- (void)hibernate;
 /// Pinned tabs and favorites return to their home page when closed.
 - (void)resetToHome;
 - (void)load:(NSURL *)url;
 - (void)reload;
-/// Calls back with YES if the tab is doing something the user would notice if we unloaded it.
+/// Calls back with YES if the tab is doing something the user would notice if we unloaded it: using the
+/// camera or microphone, playing media or picture in picture, downloading, holding text typed and not
+/// sent, or being the opener of the tab on screen (a sign-in popup hands its answer back to it).
 - (void)isBusy:(void (^)(BOOL busy))completion;
 - (void)refreshFavicon;
 
