@@ -23,6 +23,14 @@ static NSArray<WKUserScript *> *sScriptlets = @[];
 /// Makes sites treat Brook like Safari (same engine), so nothing serves a degraded page.
 + (NSString *)userAgentSuffix { return @"Version/26.0 Safari/605.1.15"; }
 
+/// A bundled script, or nil if it's missing from the app.
+static WKUserScript *BundledScript(NSString *name, WKUserScriptInjectionTime time, BOOL mainFrameOnly, WKContentWorld *world) {
+    NSURL *file = [NSBundle.mainBundle URLForResource:name withExtension:@"js"];
+    NSString *source = file ? [NSString stringWithContentsOfURL:file encoding:NSUTF8StringEncoding error:nil] : nil;
+    if (!source) return nil;
+    return [[WKUserScript alloc] initWithSource:source injectionTime:time forMainFrameOnly:mainFrameOnly inContentWorld:world];
+}
+
 /// One process pool for every tab. The property is deprecated and documented as doing nothing, but a
 /// configuration without it still gets a pool of its own when its web view is made, and each new pool
 /// starts its web content process cold. Sharing one lets WebKit keep the next process warm: a new tab's
@@ -59,6 +67,9 @@ static NSArray<WKUserScript *> *sScriptlets = @[];
              "})();"
                                                   injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
                                                forMainFrameOnly:YES inContentWorld:linkWorld]];
+        // In the page's own world, before its scripts: live players set playbackRate through the prototype.
+        if (WKUserScript *s = BundledScript(@"live-rate", WKUserScriptInjectionTimeAtDocumentStart, NO,
+                                            WKContentWorld.pageWorld)) [ucc addUserScript:s];
         if (WKUserScript *s = AutoconsentHandler.shared.userScript) [ucc addUserScript:s];
         if (WKUserScript *s = ChromeWebStoreBridge.shared.userScript) [ucc addUserScript:s];
         sBoostScript = Boosts.userScript;
