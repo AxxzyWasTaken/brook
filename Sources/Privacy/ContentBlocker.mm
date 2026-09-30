@@ -34,6 +34,30 @@ static NSDate *HTTPDate(NSString *value) {
     return value ? [f dateFromString:value] : nil;
 }
 
+/// WebKit compiles into a temporary file ("ContentRuleList" plus a random suffix) and renames it when done.
+/// A compile cut short, say by quitting during the first launch, leaves it behind: 50-80 MB the store
+/// doesn't list, so removeContentRuleListForIdentifier: can't reach it. Only old ones go, never a compile
+/// that's still running.
+static void RemoveAbandonedCompiles() {
+    NSString *bundleID = NSBundle.mainBundle.bundleIdentifier;
+    NSURL *library = [NSFileManager.defaultManager URLsForDirectory:NSLibraryDirectory inDomains:NSUserDomainMask].firstObject;
+    if (!bundleID || !library) return;
+    NSURL *folder = [library URLByAppendingPathComponent:[NSString stringWithFormat:@"WebKit/%@/ContentRuleLists", bundleID]];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSFileManager *fm = NSFileManager.defaultManager;
+        NSArray<NSURL *> *files = [fm contentsOfDirectoryAtURL:folder includingPropertiesForKeys:@[NSURLContentModificationDateKey]
+                                                       options:0 error:nil];
+        NSDate *cutoff = [NSDate dateWithTimeIntervalSinceNow:-3600];
+        for (NSURL *file in files) {
+            NSString *name = file.lastPathComponent;
+            if (![name hasPrefix:@"ContentRuleList"] || [name hasPrefix:@"ContentRuleList-"]) continue;
+            NSDate *modified = nil;
+            [file getResourceValue:&modified forKey:NSURLContentModificationDateKey error:nil];
+            if (modified && [modified compare:cutoff] == NSOrderedAscending) [fm removeItemAtURL:file error:nil];
+        }
+    });
+}
+
 @implementation ContentBlocker {
     WKContentRuleList *_list;       // the newest compiled list
     WKContentRuleList *_attached;   // what the content controller has (nil when off or paused)
@@ -127,6 +151,7 @@ static NSDate *HTTPDate(NSString *value) {
             if (![identifier isEqualToString:keep]) [store removeContentRuleListForIdentifier:identifier completionHandler:^(NSError *) {}];
         }
     }];
+    RemoveAbandonedCompiles();
 }
 
 - (void)becomeReady {
