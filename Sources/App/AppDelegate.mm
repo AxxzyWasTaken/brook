@@ -201,6 +201,32 @@
 - (void)showMainWindow:(id)sender { [self.wc showWindow:nil]; }
 
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
+// Web Inspector: WebKit's own, through the private `_inspector` (_WKInspector), the one Safari's Develop
+// menu drives. Each selector is checked first, so a WebKit without them leaves the items doing nothing.
+- (id)selectedInspector {
+    WKWebView *wv = self.state.selectedTab.webView;
+    static SEL get = NSSelectorFromString(@"_inspector");
+    return [wv respondsToSelector:get] ? ((id (*)(id, SEL))objc_msgSend)(wv, get) : nil;
+}
+static void InspectorSend(id inspector, NSString *name) {
+    SEL sel = NSSelectorFromString(name);
+    if ([inspector respondsToSelector:sel]) ((void (*)(id, SEL))objc_msgSend)(inspector, sel);
+}
+static BOOL InspectorVisible(id inspector) {
+    static SEL sel = NSSelectorFromString(@"isVisible");
+    return [inspector respondsToSelector:sel] && ((BOOL (*)(id, SEL))objc_msgSend)(inspector, sel);
+}
+- (void)toggleWebInspector:(id)sender {
+    id inspector = self.selectedInspector;
+    InspectorSend(inspector, InspectorVisible(inspector) ? @"close" : @"show");
+}
+- (void)showJavaScriptConsole:(id)sender { InspectorSend(self.selectedInspector, @"showConsole"); }
+- (void)inspectElement:(id)sender {
+    id inspector = self.selectedInspector;
+    if (!InspectorVisible(inspector)) InspectorSend(inspector, @"show");
+    InspectorSend(inspector, @"toggleElementSelection");
+}
+
     SEL action = menuItem.action;
     BrowserTab *tab = self.state.selectedTab;
     NSWindow *sheet = _windowController.window.attachedSheet;
@@ -224,6 +250,11 @@
                action == @selector(togglePictureInPicture:)) {
         return BrookHost(tab.url) != nil;
     } else if (action == @selector(reload:) || action == @selector(hardReload:) ||
+    } else if (action == @selector(toggleWebInspector:)) {
+        menuItem.title = InspectorVisible(self.selectedInspector) ? @"Hide Web Inspector" : @"Show Web Inspector";
+        return self.selectedInspector != nil;
+    } else if (action == @selector(showJavaScriptConsole:) || action == @selector(inspectElement:)) {
+        return self.selectedInspector != nil;
                action == @selector(actualSize:) || action == @selector(zoomIn:) ||
                action == @selector(zoomOut:) || action == @selector(find:) ||
                action == @selector(findNext:) || action == @selector(findPrevious:)) {
@@ -486,6 +517,10 @@ static NSString *BrookKey(unichar c) {
         item(@"Settings for This Website…", @selector(showSiteSettings:)),
         separator(),
         item(@"Enter Full Screen", @selector(toggleFullScreen:), @"f", cmd | ctrl),
+        item(@"Show Web Inspector", @selector(toggleWebInspector:), @"i", cmd | opt),
+        item(@"Show JavaScript Console", @selector(showJavaScriptConsole:), @"j", cmd | opt),
+        item(@"Inspect Element", @selector(inspectElement:), @"c", cmd | opt),
+        separator(),
     ]);
 
     NSMutableArray<NSMenuItem *> *spaceItems = [NSMutableArray arrayWithArray:@[

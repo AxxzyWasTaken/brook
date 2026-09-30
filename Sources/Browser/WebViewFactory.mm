@@ -129,6 +129,11 @@ static WKUserScript *BundledScript(NSString *name, WKUserScriptInjectionTime tim
     static SEL setPiP = NSSelectorFromString(@"_setAllowsPictureInPictureMediaPlayback:");
     if ([c.preferences respondsToSelector:setPiP])
         ((void (*)(id, SEL, BOOL))objc_msgSend)(c.preferences, setPiP, YES);
+    // Developer extras: Inspect Element in the page's menu, and the Web Inspector the View menu opens.
+    // `inspectable` alone only lets Safari's Develop menu reach the page.
+    static SEL setDevExtras = NSSelectorFromString(@"_setDeveloperExtrasEnabled:");
+    if ([c.preferences respondsToSelector:setDevExtras])
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(c.preferences, setDevExtras, YES);
     c.mediaTypesRequiringUserActionForPlayback = AutoplayPolicyMediaTypes(autoplay);
     c.allowsAirPlayForMediaPlayback = YES;
     c.webExtensionController = ExtensionManager.shared.controller;
