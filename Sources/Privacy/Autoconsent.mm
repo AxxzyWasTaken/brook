@@ -1,11 +1,54 @@
 #import "Brook.h"
 
+/// Where each kind of rule sits in a compact rule list ("index" in the list; [start, end) ranges).
+struct CompactRuleIndex {
+    NSUInteger genericStart, genericEnd, frameStart, frameEnd, specificStart, specificEnd;
+    NSUInteger genericStringEnd, frameStringEnd;
+};
+
+/// The rule-step keys whose values are indexes into the list's strings (autoconsent's compactedRuleSteps).
+static NSArray<NSString *> *StepStringKeys(void) {
+    static NSArray<NSString *> *keys = @[@"e", @"v", @"c", @"k", @"w", @"wv", @"h", @"cc"];
+    return keys;
+}
+
+static void CollectStringIDs(id steps, NSMutableIndexSet *used) {
+    if (![steps isKindOfClass:NSArray.class]) return;
+    for (NSDictionary *step in steps) {
+        if (![step isKindOfClass:NSDictionary.class]) continue;
+        for (NSString *key in StepStringKeys()) {
+            if (NSNumber *n = [step[key] isKindOfClass:NSNumber.class] ? step[key] : nil) [used addIndex:n.unsignedIntegerValue];
+        }
+        if (id cond = step[@"if"]) CollectStringIDs(@[cond], used);
+        CollectStringIDs(step[@"then"], used);
+        CollectStringIDs(step[@"else"], used);
+        CollectStringIDs(step[@"any"], used);
+    }
+}
+
+/// autoconsent's clearUnusedStrings: blanks the strings no rule uses and drops the tail past the last one used.
+static NSDictionary *ClearUnusedStrings(id version, NSArray *strings, NSArray *rules) {
+    NSMutableIndexSet *used = [NSMutableIndexSet indexSet];
+    for (NSArray *rule in rules) {
+        for (NSUInteger i = 6; i <= 9; i++) CollectStringIDs(rule[i], used);
+        for (id n in [rule[5] isKindOfClass:NSArray.class] ? rule[5] : @[])
+            if ([n isKindOfClass:NSNumber.class]) [used addIndex:[n unsignedIntegerValue]];
+    }
+    NSUInteger count = used.count ? std::min(strings.count, used.lastIndex + 1) : 0;
+    NSMutableArray *kept = [NSMutableArray arrayWithCapacity:count];
+    for (NSUInteger i = 0; i < count; i++) [kept addObject:[used containsIndex:i] ? strings[i] : @""];
+    return @{@"v": version, @"s": kept, @"r": rules};
+}
+
 /// Downloads DuckDuckGo's public privacy configuration, which carries the
 /// cookie-popup rule list, and keeps a cached copy on disk.
 @implementation PrivacyConfigStore {
     NSURL *_fileURL;
     NSTimeInterval _refreshInterval;
     NSSet<NSString *> *_exceptions;
+    std::optional<CompactRuleIndex> _ruleIndex;   // nil: the list can't be filtered, so it's sent whole
+    NSDictionary *_genericRules;                  // the main-frame list for a site with no rules of its own
+    NSMutableDictionary<NSString *, id> *_patterns;   // url pattern -> NSRegularExpression, or NSNull if it won't compile
 }
 
 static NSString *const kPrivacyConfigRemote = @"https://staticcdn.duckduckgo.com/trackerblocking/config/v4/macos-config.json";
@@ -69,6 +112,7 @@ static NSString *const kPrivacyConfigRemote = @"https://staticcdn.duckduckgo.com
     _enabled = [state isEqualToString:@"enabled"];
     NSDictionary *settings = [ac[@"settings"] isKindOfClass:NSDictionary.class] ? ac[@"settings"] : @{};
     _compactRules = settings[@"compactRuleList"];
+    [self indexRules];
     NSArray *cmps = settings[@"disabledCMPs"];
     BOOL allStrings = [cmps isKindOfClass:NSArray.class];
     if (allStrings) {
@@ -90,6 +134,83 @@ static NSString *const kPrivacyConfigRemote = @"https://staticcdn.duckduckgo.com
     }
     _exceptions = ex;
     return YES;
+}
+
+// MARK: Filtering the rules per frame
+
+/// Checks the list's shape once, so filtering never has to. Anything unexpected leaves the list unfiltered.
+- (void)indexRules {
+    _ruleIndex.reset();
+    _genericRules = nil;
+    _patterns = [NSMutableDictionary dictionary];
+    NSDictionary *list = [_compactRules isKindOfClass:NSDictionary.class] ? _compactRules : nil;
+    NSArray *strings = list[@"s"], *rules = list[@"r"];
+    NSDictionary *index = list[@"index"];
+    if (![strings isKindOfClass:NSArray.class] || ![rules isKindOfClass:NSArray.class] ||
+        ![index isKindOfClass:NSDictionary.class] || !list[@"v"]) return;
+    for (NSArray *rule in rules) {
+        if (![rule isKindOfClass:NSArray.class] || rule.count < 10 || ![rule[3] isKindOfClass:NSString.class] ||
+            ![rule[4] isKindOfClass:NSNumber.class]) return;
+    }
+    auto range = [&](NSString *key, NSUInteger &start, NSUInteger &end) {
+        NSArray *r = index[key];
+        if (![r isKindOfClass:NSArray.class] || r.count != 2 || ![r[0] isKindOfClass:NSNumber.class] ||
+            ![r[1] isKindOfClass:NSNumber.class]) return false;
+        start = [r[0] unsignedIntegerValue];
+        end = [r[1] unsignedIntegerValue];
+        return start <= end && end <= rules.count;
+    };
+    auto bound = [&](NSString *key, NSUInteger &value) {
+        NSNumber *n = index[key];
+        if (![n isKindOfClass:NSNumber.class]) return false;
+        value = n.unsignedIntegerValue;
+        return value <= strings.count;
+    };
+    CompactRuleIndex i{};
+    if (!range(@"genericRuleRange", i.genericStart, i.genericEnd) || !range(@"frameRuleRange", i.frameStart, i.frameEnd) ||
+        !range(@"specificRuleRange", i.specificStart, i.specificEnd) || !bound(@"genericStringEnd", i.genericStringEnd) ||
+        !bound(@"frameStringEnd", i.frameStringEnd)) return;
+    _ruleIndex = i;
+    NSArray *generic = [rules subarrayWithRange:NSMakeRange(i.genericStart, i.genericEnd - i.genericStart)];
+    _genericRules = @{@"v": list[@"v"], @"s": [strings subarrayWithRange:NSMakeRange(0, i.genericStringEnd)], @"r": generic};
+}
+
+/// autoconsent's shouldRunRuleInContext. The script checks every rule it gets the same way, so leaving one
+/// out here changes nothing on the page; a pattern that won't compile is kept, to let the script decide.
+- (BOOL)rule:(NSArray *)rule runsAt:(NSString *)url mainFrame:(BOOL)mainFrame {
+    NSInteger context = [rule[4] integerValue];   // tens digit: main frame, units: sub-frames (1 yes, 0 no, 2 default)
+    if (mainFrame && context == 1) return NO;
+    if (!mainFrame && (context == 20 || context == 22 || context == 10 || context == 12)) return NO;
+    NSString *pattern = rule[3];
+    if (!pattern.length) return YES;
+    id regex = _patterns[pattern];
+    if (!regex) {
+        regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil] ?: (id)NSNull.null;
+        _patterns[pattern] = regex;
+    }
+    if (regex == NSNull.null) return YES;
+    return [regex firstMatchInString:url options:0 range:NSMakeRange(0, url.length)] != nil;
+}
+
+/// Sub-frames get only the few frame rules; a main frame gets the generic rules plus its site's own. This is
+/// what DuckDuckGo's extension sends: the whole ~290 KB list, parsed again in every ad and embed, went to 3 KB.
+- (id)compactRulesForURL:(NSString *)url mainFrame:(BOOL)mainFrame {
+    if (!_ruleIndex) return _compactRules;
+    const CompactRuleIndex &i = *_ruleIndex;
+    NSDictionary *list = _compactRules;
+    NSArray *strings = list[@"s"], *rules = list[@"r"];
+    auto matching = [&](NSUInteger start, NSUInteger end, BOOL main) {
+        NSMutableArray *out = [NSMutableArray array];
+        for (NSUInteger k = start; k < end; k++) if ([self rule:rules[k] runsAt:url mainFrame:main]) [out addObject:rules[k]];
+        return out;
+    };
+    if (!mainFrame) {
+        NSArray *frameStrings = [strings subarrayWithRange:NSMakeRange(0, i.frameStringEnd)];
+        return ClearUnusedStrings(list[@"v"], frameStrings, matching(i.frameStart, i.frameEnd, NO));
+    }
+    NSArray *specific = matching(i.specificStart, i.specificEnd, YES);
+    if (!specific.count) return _genericRules;
+    return ClearUnusedStrings(list[@"v"], strings, [_genericRules[@"r"] arrayByAddingObjectsFromArray:specific]);
 }
 
 - (BOOL)isExceptedHost:(NSString *)host {
@@ -205,7 +326,7 @@ static NSString *const kPrivacyConfigRemote = @"https://staticcdn.duckduckgo.com
     }
 
     NSMutableDictionary *rules = [NSMutableDictionary dictionary];
-    if (config.compactRules) rules[@"compact"] = config.compactRules;
+    if (id compact = [config compactRulesForURL:urlString mainFrame:message.frameInfo.isMainFrame]) rules[@"compact"] = compact;
 
     return @{
         @"type": @"initResp",

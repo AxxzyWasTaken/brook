@@ -7,6 +7,9 @@
 @property (class, readonly) PrivacyConfigStore *shared;
 /// The "compactRuleList" JSON object, if any.
 @property (readonly) id compactRules;
+/// The part of compactRules that can run in a frame at `url` (autoconsent's filterCompactRules).
+/// The whole list when it has no index to filter by.
+- (id)compactRulesForURL:(NSString *)url mainFrame:(BOOL)mainFrame;
 @property (readonly) NSArray<NSString *> *disabledCMPs;
 @property (readonly) BOOL enabled;   // default YES
 /// Applies the cached copy, then refreshes in the background.
