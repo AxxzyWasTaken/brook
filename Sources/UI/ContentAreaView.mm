@@ -701,8 +701,41 @@ static const CGFloat kSplitUnsnap = 20;     // and how far past it the pointer g
 - (BOOL)isFlipped { return YES; }
 @end
 
+/// The card's shadow on its own: an empty layer that only casts it, along the card's outline.
+@interface CardShadowView : NSView
+@property (nonatomic) CGFloat cornerRadius;
+@end
+
+@implementation CardShadowView
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    if ((self = [super initWithFrame:frameRect])) {
+        self.wantsLayer = YES;
+        self.layer.shadowColor = NSColor.blackColor.CGColor;
+    }
+    return self;
+}
+- (NSView *)hitTest:(NSPoint)point { return nil; }
+- (void)setCornerRadius:(CGFloat)cornerRadius {
+    _cornerRadius = cornerRadius;
+    self.needsLayout = YES;
+}
+- (void)layout {
+    [super layout];
+    NSRect b = self.bounds;
+    CGFloat r = std::min({_cornerRadius, b.size.width / 2, b.size.height / 2});
+    CGPathRef path = CGPathCreateWithRoundedRect(b, r, r, NULL);
+    self.layer.shadowPath = path;
+    CGPathRelease(path);
+}
+@end
+
 @implementation ContentAreaView {
     NSView *_clip;
+    CardShadowView *_shadowView;
+    CAGradientLayer *_glassShade;
+    BOOL _glassShadeOn;
+    BOOL _glassShadeOnRight;
+    CGFloat _glassShadeGap;
     CALayer *_progress;
     EmptyStateView *_empty;
     ErrorView *_errorView;
@@ -738,11 +771,8 @@ static const CGFloat kSplitUnsnap = 20;     // and how far past it the pointer g
         _lastProgress = 0;
 
         self.wantsLayer = YES;
-        self.layer.masksToBounds = NO;
-        self.layer.shadowColor = NSColor.blackColor.CGColor;
-        self.layer.shadowOpacity = 0.14f;
-        self.layer.shadowRadius = 6;
-        self.layer.shadowOffset = CGSizeMake(0, -1);
+        _shadowView = [CardShadowView new];
+        _shadowView.translatesAutoresizingMaskIntoConstraints = NO;
 
         _clip.wantsLayer = YES;
         _clip.layer.cornerRadius = 12;
@@ -892,6 +922,7 @@ static const CGFloat kSplitUnsnap = 20;     // and how far past it the pointer g
 - (void)setCornerRadius:(CGFloat)cornerRadius {
     _cornerRadius = cornerRadius;
     _clip.layer.cornerRadius = cornerRadius;
+    _shadowView.cornerRadius = cornerRadius;
     // Edge-to-edge (no rounding) drops the card border and shadow too.
     _clip.layer.borderWidth = cornerRadius == 0 ? 0 : 0.5;
     [self updateColors];
@@ -900,12 +931,69 @@ static const CGFloat kSplitUnsnap = 20;     // and how far past it the pointer g
 
 - (void)layout {
     [super layout];
-    NSRect b = self.bounds;
-    CGFloat r = std::min({_cornerRadius, b.size.width / 2, b.size.height / 2});
-    CGPathRef path = CGPathCreateWithRoundedRect(b, r, r, NULL);
-    self.layer.shadowPath = path;
-    CGPathRelease(path);
+    [self placeGlassShade];
     [self updateProgressFrameAnimated:NO];
+}
+
+- (NSView *)shadowView { return _shadowView; }
+
+// How the Liquid Glass shade falls off beside the glass, measured against the real one: an
+// edge blurred by a Gaussian of this spread, set this far out from the glass.
+static const CGFloat kGlassShadeSigma = 14.75;
+static const CGFloat kGlassShadeOffset = 4.75;
+
+- (void)setGlassShade:(BOOL)on onRight:(BOOL)right gap:(CGFloat)gap {
+    if (on == _glassShadeOn && right == _glassShadeOnRight && gap == _glassShadeGap) return;
+    _glassShadeOn = on;
+    _glassShadeOnRight = right;
+    _glassShadeGap = gap;
+    [self drawGlassShade];
+}
+
+- (void)drawGlassShade {
+    if (!_glassShadeOn) {
+        _glassShade.hidden = YES;
+        return;
+    }
+    // Measured off the real glass beside a white page.
+    CGFloat opacity = BrookIsDark(self.effectiveAppearance) ? 0.138 : 0.093;
+    BOOL right = _glassShadeOnRight;
+    CGFloat gap = _glassShadeGap;
+    if (!_glassShade) {
+        _glassShade = [CAGradientLayer layer];
+        _glassShade.zPosition = 99;   // over the page, under the loading bar
+        [_clip.layer addSublayer:_glassShade];
+    }
+    // Sampled finely enough that the steps stay under one level of 8-bit colour.
+    const int n = 24;
+    CGFloat reach = kGlassShadeOffset + 3 * kGlassShadeSigma - gap;
+    NSMutableArray *colors = [NSMutableArray array];
+    NSMutableArray<NSNumber *> *stops = [NSMutableArray array];
+    for (int i = 0; i <= n; i++) {
+        CGFloat t = (CGFloat)i / n, fromGlass = gap + t * std::max<CGFloat>(1, reach);
+        CGFloat a = opacity * 0.5 * std::erfc((fromGlass - kGlassShadeOffset) / (kGlassShadeSigma * std::sqrt(2.0)));
+        [colors addObject:(__bridge id)[NSColor.blackColor colorWithAlphaComponent:a].CGColor];
+        [stops addObject:@(right ? 1 - t : t)];
+    }
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _glassShade.colors = right ? colors.reverseObjectEnumerator.allObjects : colors;
+    _glassShade.locations = right ? stops.reverseObjectEnumerator.allObjects : stops;
+    _glassShade.startPoint = CGPointMake(0, 0.5);
+    _glassShade.endPoint = CGPointMake(1, 0.5);
+    _glassShade.hidden = NO;
+    [CATransaction commit];
+    [self placeGlassShade];
+}
+
+- (void)placeGlassShade {
+    if (!_glassShade || _glassShade.hidden) return;
+    NSRect b = _clip.bounds;
+    CGFloat w = std::min(b.size.width, std::max<CGFloat>(1, kGlassShadeOffset + 3 * kGlassShadeSigma - _glassShadeGap));
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _glassShade.frame = CGRectMake(_glassShadeOnRight ? NSMaxX(b) - w : 0, 0, w, b.size.height);
+    [CATransaction commit];
 }
 
 - (void)viewDidChangeEffectiveAppearance {
@@ -921,9 +1009,11 @@ static const CGFloat kSplitUnsnap = 20;     // and how far past it the pointer g
     BOOL dark = BrookIsDark(self.effectiveAppearance);
     CardShadow shadow = Settings.cardShadow;
     _shadowStrength = shadow == CardShadowNone ? 0 : shadow == CardShadowStrong ? (dark ? 0.55f : 0.28f) : (dark ? 0.35f : 0.14f);
-    self.layer.shadowRadius = shadow == CardShadowStrong ? 14 : 6;
-    self.layer.shadowOffset = CGSizeMake(0, shadow == CardShadowStrong ? -4 : -1);
-    self.layer.shadowOpacity = _cornerRadius == 0 ? 0 : _shadowStrength;
+    [self drawGlassShade];
+    CALayer *s = _shadowView.layer;
+    s.shadowRadius = shadow == CardShadowStrong ? 14 : 6;
+    s.shadowOffset = CGSizeMake(0, shadow == CardShadowStrong ? -4 : -1);
+    s.shadowOpacity = _cornerRadius == 0 ? 0 : _shadowStrength;
 }
 
 - (void)applySettings {

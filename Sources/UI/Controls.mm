@@ -296,7 +296,10 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
     if ((self = [super initWithFrame:frameRect])) {
         _glass = [NSGlassEffectView new];
         _label = [NSTextField labelWithString:@""];
+        // Faded out it's hidden too: a transparent glass still has the WindowServer blurring the
+        // page under it every frame the page moves.
         self.alphaValue = 0;
+        self.hidden = YES;
         _glass.cornerRadius = 16;
         _glass.translatesAutoresizingMaskIntoConstraints = NO;
         [self addSubview:_glass];
@@ -332,20 +335,14 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
         NSAccessibilityPriorityKey: @(NSAccessibilityPriorityMedium),
     });
     if (_hideWork) dispatch_block_cancel(_hideWork);
-    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
-        ctx.duration = 0.18;
-        self.animator.alphaValue = 1;
-    }];
+    [self fadeTo:1 duration:0.18];
     __weak ToastView *weakSelf = self;
     dispatch_block_t work = dispatch_block_create((dispatch_block_flags_t)0, ^{
         ToastView *me = weakSelf;
         if (!me) return;
         // A standing hint comes back after a passing message instead of the toast going.
         if (me->_hint.length) { me->_label.stringValue = me->_hint; return; }
-        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
-            ctx.duration = 0.3;
-            me.animator.alphaValue = 0;
-        }];
+        [me fadeTo:0 duration:0.3];
     });
     _hideWork = work;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), work);
@@ -361,9 +358,19 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
             NSAccessibilityAnnouncementKey: hint, NSAccessibilityPriorityKey: @(NSAccessibilityPriorityMedium),
         });
     }
+    [self fadeTo:hint.length ? 1 : 0 duration:hint.length ? 0.18 : 0.3];
+}
+
+- (void)fadeTo:(CGFloat)alpha duration:(NSTimeInterval)duration {
+    if (alpha > 0) self.hidden = NO;
+    __weak ToastView *weakSelf = self;
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
-        ctx.duration = hint.length ? 0.18 : 0.3;
-        self.animator.alphaValue = hint.length ? 1 : 0;
+        ctx.duration = duration;
+        self.animator.alphaValue = alpha;
+    } completionHandler:^{
+        // The target alpha reads back at once, so a newer fade in keeps it showing.
+        ToastView *me = weakSelf;
+        if (me && me.alphaValue == 0) me.hidden = YES;
     }];
 }
 

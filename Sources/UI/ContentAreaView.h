@@ -36,4 +36,12 @@
 - (void)findAgain:(BOOL)forward;
 /// Re-reads the page shadow, accent and loading-indicator settings.
 - (void)applySettings;
+/// The card's drop shadow, drawn apart from the card so the owner can keep it under glass the
+/// card itself sits above. The owner places it (a sibling of the card, just below it, pinned to
+/// its edges); the card styles it.
+@property (readonly) NSView *shadowView;
+/// The soft shade Liquid Glass casts on what's beside it, drawn along one side of the card for
+/// glass ordered under the card (which then can't cast it on the card). `gap` is the space
+/// between the glass and the card.
+- (void)setGlassShade:(BOOL)on onRight:(BOOL)right gap:(CGFloat)gap;
 @end

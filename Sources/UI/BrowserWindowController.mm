@@ -219,6 +219,8 @@ struct MorphStart {
     /// The page being picked from while hiding things (⇧⌘H); nil when not picking.
     __weak WKWebView *_hidingIn;
     NSVisualEffectView *_root;
+    MarginBlurView *_backdrop;
+    __weak CALayer *_titlebarBackdrop;   // see -silenceTitlebarBlur
     NSView *_tint;
     NSGlassEffectView *_sidebarGlass;
     ResizeHandle *_handle;
@@ -255,6 +257,9 @@ struct MorphStart {
     NSLayoutConstraint *_contentTop;
     NSArray<NSLayoutConstraint *> *_positional;
     BOOL _peeking;
+    /// The hidden sidebar has finished sliding off the window. Its glass is hidden then too:
+    /// off-screen glass still has the WindowServer sampling behind it every frame.
+    BOOL _parked;
     BOOL _autoHideSuspended;
     BOOL _trafficLightsPlacementQueued;
     id _peekMonitor;
@@ -291,6 +296,7 @@ struct MorphStart {
     if ((self = [super initWithWindow:window])) {
         _state = BrowserState.shared;
         _root = [NSVisualEffectView new];
+        _backdrop = [MarginBlurView new];
         _tint = [NSView new];
         _sidebarGlass = [NSGlassEffectView new];
         _sidebar = [SidebarView new];
@@ -348,11 +354,19 @@ static const CGFloat kFullScreenLightsInset = 10;
 static const CGFloat kTitleRowMinTop = 4;
 
 - (void)buildLayout {
+    // The root stays an effect view, still in the window's material, so what sits on it keeps its
+    // vibrancy; but it no longer blurs the desktop itself (the strips below do, around the card).
     _root.material = NSVisualEffectMaterialUnderWindowBackground;
     _root.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    _root.state = NSVisualEffectStateFollowsWindowActiveState;
+    _root.state = NSVisualEffectStateInactive;
     self.window.contentView = _root;
     [self keepTrafficLightsPlaced];
+
+    // The window's blur, only around the page card: see MarginBlurView.
+    _backdrop.translatesAutoresizingMaskIntoConstraints = NO;
+    [_root addSubview:_backdrop];
+    [_backdrop brook_pinEdgesTo:_root];
+    [_backdrop frameCard:_content];
 
     _tint.wantsLayer = YES;
     _tint.translatesAutoresizingMaskIntoConstraints = NO;
@@ -360,7 +374,10 @@ static const CGFloat kTitleRowMinTop = 4;
     [_tint brook_pinEdgesTo:_root];
 
     _content.translatesAutoresizingMaskIntoConstraints = NO;
+    NSView *cardShadow = _content.shadowView;
+    [_root addSubview:cardShadow];
     [_root addSubview:_content];
+    [cardShadow brook_pinEdgesTo:_content];
 
     _sidebarGlass.translatesAutoresizingMaskIntoConstraints = NO;
     [_root addSubview:_sidebarGlass];
@@ -593,6 +610,7 @@ static const CGFloat kTitleRowMinTop = 4;
     morph.glass.tintColor = realGlass.tintColor;
     if (@available(macOS 26.1, *)) morph.glass.style = realGlass.style;
     _morph = morph;
+    [self orderCardAndGlass];
     __weak BrowserWindowController *weakSelf = self;
     __weak ChromeMorph *weakMorph = morph;
     [morph runToTarget:^NSRect {
@@ -631,6 +649,7 @@ static const CGFloat kTitleRowMinTop = 4;
         _morphEnd = nil;
         end(animated);
     }
+    [self orderCardAndGlass];
 }
 
 /// Our full-screen traffic lights ride at the start of the row beside them, so they move with it.
@@ -649,8 +668,8 @@ static const CGFloat kTitleRowMinTop = 4;
 /// it moves out onto the window, still in the sheet's place, and the sheet hides.
 - (void)applySidebarSurface {
     BOOL pieces = Settings.sidebarIconsOnly;
-    _sidebarGlass.hidden = _tabsOnTop || pieces;
-    _sidebar.hidden = _tabsOnTop;
+    _sidebarGlass.hidden = _tabsOnTop || pieces || _parked;
+    _sidebar.hidden = _tabsOnTop || _parked;
     // The glass puts its content view inside a container of its own, so ask the glass, not the
     // sidebar's superview, whether it's already there.
     BOOL inGlass = _sidebarGlass.contentView == _sidebar;
@@ -896,6 +915,7 @@ static const CGFloat kTitleRowMinTop = 4;
         if (!_tabsOnTop && self.sidebarHidden)
             for (NSGlassEffectView *g in self.sidebarSurfaces) g.style = NSGlassEffectViewStyleRegular;
     }
+    [self orderCardAndGlass];
 }
 
 - (void)applyAppearanceSettings {
@@ -909,6 +929,7 @@ static const CGFloat kTitleRowMinTop = 4;
     [_sidebar railSurfacesDidChangeCornerRadius];
     _topGlass.cornerRadius = _sidebarGlass.cornerRadius;
     _content.cornerRadius = r;
+    _backdrop.cornerRadius = r;
     [self applySpaceColors];
 }
 
@@ -1023,6 +1044,49 @@ static const CGFloat kTitleRowMinTop = 4;
         self_->_trafficLightsPlacementQueued = NO;
     });
 }
+
+/// The titlebar is transparent (the sidebar and page show through it), yet AppKit still gives it
+/// a live blur of whatever is under it. Nothing of that blur shows, but while it's there the
+/// WindowServer keeps re-blurring the page's top edge on every frame the page draws. Core
+/// Animation's backdrop has no public switch, so it's turned off by key; if that key ever goes,
+/// the titlebar just keeps its blur. AppKit makes the layer lazily and can remake it on a
+/// titlebar relayout, so this runs after every window update: a pointer check once it's found.
+- (void)silenceTitlebarBlur {
+    CALayer *found = _titlebarBackdrop;
+    if (!found || !found.superlayer) {
+        found = nil;
+        static Class backdrop = NSClassFromString(@"CABackdropLayer");
+        static Class titlebar = NSClassFromString(@"NSTitlebarView");
+        NSView *frame = self.window.contentView.superview;
+        if (!backdrop || !titlebar || !frame) return;
+        NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:frame];
+        while (views.count && !found) {
+            NSView *v = views.lastObject;
+            [views removeLastObject];
+            if (v == _root) continue;
+            if (![v isKindOfClass:titlebar]) {
+                [views addObjectsFromArray:v.subviews];
+                continue;
+            }
+            NSMutableArray<CALayer *> *layers = [NSMutableArray array];
+            if (CALayer *l = v.layer) [layers addObject:l];
+            while (layers.count && !found) {
+                CALayer *l = layers.lastObject;
+                [layers removeLastObject];
+                if ([l isKindOfClass:backdrop]) found = l;
+                if (l.sublayers) [layers addObjectsFromArray:l.sublayers];
+            }
+        }
+        _titlebarBackdrop = found;
+    }
+    if (!found) return;
+    @try {
+        if ([[found valueForKey:@"enabled"] boolValue]) [found setValue:@NO forKey:@"enabled"];
+    } @catch (NSException *) {
+    }
+}
+
+- (void)windowDidUpdate:(NSNotification *)notification { [self silenceTitlebarBlur]; }
 
 /// Lines the row beside the traffic lights (the sidebar's back/forward buttons, or the tab strip)
 /// up with them, whatever size macOS makes them.
@@ -1221,6 +1285,17 @@ static const CGFloat kTitleRowMinTop = 4;
     }
     CGFloat leading = hidden ? -(self.effectiveSidebarWidth + _inset * 2 + 24) : _inset;
     NSLayoutConstraint *sidebarEdge = _sidebarEdge;
+    // Back on before it slides in; off again once it has slid out (below).
+    if (!hidden && _parked) {
+        _parked = NO;
+        [self applySidebarSurface];
+    }
+    void (^park)(void) = ^{
+        BrowserWindowController *self_ = weakSelf;
+        if (!self_ || self_->_lightsGeneration != generation || !hidden || self_->_parked) return;
+        self_->_parked = YES;
+        [self_ applySidebarSurface];
+    };
     // Reduce Motion: the sidebar fades out where it is, or appears in place and fades in, instead
     // of sliding. In the icon rail the sidebar sits on the root, outside its (hidden) glass.
     BOOL fade = animated && BrookReduceMotion() && std::abs(sidebarEdge.constant - leading) > 0.5;
@@ -1235,6 +1310,7 @@ static const CGFloat kTitleRowMinTop = 4;
             if (!self_ || self_->_lightsGeneration != generation) return;
             fading.alphaValue = 1;
             sidebarEdge.constant = leading;
+            park();
         }];
         [self alignNavRow];
         return;
@@ -1247,6 +1323,7 @@ static const CGFloat kTitleRowMinTop = 4;
         sidebarEdge.animator.constant = leading;
     } completionHandler:^{
         BrowserWindowController *self_ = weakSelf;
+        park();
         if (fade) {
             [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
                 ctx.duration = 0.2;
@@ -1265,7 +1342,38 @@ static const CGFloat kTitleRowMinTop = 4;
             for (NSButton *b in lights) b.animator.alphaValue = 1;
         }];
     }];
+    [self orderCardAndGlass];
     [self alignNavRow];
+}
+
+/// While the sidebar sits beside the page, the page card goes above the sidebar's glass in the
+/// window's order. They don't overlap then, but the glass samples what's under and around it,
+/// so with the card below, the WindowServer re-blurs the glass on every frame the page draws
+/// (video, scrolling). Above it, the card casts the glass's soft shade on itself instead.
+/// Whenever the glass can cover the page (peeking, the icon rail, a morph) it goes back on top.
+- (void)orderCardAndGlass {
+    BOOL lift = !_tabsOnTop && !_peeking && !self.sidebarHidden && !Settings.sidebarIconsOnly && !_morph;
+    NSArray<NSView *> *subviews = _root.subviews;
+    NSUInteger card = [subviews indexOfObjectIdenticalTo:_content];
+    NSUInteger glass = [subviews indexOfObjectIdenticalTo:_sidebarGlass];
+    if (card != NSNotFound && glass != NSNotFound && (card > glass) != lift) {
+        // Reordered in place: taking the card out and back in would drop its constraints.
+        NSMutableArray<NSView *> *order = [subviews mutableCopy];
+        [order removeObjectAtIndex:card];
+        NSUInteger at = [order indexOfObjectIdenticalTo:_sidebarGlass];
+        [order insertObject:_content atIndex:lift ? at + 1 : at];
+        NSMapTable<NSView *, NSNumber *> *rank = [NSMapTable strongToStrongObjectsMapTable];
+        for (NSUInteger i = 0; i < order.count; i++) [rank setObject:@(i) forKey:order[i]];
+        [_root sortSubviewsUsingFunction:[](__kindof NSView *a, __kindof NSView *b, void *context) {
+            NSMapTable *ranks = (__bridge NSMapTable *)context;
+            NSInteger ra = [[ranks objectForKey:a] integerValue], rb = [[ranks objectForKey:b] integerValue];
+            return ra < rb ? NSOrderedAscending : ra > rb ? NSOrderedDescending : NSOrderedSame;
+        } context:(__bridge void *)rank];
+    }
+    // Regular Liquid Glass casts a shade; clear glass doesn't.
+    BOOL shade = lift && !_sidebarGlass.isHidden;
+    if (@available(macOS 26.1, *)) shade = shade && _sidebarGlass.style != NSGlassEffectViewStyleClear;
+    [_content setGlassShade:shade onRight:_onRight gap:_inset];
 }
 
 - (void)peekSidebar {

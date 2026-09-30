@@ -53,6 +53,7 @@ NS_ASSUME_NONNULL_END
 #import "HiddenElements.h"
 #import "SpaceEditor.h"
 #import "ChromeMorph.h"
+#import "MarginBlurView.h"
 #import "BrowserWindowController.h"
 #import "SettingsControls.h"
 #import "PasswordsPane.h"
