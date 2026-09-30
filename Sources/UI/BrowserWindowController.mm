@@ -204,6 +204,16 @@ struct LightDefault {
 };
 }  // namespace
 
+/// The chrome as it looked before a tab layout change: where a morph to the new layout starts.
+struct MorphStart {
+    BOOL shown;                  // NO: a hidden sidebar, so the glass grows from the top edge
+    NSRect glass;                // root coordinates
+    NSImage *__strong picture;   // what the chrome showed, at pictureFrame (root coordinates)
+    NSRect pictureFrame;
+    CGFloat alpha;
+    NSRect card;                 // the page card's frame
+};
+
 @implementation BrowserWindowController {
     BrowserState *_state;
     NSVisualEffectView *_root;
@@ -228,6 +238,10 @@ struct LightDefault {
     /// Whichever of the sidebar or top bar is showing. Only it hears about tab changes; the other
     /// catches up with -reloadAll when it comes back.
     id<BrowserChrome> _chrome;
+    /// Carries the chrome's glass from the old tab layout's shape to the new one's.
+    ChromeMorph *_morph;
+    /// Undoes what the running morph holds back: the page's offsets, the hidden chrome and lights.
+    void (^_morphEnd)(BOOL animated);
 
     CGFloat _sidebarWidth;
     NSLayoutConstraint *_sidebarWidthConstraint;
@@ -441,12 +455,22 @@ static const CGFloat kTitleRowMinTop = 4;
     [self applyAppearanceSettings];
 }
 
-/// Shows the sidebar or the top bar, following Settings → Appearance → Tab layout.
+/// Shows the sidebar or the top bar, following Settings → Appearance → Tab layout. A change made
+/// while the window shows morphs the chrome's glass from the old shape to the new one.
 - (void)applyTabLayout {
     TabLayout layout = _state.currentSpace.effectiveTabLayout;
     BOOL top = layout != TabLayoutSidebar;
-    _topBar.compact = layout == TabLayoutCompact;
-    if (top == _tabsOnTop && _positional.count) return;   // built, and nothing changed
+    BOOL compact = layout == TabLayoutCompact;
+    BOOL built = _positional.count > 0;
+    BOOL reshapes = built && (top != _tabsOnTop || (top && _topBar.compact != compact));
+    std::optional<MorphStart> start;
+    if (reshapes && self.window.isVisible) start = [self morphStart];
+    else if (reshapes) [self endChromeMorphAnimated:NO];
+    _topBar.compact = compact;
+    if (top == _tabsOnTop && built) {   // nothing to rebuild (at most compact changed)
+        if (start) [self morphChromeFrom:*start];
+        return;
+    }
     if (!top) [_commandBar dismiss];
     if (_peeking) [self endPeek];
     _tabsOnTop = top;
@@ -470,6 +494,141 @@ static const CGFloat kTitleRowMinTop = 4;
     [_chrome applySettings];
     [_chrome reloadAll];
     [self applySidebarVisibilityAnimated:NO];
+    if (start) [self morphChromeFrom:*start];
+}
+
+// MARK: Tab layout morph
+
+/// The glass the tabs show in, or nil while the sidebar is hidden.
+- (NSView *)chromePanel {
+    if (_tabsOnTop) return _topGlass;
+    return self.sidebarHidden && !_peeking ? nil : _sidebarGlass;
+}
+
+/// What to fade to hide the chrome in place: its glass, or in the icon rail the sidebar that
+/// carries the rail's own pieces.
+- (NSView *)chromeFader {
+    if (_tabsOnTop) return _topGlass;
+    return _sidebarGlass.contentView == _sidebar ? _sidebarGlass : _sidebar;
+}
+
+- (NSArray<NSButton *> *)trafficLights {
+    NSMutableArray<NSButton *> *lights = [NSMutableArray array];
+    for (NSWindowButton t : {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
+        NSButton *b = [self.window standardWindowButton:t];
+        if (b) [lights addObject:b];
+    }
+    return lights;
+}
+
+/// What the chrome looks like before a layout change, for the morph to start from. A morph
+/// already running is interrupted where it stands, so the next one carries on from there.
+- (MorphStart)morphStart {
+    MorphStart s{};
+    s.card = _content.frame;
+    if (_morph) {
+        s.shown = YES;
+        s.glass = _morph.frame;
+        s.picture = _morph.visiblePicture;
+        s.pictureFrame = _morph.visiblePictureFrame;
+        s.alpha = _morph.visiblePictureAlpha;
+        [self endChromeMorphAnimated:NO];
+        return s;
+    }
+    NSView *panel = self.chromePanel;
+    if (!panel) return s;
+    NSView *chrome = (NSView *)_chrome;
+    s.shown = YES;
+    s.glass = panel.frame;
+    s.picture = [ChromeMorph pictureOf:chrome];
+    s.pictureFrame = [chrome convertRect:chrome.bounds toView:_root];
+    s.alpha = 1;
+    return s;
+}
+
+/// With the new layout applied, holds the page card where it was and hides the new chrome, then
+/// morphs a stand-in glass from the old shape to the new one while the card follows it.
+- (void)morphChromeFrom:(const MorphStart &)s {
+    [_root layoutSubtreeIfNeeded];
+    NSView *panel = self.chromePanel;
+    if (!s.shown && !panel) return;   // hidden sidebar to hidden sidebar: nothing shows
+    // Coming from or going to a hidden sidebar, the glass grows from (or folds into) the top edge.
+    auto folded = [](NSRect r) { return NSMakeRect(NSMinX(r), NSMaxY(r), NSWidth(r), 0); };
+    NSRect from = s.shown ? s.glass : folded(panel.frame);
+    NSRect foldTo = folded(from);
+    NSGlassEffectView *realGlass = _tabsOnTop ? _topGlass : _sidebarGlass;
+
+    // The card's edges beside the chrome start where they were and ease into place.
+    NSRect card = _content.frame;
+    NSLayoutConstraint *near = _contentToSidebar.active ? _contentToSidebar : _contentToEdge;
+    NSLayoutConstraint *top = _contentTop;
+    CGFloat nearBase = near.constant, topBase = top.constant;
+    CGFloat dNear = _onRight ? NSMaxX(card) - NSMaxX(s.card) : NSMinX(s.card) - NSMinX(card);
+    CGFloat dTop = NSMaxY(card) - NSMaxY(s.card);
+    near.constant = nearBase + dNear;
+    top.constant = topBase + dTop;
+
+    // The real chrome and the lights beside it wait for the glass to land. The lights have
+    // already moved to where the new chrome puts them; bumping the generation stops the
+    // visibility pass just run from fading them back in underneath the morph.
+    _lightsGeneration += 1;
+    NSView *fader = self.chromeFader;
+    fader.alphaValue = 0;
+    NSArray<NSButton *> *lights = self.trafficLights;
+    for (NSButton *b in lights) b.alphaValue = 0;
+    _morphEnd = ^(BOOL animated) {
+        near.constant = nearBase;
+        top.constant = topBase;
+        fader.alphaValue = 1;
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+            ctx.duration = animated ? 0.15 : 0;
+            for (NSButton *b in lights) (animated ? b.animator : b).alphaValue = 1;
+        }];
+    };
+
+    ChromeMorph *morph = [[ChromeMorph alloc] initInView:_root above:_content frame:from picture:s.picture
+                                            pictureFrame:s.pictureFrame alpha:s.alpha cornerRadius:realGlass.cornerRadius];
+    morph.glass.tintColor = realGlass.tintColor;
+    if (@available(macOS 26.1, *)) morph.glass.style = realGlass.style;
+    _morph = morph;
+    __weak BrowserWindowController *weakSelf = self;
+    __weak ChromeMorph *weakMorph = morph;
+    [morph runToTarget:^NSRect {
+        return panel ? panel.frame : foldTo;
+    } incoming:^NSImage * {
+        // The new chrome has been filled and laid out by now (a space switch reloads it after
+        // the layout changes), and a new space may have brought its own tint.
+        BrowserWindowController *self_ = weakSelf;
+        ChromeMorph *m = weakMorph;
+        if (!self_ || !panel) return nil;
+        m.glass.tintColor = realGlass.tintColor;
+        if (@available(macOS 26.1, *)) m.glass.style = realGlass.style;
+        return [ChromeMorph pictureOf:(NSView *)self_->_chrome];
+    } incomingFrame:^NSRect {
+        BrowserWindowController *self_ = weakSelf;
+        NSView *chrome = (NSView *)self_->_chrome;
+        return self_ ? [chrome convertRect:chrome.bounds toView:self_->_root] : NSZeroRect;
+    } progress:^(CGFloat move, CGFloat reveal) {
+        near.constant = nearBase + dNear * (1 - move);
+        top.constant = topBase + dTop * (1 - move);
+        // The lights come in as the glass lands around them (on the right they'd otherwise show
+        // over bare window while the glass is still on its way across).
+        CGFloat lightsAlpha = std::min<CGFloat>(reveal, std::clamp<CGFloat>((move - 0.8) / 0.2, 0, 1));
+        for (NSButton *b in lights) b.alphaValue = lightsAlpha;
+    } completion:^{
+        [weakSelf endChromeMorphAnimated:YES];
+    }];
+}
+
+/// Stops the morph where it is and puts back what it held: the card's place, the chrome, the lights.
+- (void)endChromeMorphAnimated:(BOOL)animated {
+    [_morph stop];
+    _morph = nil;
+    if (_morphEnd) {
+        void (^end)(BOOL) = _morphEnd;
+        _morphEnd = nil;
+        end(animated);
+    }
 }
 
 /// Our full-screen traffic lights ride at the start of the row beside them, so they move with it.
@@ -569,6 +728,8 @@ static const CGFloat kTitleRowMinTop = 4;
 /// equal and opposite amounts, so the card slides under (or out from under) the rail while the
 /// page itself only follows the rail's width.
 - (void)placeCardAnimated:(BOOL)animated {
+    // A morph moves the card by these same constraints; anything else placing it takes over.
+    [self endChromeMorphAnimated:NO];
     BOOL underRail = !_tabsOnTop && !self.sidebarHidden && Settings.sidebarIconsOnly;
     CGFloat rail = self.railWidth;
     CGFloat edge = underRail ? -rail : _inset;

@@ -47,6 +47,7 @@ NS_ASSUME_NONNULL_END
 #import "ContentAreaView.h"
 #import "SiteInfo.h"
 #import "SpaceEditor.h"
+#import "ChromeMorph.h"
 #import "BrowserWindowController.h"
 #import "SettingsControls.h"
 #import "PasswordsPane.h"
