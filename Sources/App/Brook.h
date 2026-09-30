@@ -17,7 +17,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class BrowserTab, BrowserState, Space, ArchivedTab, BrookWebView;
+@class BrowserTab, BrowserState, Space, ArchivedTab, BrookWebView, TabSplit;
 @class BrowserWindowController, SidebarView, TopBarView, ContentAreaView, CommandBarController;
 @class HistoryEntry, SearchEngine;
 

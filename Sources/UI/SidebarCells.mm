@@ -233,12 +233,19 @@
 
 - (void)mouseEntered:(NSEvent *)event {
     [self setHovering:YES];
-    _background.baseColor = _selected ? NSColor.clearColor : Palette.rowHover;
+    [self updateFill];
 }
 
 - (void)mouseExited:(NSEvent *)event {
     [self setHovering:NO];
-    _background.baseColor = NSColor.clearColor;
+    [self updateFill];
+}
+
+/// The selected row is highlighted; the page beside it in Split View (on screen, without the keys) and a
+/// hovered row get the soft fill.
+- (void)updateFill {
+    _background.baseColor = !_selected && (_hovering || [BrowserState.shared isShowing:_tab]) ? Palette.rowHover
+                                                                                             : NSColor.clearColor;
 }
 
 - (void)configureWithTab:(BrowserTab *)tab selected:(BOOL)selected {
@@ -247,8 +254,8 @@
     _background.style = Settings.tabStyle;
     _background.barOnRight = Settings.sidebarPosition != SidebarPositionRight;
     [self setHovering:NO];
-    _background.baseColor = NSColor.clearColor;
     _background.isHighlightedState = selected;
+    [self updateFill];
     [self applyFont];
     [self updateWithTab:tab];
 }
@@ -286,7 +293,7 @@
 - (void)setSelected:(BOOL)s {
     _selected = s;
     _background.isHighlightedState = s;
-    _background.baseColor = (!s && _hovering) ? Palette.rowHover : NSColor.clearColor;
+    [self updateFill];
     [self applyFont];
     [self refreshTextColor];
     [self updateClose];

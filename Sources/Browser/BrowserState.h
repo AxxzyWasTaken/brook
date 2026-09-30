@@ -1,6 +1,18 @@
 #import <AppKit/AppKit.h>
 #import "BrowserTab.h"
 
+/// Two tabs of one space shown side by side (Split View). Both are regular tabs of that space; the
+/// pair comes apart by itself once either stops being one (closed, pinned, moved to another space).
+/// Adapted from Search by Office Commun (MIT License, Copyright (c) 2026 Office Commun), Split.swift.
+@interface TabSplit : NSObject
+@property (strong) BrowserTab *left;
+@property (strong) BrowserTab *right;
+/// The left page's share of the card, kept between 0.2 and 0.8.
+@property (nonatomic) double fraction;
+- (BOOL)contains:(BrowserTab *)tab;
+- (BrowserTab *)partnerOf:(BrowserTab *)tab;
+@end
+
 @interface Space : NSObject
 - (instancetype)initWithID:(NSUUID *)identifier name:(NSString *)name colorHex:(NSString *)colorHex;
 - (instancetype)initWithName:(NSString *)name colorHex:(NSString *)colorHex;
@@ -9,6 +21,7 @@
 @property (copy) NSString *colorHex;
 @property (strong) NSMutableArray<BrowserTab *> *pinned;
 @property (strong) NSMutableArray<BrowserTab *> *tabs;
+@property (strong) NSMutableArray<TabSplit *> *splits;
 @property (strong) NSUUID *lastSelectedID;
 /// Overrides the default search engine for this space.
 @property (copy) NSString *searchEngineID;
@@ -118,6 +131,23 @@ FOUNDATION_EXPORT NSNotificationName const BrowserStateArchiveDidChangeNotificat
 - (void)togglePin:(BrowserTab *)tab;
 - (void)toggleFavorite:(BrowserTab *)tab;
 - (void)duplicate:(BrowserTab *)tab;
+
+// Split View. Selecting either tab of a pair shows both; the selected one has the keys.
+- (TabSplit *)splitFor:(BrowserTab *)tab;
+/// The pair on screen, if the selected tab is in one.
+@property (readonly) TabSplit *activeSplit;
+/// The selected tab, or the one beside it.
+- (BOOL)isShowing:(BrowserTab *)tab;
+/// A new empty page beside the selected one, selected (its address is typed next). Already split: the
+/// right page gets the keys. Returns the new tab, or nil.
+- (BrowserTab *)startSplit;
+/// `tab` beside the selected page (a pinned tab or favorite goes in as a new tab with its page).
+- (void)openInSplit:(BrowserTab *)tab;
+- (void)separateSplit;
+- (void)swapSplit;
+- (void)closeSplit;
+- (void)setSplitFraction:(double)fraction;
+- (void)focusPaneOnLeft:(BOOL)left;
 
 - (void)switchToSpace:(NSInteger)index;
 - (void)switchSpaceBy:(NSInteger)delta;

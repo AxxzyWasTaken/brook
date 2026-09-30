@@ -1,5 +1,13 @@
 #import "Brook.h"
 
+@implementation TabSplit
+- (void)setFraction:(double)fraction {
+    _fraction = std::isfinite(fraction) ? std::min(0.8, std::max(0.2, fraction)) : 0.5;
+}
+- (BOOL)contains:(BrowserTab *)tab { return tab && (tab == _left || tab == _right); }
+- (BrowserTab *)partnerOf:(BrowserTab *)tab { return tab == _left ? _right : tab == _right ? _left : nil; }
+@end
+
 @implementation Space
 
 - (instancetype)initWithID:(NSUUID *)identifier name:(NSString *)name colorHex:(NSString *)colorHex {
@@ -9,6 +17,7 @@
         _colorHex = [colorHex copy];
         _pinned = [NSMutableArray array];
         _tabs = [NSMutableArray array];
+        _splits = [NSMutableArray array];
     }
     return self;
 }
@@ -185,6 +194,22 @@ NSNotificationName const BrowserStateArchiveDidChangeNotification = @"BrookArchi
             for (NSDictionary *r in ArrayFromJSON(sr[@"tabs"])) {
                 if (BrowserTab *t = [self makeTab:r favorite:NO pinned:NO]) [s.tabs addObject:t];
             }
+            for (NSDictionary *pr in ArrayFromJSON(sr[@"splits"])) {
+                if (![pr isKindOfClass:NSDictionary.class]) continue;
+                NSUUID *l = UUIDFromJSON(pr[@"left"]), *r = UUIDFromJSON(pr[@"right"]);
+                BrowserTab *left = nil, *right = nil;
+                for (BrowserTab *t in s.tabs) {
+                    if ([t.identifier isEqual:l]) left = t;
+                    if ([t.identifier isEqual:r]) right = t;
+                }
+                if (!left || !right || left == right) continue;
+                TabSplit *pair = [TabSplit new];
+                pair.left = left;
+                pair.right = right;
+                id f = pr[@"fraction"];
+                pair.fraction = [f isKindOfClass:NSNumber.class] ? [f doubleValue] : 0.5;
+                [s.splits addObject:pair];
+            }
             s.lastSelectedID = UUIDFromJSON(sr[@"lastSelected"]);
             s.searchEngineID = StringFromJSON(sr[@"searchEngine"]);
             s.profileID = UUIDFromJSON(sr[@"profile"]);
@@ -206,6 +231,7 @@ NSNotificationName const BrowserStateArchiveDidChangeNotification = @"BrookArchi
             if (ArchivedTab *t = ArchivedFromRecord(a)) [_archived addObject:t];
         }
         [self applyLaunchBehavior];
+        [self pruneSplits];
         NSUUID *sel = UUIDFromJSON(record[@"selected"]);
         BrowserTab *tab = sel ? [self tabWithID:sel] : nil;
         [self selectTab:tab ?: self.currentSpace.tabs.firstObject ?: self.currentSpace.pinned.firstObject];
@@ -262,6 +288,12 @@ NSNotificationName const BrowserStateArchiveDidChangeNotification = @"BrookArchi
         NSMutableDictionary *d = [@{@"id": s.identifier.UUIDString, @"name": s.name, @"color": s.colorHex,
                                     @"pinned": pinned, @"tabs": tabs} mutableCopy];
         if (s.lastSelectedID) d[@"lastSelected"] = s.lastSelectedID.UUIDString;
+        NSMutableArray *splits = [NSMutableArray array];
+        for (TabSplit *p in s.splits) {
+            [splits addObject:@{@"left": p.left.identifier.UUIDString, @"right": p.right.identifier.UUIDString,
+                                @"fraction": @(p.fraction)}];
+        }
+        if (splits.count) d[@"splits"] = splits;
         if (s.searchEngineID) d[@"searchEngine"] = s.searchEngineID;
         if (s.profileID) d[@"profile"] = s.profileID.UUIDString;
         if (s.themeMode) d[@"theme"] = ThemeModeRaw((ThemeMode)s.themeMode.integerValue);
@@ -351,7 +383,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     tab.parentTab = parent;
     Space *target = space ?: (parent ? [self spaceOf:parent] : nil) ?: self.currentSpace;
     [target.tabs insertObject:tab atIndex:[self indexAfter:parent in:target]];
-    [_observer browserStateDidChangeStructure];
+    [self structureChanged];
     if (shouldSelect) [self selectTab:tab]; else if (loadNow) [tab materialize];
     [self scheduleSave];
     return tab;
@@ -380,7 +412,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
         index = (NSInteger)[self indexAfter:opener in:space];
     }
     [self attach:tab to:destination at:index];
-    [_observer browserStateDidChangeStructure];
+    [self structureChanged];
     if (shouldSelect) [self selectTab:tab]; else [tab materialize];
     [self scheduleSave];
     return tab;
@@ -409,7 +441,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     tab.state = self;
     Space *target = [self spaceOf:parent] ?: self.currentSpace;
     [target.tabs insertObject:tab atIndex:[self indexAfter:parent in:target]];
-    [_observer browserStateDidChangeStructure];
+    [self structureChanged];
     if (shouldSelect) [self selectTab:tab];
     [self scheduleSave];
 }
@@ -432,6 +464,10 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     if (tab) {
         tab.lastActive = [NSDate date];
         [tab materialize];
+        if (BrowserTab *partner = [[self splitFor:tab] partnerOf:tab]) {
+            partner.lastActive = tab.lastActive;
+            [partner materialize];
+        }
         self.currentSpace.lastSelectedID = tab.identifier;
     }
     previous.lastActive = [NSDate date];
@@ -473,7 +509,9 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
 
 - (void)remove:(BrowserTab *)tab {
     BOOL wasSelected = _selectedTab == tab;
-    BrowserTab *next = wasSelected ? [self neighborOf:tab] : nil;
+    // One of a pair going: the page beside it takes the room.
+    BrowserTab *partner = [[self splitFor:tab] partnerOf:tab];
+    BrowserTab *next = wasSelected ? (partner ?: [self neighborOf:tab]) : nil;
     if (tab.url) {
         Space *s = [self spaceOf:tab] ?: self.currentSpace;
         _recentlyClosed.push_back({tab.url, tab.title, s.identifier});
@@ -481,7 +519,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     }
     [self detach:tab];
     [tab unload];
-    [_observer browserStateDidChangeStructure];
+    [self structureChanged];
     if (wasSelected) [self selectTab:next];
     [self scheduleSave];
 }
@@ -547,7 +585,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
         [tab unload];
         if (wasSelected) [tab materialize];
     }
-    [_observer browserStateDidChangeStructure];
+    [self structureChanged];
     Space *s = [self spaceOf:tab];
     if (wasSelected && s && s != self.currentSpace) {
         [self selectTab:next ?: self.currentSpace.tabs.firstObject ?: self.currentSpace.pinned.firstObject];
@@ -581,6 +619,154 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
 - (void)duplicate:(BrowserTab *)tab {
     if (!tab.url) return;
     [self openTabWithURL:tab.url inSpace:nil after:(tab.isPinned || tab.isFavorite) ? nil : tab select:YES loadNow:NO];
+}
+
+// MARK: Split View
+// Adapted from Search by Office Commun (MIT License, Copyright (c) 2026 Office Commun), Browser.swift.
+
+- (void)structureChanged {
+    BOOL pruned = [self pruneSplits];
+    [_observer browserStateDidChangeStructure];
+    // The pair on screen came apart: show what's left of it (not a tab that has just gone).
+    if (pruned && _selectedTab && [self locationOf:_selectedTab]) {
+        [_observer browserStateDidSelect:_selectedTab previous:_selectedTab];
+    }
+}
+
+/// Drops pairs that no longer stand: both must still be regular tabs of their space. YES if any went.
+- (BOOL)pruneSplits {
+    BOOL pruned = NO;
+    for (Space *s in _spaces) {
+        NSUInteger before = s.splits.count;
+        [s.splits filterUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(TabSplit *p, NSDictionary *b) {
+            return p.left != p.right && [s.tabs indexOfObjectIdenticalTo:p.left] != NSNotFound &&
+                   [s.tabs indexOfObjectIdenticalTo:p.right] != NSNotFound;
+        }]];
+        pruned = pruned || s.splits.count != before;
+    }
+    return pruned;
+}
+
+- (TabSplit *)splitFor:(BrowserTab *)tab {
+    if (!tab || tab.isPinned || tab.isFavorite) return nil;
+    for (Space *s in _spaces) for (TabSplit *p in s.splits) if ([p contains:tab]) return p;
+    return nil;
+}
+
+- (TabSplit *)activeSplit { return [self splitFor:_selectedTab]; }
+
+- (BOOL)isShowing:(BrowserTab *)tab {
+    return tab && (tab == _selectedTab || [self.activeSplit contains:tab]);
+}
+
+/// A tab that can go into a pair in `space`: a regular tab of it as it is; a pinned tab or favorite keeps
+/// its place, and its page goes in as a new tab.
+- (BrowserTab *)splittable:(BrowserTab *)tab in:(Space *)space {
+    if ([space.tabs indexOfObjectIdenticalTo:tab] != NSNotFound) return tab;
+    if (!(tab.isPinned || tab.isFavorite)) return nil;
+    BrowserTab *copy = [[BrowserTab alloc] initWithURL:tab.url ?: tab.homeURL];
+    copy.state = self;
+    [space.tabs insertObject:copy atIndex:[self newTabIndexIn:space]];
+    return copy;
+}
+
+- (void)pair:(BrowserTab *)left with:(BrowserTab *)right in:(Space *)space {
+    [space.splits filterUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(TabSplit *p, NSDictionary *b) {
+        return ![p contains:left] && ![p contains:right];
+    }]];
+    // Side by side in the list too, in the order they show.
+    [space.tabs removeObjectIdenticalTo:right];
+    [space.tabs insertObject:right atIndex:[space.tabs indexOfObjectIdenticalTo:left] + 1];
+    TabSplit *pair = [TabSplit new];
+    pair.left = left;
+    pair.right = right;
+    pair.fraction = 0.5;
+    [space.splits addObject:pair];
+}
+
+- (BrowserTab *)startSplit {
+    BrowserTab *shown = _selectedTab;
+    if (!shown) return nil;
+    if (TabSplit *pair = self.activeSplit) {
+        [self selectTab:pair.right];
+        return nil;
+    }
+    Space *space = self.currentSpace;
+    BrowserTab *left = [self splittable:shown in:space];
+    if (!left) return nil;
+    BrowserTab *right = [[BrowserTab alloc] initWithURL:nil];
+    right.state = self;
+    right.parentTab = left;
+    [space.tabs addObject:right];
+    [self pair:left with:right in:space];
+    [self structureChanged];
+    [self selectTab:right];
+    [self scheduleSave];
+    return right;
+}
+
+- (void)openInSplit:(BrowserTab *)tab {
+    BrowserTab *current = _selectedTab;
+    if (!current || !tab) return;
+    if (tab == current) { [self startSplit]; return; }
+    if ([[self splitFor:tab] contains:current]) { [self selectTab:tab]; return; }
+    Space *space = self.currentSpace;
+    if (!tab.isFavorite && [self spaceOf:tab] != space) return;
+    BrowserTab *left = [self splittable:current in:space];
+    BrowserTab *right = [self splittable:tab in:space];
+    if (!left || !right || left == right) return;
+    [self pair:left with:right in:space];
+    [self structureChanged];
+    [self selectTab:right];
+    [self scheduleSave];
+}
+
+- (void)splitChanged {
+    [_observer browserStateDidSelect:_selectedTab previous:_selectedTab];
+    [self scheduleSave];
+}
+
+- (void)separateSplit {
+    TabSplit *pair = self.activeSplit;
+    if (!pair) return;
+    for (Space *s in _spaces) [s.splits removeObjectIdenticalTo:pair];
+    [self splitChanged];
+}
+
+- (void)swapSplit {
+    TabSplit *pair = self.activeSplit;
+    Space *space = [self spaceOf:pair.left];
+    if (!pair || !space) return;
+    NSUInteger l = [space.tabs indexOfObjectIdenticalTo:pair.left], r = [space.tabs indexOfObjectIdenticalTo:pair.right];
+    if (l != NSNotFound && r != NSNotFound) [space.tabs exchangeObjectAtIndex:l withObjectAtIndex:r];
+    BrowserTab *left = pair.left;
+    pair.left = pair.right;
+    pair.right = left;
+    pair.fraction = 1 - pair.fraction;
+    [_observer browserStateDidChangeStructure];
+    [self splitChanged];
+}
+
+- (void)closeSplit {
+    TabSplit *pair = self.activeSplit;
+    if (!pair) return;
+    BrowserTab *left = pair.left, *right = pair.right;
+    [self remove:left];
+    [self remove:right];
+}
+
+- (void)setSplitFraction:(double)fraction {
+    TabSplit *pair = self.activeSplit;
+    if (!pair) return;
+    double before = pair.fraction;
+    pair.fraction = fraction;
+    if (pair.fraction != before) [self splitChanged];
+}
+
+- (void)focusPaneOnLeft:(BOOL)left {
+    TabSplit *pair = self.activeSplit;
+    BrowserTab *tab = left ? pair.left : pair.right;
+    if (tab && tab != _selectedTab) [self selectTab:tab];
 }
 
 // MARK: Spaces
@@ -619,7 +805,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     s.profileID = separateProfile ? [NSUUID UUID] : nil;
     [_spaces addObject:s];
     [self switchToSpace:(NSInteger)_spaces.count - 1];
-    [_observer browserStateDidChangeStructure];
+    [self structureChanged];
 }
 
 - (void)updateSpace:(Space *)space name:(NSString *)name colorHex:(NSString *)colorHex
@@ -640,7 +826,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     }
     NSUInteger i = [_spaces indexOfObjectIdenticalTo:space];
     if (i != NSNotFound && (NSInteger)i == _currentSpaceIndex) [_observer browserStateDidEditCurrentSpace];
-    [_observer browserStateDidChangeStructure];
+    [self structureChanged];
     // Also with no tab: the empty page shows the space name.
     [_observer browserStateDidSelect:_selectedTab previous:_selectedTab];
     [self scheduleSave];
@@ -655,7 +841,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     [_spaces insertObject:s atIndex:(NSUInteger)to];
     NSUInteger i = [_spaces indexOfObjectIdenticalTo:current];
     _currentSpaceIndex = i == NSNotFound ? 0 : (NSInteger)i;
-    [_observer browserStateDidChangeStructure];
+    [self structureChanged];
     [self scheduleSave];
 }
 
@@ -680,12 +866,12 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     }
     if (!wasCurrent) {
         // Another space went away: the current space and its selected tab stay as they are.
-        [_observer browserStateDidChangeStructure];
+        [self structureChanged];
         [self scheduleSave];
         return;
     }
     [_observer browserStateDidSwitchSpace:NO];
-    [_observer browserStateDidChangeStructure];
+    [self structureChanged];
     [self selectTab:[self tabToShowIn:self.currentSpace]];
 }
 
@@ -707,7 +893,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
     [_archived removeAllObjects];
     [NSNotificationCenter.defaultCenter postNotificationName:BrowserStateArchiveDidChangeNotification object:self];
     [HistoryStore.shared clear];
-    [_observer browserStateDidChangeStructure];
+    [self structureChanged];
     [self selectTab:nil];
     [self saveNow];
 }
@@ -717,11 +903,11 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
 - (void)hibernateOlderThan:(NSTimeInterval)seconds {
     NSDate *cutoff = [NSDate dateWithTimeIntervalSinceNow:-seconds];
     for (BrowserTab *tab in self.allTabs) {
-        if (!tab.isLoaded || tab == _selectedTab || [tab.lastActive compare:cutoff] != NSOrderedAscending) continue;
+        if (!tab.isLoaded || [self isShowing:tab] || [tab.lastActive compare:cutoff] != NSOrderedAscending) continue;
         __weak BrowserState *weakSelf = self;
         [tab isBusy:^(BOOL busy) {
             if (busy) return;
-            if (tab != weakSelf.selectedTab) [tab hibernate];
+            if (![weakSelf isShowing:tab]) [tab hibernate];
         }];
     }
 }
@@ -736,7 +922,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
         if (limit <= 0) continue;
         NSDate *cutoff = [NSDate dateWithTimeIntervalSinceNow:-limit];
         for (BrowserTab *t in s.tabs) {
-            if (t != _selectedTab && [t.lastActive compare:cutoff] == NSOrderedAscending) candidates->push_back({s, t});
+            if (![self isShowing:t] && [t.lastActive compare:cutoff] == NSOrderedAscending) candidates->push_back({s, t});
         }
     }
     if (candidates->empty()) return;
@@ -757,7 +943,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
             Space *space = (*candidates)[i].space;
             BrowserTab *tab = (*candidates)[i].tab;
             NSUInteger idx = [space.tabs indexOfObjectIdenticalTo:tab];
-            if (tab == self->_selectedTab || idx == NSNotFound) continue;
+            if ([self isShowing:tab] || idx == NSNotFound) continue;
             if (tab.url) {
                 ArchivedTab *a = [ArchivedTab new];
                 a.url = tab.url;
@@ -774,7 +960,7 @@ static NSUInteger ClampIndex(NSInteger index, NSUInteger count) {
         if (self->_archived.count > 300) {
             [self->_archived removeObjectsInRange:NSMakeRange(300, self->_archived.count - 300)];
         }
-        [self->_observer browserStateDidChangeStructure];
+        [self structureChanged];
         [NSNotificationCenter.defaultCenter postNotificationName:BrowserStateArchiveDidChangeNotification object:self];
         [self scheduleSave];
     });

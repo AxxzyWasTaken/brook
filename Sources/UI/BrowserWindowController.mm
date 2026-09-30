@@ -1091,7 +1091,7 @@ static const CGFloat kTitleRowMinTop = 4;
 - (void)browserStateDidSelect:(BrowserTab *)tab previous:(BrowserTab *)previous {
     if (tab != previous) [self endRailAddressEditing];   // editing belongs to the tab it started in
     if (tab.webView != _hidingIn) [self stopHiding];     // so does picking things to hide
-    [_content showTab:tab spaceName:_state.currentSpace.name];
+    [_content showTab:tab split:_state.activeSplit spaceName:_state.currentSpace.name];
     [_chrome updateSelection];
     WKWebView *wv = tab.webView;
     if (wv && !self.commandBar.isVisible && ![self.window.firstResponder isKindOfClass:NSTextView.class]) {
@@ -1368,6 +1368,13 @@ static const CGFloat kTitleRowMinTop = 4;
     // The icon rail has no address bar: edit it in a field beside the selected tab instead.
     if (editing && [self beginRailAddressEditing]) return;
     [self.commandBar showEditingCurrent:editing && _state.selectedTab != nil];
+}
+
+// MARK: Split View
+
+/// ⌥⌘N: an empty page beside this one, its address typed next. Already split: the right page.
+- (void)startSplit {
+    if ([_state startSplit]) [self showCommandBarEditing:YES];
 }
 
 /// ⌘T and the sidebar's New Tab row, following Settings → General → New tabs show.
@@ -1733,7 +1740,21 @@ static const CGFloat kTitleRowMinTop = 4;
         }]];
         [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Duplicate Tab" handler:^{ [state duplicate:tab]; }]];
     }
-    if (tab.isLoaded && tab != state.selectedTab) {
+    // Split View: beside the page on screen, or apart again.
+    if (TabSplit *pair = [state splitFor:tab]) {
+        [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Separate Split Pages" handler:^{
+            if (![state isShowing:tab]) [state selectTab:tab];
+            [state separateSplit];
+        }]];
+        (void)pair;
+    } else if (state.selectedTab && (tab.url || tab == state.selectedTab) &&
+               (tab.isFavorite || tab == state.selectedTab || [state spaceOf:tab] == state.currentSpace)) {
+        NSString *title = tab == state.selectedTab ? @"Split with New Page" : @"Open in Split View";
+        [m addItem:[[ClosureMenuItem alloc] initWithTitle:title handler:^{
+            if (tab == state.selectedTab) [weakSelf startSplit]; else [state openInSplit:tab];
+        }]];
+    }
+    if (tab.isLoaded && ![state isShowing:tab]) {
         [m addItem:[[ClosureMenuItem alloc] initWithTitle:@"Unload to Save Memory" handler:^{ [tab hibernate]; }]];
     }
     if (state.spaces.count > 1) {

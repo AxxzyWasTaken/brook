@@ -339,6 +339,357 @@
 
 @end
 
+// MARK: - Split View stage
+// Adapted from Search by Office Commun (MIT License, Copyright (c) 2026 Office Commun), PaneStage.swift.
+
+static const CGFloat kSplitGutter = 7;      // between the pages: room for the divider, off the left page's scroller
+static const CGFloat kSplitNarrowest = 250; // narrower than this a page is no use: the focused one shows alone
+static const CGFloat kSplitSnap = 15;       // how close to even the divider comes before it settles there
+static const CGFloat kSplitUnsnap = 20;     // and how far past it the pointer goes before it lets go
+
+@class PageHostView;
+
+/// The line between two pages: a hairline in a narrow gutter that thickens under the pointer. Dragged, the
+/// pages follow it; double-clicked, they even out; right-clicked, it offers what can be done with the pair.
+@interface PaneDivider : NSView
+@property (weak) PageHostView *host;
+@end
+
+/// A hairline round the page the keys go to, with two up. Takes no clicks.
+@interface FocusCue : NSView
+@end
+
+@implementation FocusCue
+- (NSView *)hitTest:(NSPoint)point { return nil; }
+- (BOOL)isAccessibilityElement { return NO; }
+- (void)drawRect:(NSRect)dirtyRect {
+    [[NSColor.secondaryLabelColor colorWithAlphaComponent:0.55] setStroke];
+    NSBezierPath *line = [NSBezierPath bezierPathWithRect:NSInsetRect(self.bounds, 0.5, 0.5)];
+    line.lineWidth = 1;
+    [line stroke];
+}
+@end
+
+/// Holds the page on screen, or two side by side. One view for both, never rebuilt, so moving from one page
+/// to two (or back) moves web views, it doesn't reload them.
+@interface PageHostView : NSView
+/// One or two pages, left to right; `focused` indexes the one with the keys.
+- (void)showPages:(NSArray<NSView *> *)pages focused:(NSInteger)focused fraction:(double)fraction;
+@property (readonly) NSRect focusedFrame;
+@property (readonly) BOOL paired;
+@property (readonly) double share;
+@property (copy) void (^onFocus)(NSInteger index);
+@property (copy) void (^onFraction)(double fraction);
+@property (copy) void (^onAction)(SEL action);
+/// Laid out over the focused page: the hibernated picture under it, the error over it.
+@property (weak) NSView *under;
+@property (weak) NSView *over;
+- (void)dividerBegan;
+- (void)dividerMovedTo:(CGFloat)x;
+- (void)dividerEnded;
+@end
+
+@implementation PageHostView {
+    NSArray<NSView *> *_pages;
+    NSInteger _focused;
+    double _fraction;
+    std::optional<double> _live;   // the left page's share while the divider is held
+    BOOL _snapped;
+    PaneDivider *_divider;
+    FocusCue *_cue;
+    id _monitor;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    if ((self = [super initWithFrame:frameRect])) {
+        _pages = @[];
+        _fraction = 0.5;
+        _divider = [PaneDivider new];
+        _divider.host = self;
+        _divider.hidden = YES;
+        [self addSubview:_divider];
+        _cue = [FocusCue new];
+        _cue.hidden = YES;
+        [self addSubview:_cue];
+    }
+    return self;
+}
+
+- (void)dealloc { if (_monitor) [NSEvent removeMonitor:_monitor]; }
+
+- (BOOL)isFlipped { return YES; }
+
+- (double)share { return _live ? *_live : _fraction; }
+
+- (BOOL)paired { return _pages.count == 2 && self.bounds.size.width - kSplitGutter >= 2 * kSplitNarrowest; }
+
+- (void)showPages:(NSArray<NSView *> *)pages focused:(NSInteger)focused fraction:(double)fraction {
+    for (NSView *v in self.subviews.copy) {
+        if ([v isKindOfClass:WKWebView.class] && [pages indexOfObjectIdenticalTo:v] == NSNotFound) [v removeFromSuperview];
+    }
+    for (NSView *page in pages) {
+        if (page.superview != self) {
+            page.autoresizingMask = NSViewNotSizable;
+            [self addSubview:page positioned:NSWindowBelow relativeTo:_divider];
+        }
+    }
+    _pages = [pages copy];
+    _focused = std::min<NSInteger>(std::max<NSInteger>(0, focused), (NSInteger)pages.count - 1);
+    if (pages.count < 2) _live.reset();
+    _fraction = fraction;
+    [self watchClicks];
+    self.needsLayout = YES;
+    [self layoutSubtreeIfNeeded];
+}
+
+- (CGFloat)clampLeft:(CGFloat)left room:(CGFloat)room {
+    return std::min(std::max(left, kSplitNarrowest), room - kSplitNarrowest);
+}
+
+- (NSRect)frameAt:(NSInteger)index {
+    NSRect area = self.bounds;
+    if (!self.paired) return index == _focused ? area : NSZeroRect;
+    CGFloat room = area.size.width - kSplitGutter;
+    CGFloat left = std::round([self clampLeft:room * (CGFloat)self.share room:room]);
+    return index == 0 ? NSMakeRect(0, 0, left, area.size.height)
+                      : NSMakeRect(left + kSplitGutter, 0, room - left, area.size.height);
+}
+
+- (NSRect)focusedFrame { return _pages.count ? [self frameAt:_focused] : self.bounds; }
+
+- (void)layout {
+    [super layout];
+    BOOL paired = self.paired;
+    for (NSInteger i = 0; i < (NSInteger)_pages.count; i++) {
+        NSView *page = _pages[(NSUInteger)i];
+        NSRect f = [self frameAt:i];
+        // A window too narrow for two takes the other page off, and gives it back once there's room.
+        page.hidden = NSIsEmptyRect(f);
+        if (!page.hidden && !NSEqualRects(page.frame, f)) page.frame = f;
+    }
+    NSRect focused = self.focusedFrame;
+    if (NSView *under = _under) under.frame = focused;
+    if (NSView *over = _over; over && focused.size.width >= 100 && focused.size.height >= 100) over.frame = focused;
+    if (paired) {
+        NSRect left = [self frameAt:0];
+        _divider.frame = NSMakeRect(NSMaxX(left), 0, kSplitGutter, self.bounds.size.height);
+        _cue.frame = focused;
+    }
+    _divider.hidden = !paired;
+    _cue.hidden = !paired;
+    [_cue setNeedsDisplay:YES];
+    [self.window invalidateCursorRectsForView:_divider];
+}
+
+// The divider, held.
+- (void)dividerBegan {
+    _live = _fraction;
+    _snapped = std::abs(_fraction - 0.5) < 0.0001;
+}
+
+- (void)dividerMovedTo:(CGFloat)x {
+    if (!_live) return;
+    CGFloat room = self.bounds.size.width - kSplitGutter;
+    if (room <= 0) return;
+    CGFloat left = [self clampLeft:x - kSplitGutter / 2 room:room];
+    CGFloat even = room / 2;
+    if (_snapped) {
+        if (std::abs(left - even) > kSplitUnsnap) _snapped = NO; else left = even;
+    } else if (std::abs(left - even) <= kSplitSnap) {
+        _snapped = YES;
+        left = even;
+        [NSHapticFeedbackManager.defaultPerformer performFeedbackPattern:NSHapticFeedbackPatternAlignment
+                                                         performanceTime:NSHapticFeedbackPerformanceTimeNow];
+    }
+    double fraction = left / room;
+    if (fraction == *_live) return;
+    _live = fraction;
+    // Now, not on the next pass: the pages keep up with the hand.
+    self.needsLayout = YES;
+    [self layoutSubtreeIfNeeded];
+}
+
+- (void)dividerEnded {
+    if (!_live) return;
+    double fraction = *_live;
+    _live.reset();
+    _fraction = fraction;
+    self.needsLayout = YES;
+    if (_onFraction) _onFraction(fraction);
+}
+
+// A click in the page without the keys gives them to it, and is still the page's click: watched, not taken.
+- (void)watchClicks {
+    BOOL wanted = _pages.count == 2 && self.window != nil;
+    if (wanted && !_monitor) {
+        __weak PageHostView *weakSelf = self;
+        _monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown |
+                                                                 NSEventMaskOtherMouseDown
+                                                         handler:^NSEvent *(NSEvent *event) {
+            [weakSelf clicked:event];
+            return event;
+        }];
+    } else if (!wanted && _monitor) {
+        [NSEvent removeMonitor:_monitor];
+        _monitor = nil;
+    }
+}
+
+- (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
+    [self watchClicks];
+}
+
+- (void)clicked:(NSEvent *)event {
+    NSWindow *window = self.window;
+    if (!window || event.window != window || !self.paired) return;
+    NSView *hit = [window.contentView hitTest:[window.contentView.superview convertPoint:event.locationInWindow fromView:nil]];
+    for (NSInteger i = 0; i < (NSInteger)_pages.count; i++) {
+        NSView *page = _pages[(NSUInteger)i];
+        // What's over the page (the find bar, a toast, a panel) isn't the page: a click there moves nothing.
+        if (i == _focused || !hit || !(hit == page || [hit isDescendantOf:page])) continue;
+        void (^focus)(NSInteger) = _onFocus;
+        dispatch_async(dispatch_get_main_queue(), ^{ if (focus) focus(i); });
+        return;
+    }
+}
+
+- (void)act:(SEL)action { if (_onAction) _onAction(action); }
+
+@end
+
+@implementation PaneDivider {
+    CALayer *_line;
+    BOOL _hovering;
+    BOOL _dragging;
+    dispatch_block_t _dwell;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    if ((self = [super initWithFrame:frameRect])) {
+        self.wantsLayer = YES;
+        _line = [CALayer layer];
+        _line.actions = @{@"bounds": NSNull.null, @"position": NSNull.null};
+        [self.layer addSublayer:_line];
+    }
+    return self;
+}
+
+- (BOOL)isFlipped { return YES; }
+- (BOOL)acceptsFirstResponder { return NO; }
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+- (BOOL)wantsUpdateLayer { return YES; }
+
+- (void)updateLayer {
+    [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+        self->_line.backgroundColor = (self->_hovering || self->_dragging ? NSColor.secondaryLabelColor
+                                                                          : NSColor.quaternaryLabelColor).CGColor;
+    }];
+}
+
+- (void)layout {
+    [super layout];
+    [self place];
+}
+
+- (void)place {
+    CGFloat width = _hovering || _dragging ? 3 : 1;
+    _line.frame = CGRectMake((self.bounds.size.width - width) / 2, 0, width, self.bounds.size.height);
+    _line.cornerRadius = width / 2;
+}
+
+- (void)light:(BOOL)on {
+    if (_hovering == on) return;
+    _hovering = on;
+    [CATransaction begin];
+    [CATransaction setAnimationDuration:NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion ? 0 : 0.14];
+    [self place];
+    [self updateLayer];
+    [CATransaction commit];
+}
+
+- (void)resetCursorRects { [self addCursorRect:self.bounds cursor:NSCursor.resizeLeftRightCursor]; }
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    for (NSTrackingArea *a in self.trackingAreas) [self removeTrackingArea:a];
+    [self addTrackingArea:[[NSTrackingArea alloc] initWithRect:NSZeroRect
+                                                       options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow |
+                                                               NSTrackingInVisibleRect
+                                                         owner:self userInfo:nil]];
+}
+
+- (void)mouseEntered:(NSEvent *)event {
+    // A moment's rest first, so passing over it doesn't flicker.
+    if (_dwell) dispatch_block_cancel(_dwell);
+    __weak PaneDivider *weakSelf = self;
+    _dwell = dispatch_block_create((dispatch_block_flags_t)0, ^{ [weakSelf light:YES]; });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), _dwell);
+}
+
+- (void)mouseExited:(NSEvent *)event {
+    if (_dwell) dispatch_block_cancel(_dwell);
+    if (!_dragging) [self light:NO];
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    PageHostView *host = _host;
+    if (!host) return;
+    if (event.clickCount == 2) { [host act:@selector(evenSplit:)]; return; }
+    _dragging = YES;
+    if (_dwell) dispatch_block_cancel(_dwell);
+    [self light:YES];
+    [host dividerBegan];
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+    PageHostView *host = _host;
+    if (!_dragging || !host) return;
+    [NSCursor.resizeLeftRightCursor set];
+    [host dividerMovedTo:[host convertPoint:event.locationInWindow fromView:nil].x];
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    if (!_dragging) return;
+    _dragging = NO;
+    [_host dividerEnded];
+    BOOL inside = NSPointInRect([self convertPoint:event.locationInWindow fromView:nil], self.bounds);
+    _hovering = !inside;
+    [self light:inside];
+}
+
+/// What can be done with the pair, from the page area itself (the tabs may be hidden).
+- (NSMenu *)menuForEvent:(NSEvent *)event {
+    NSMenu *menu = [NSMenu new];
+    for (NSArray *entry in @[@[@"Swap Pages", @"swapSplit:"], @[@"Even Out", @"evenSplit:"], @[@""],
+                             @[@"Separate Pages", @"separateSplit:"], @[@"Close Both Pages", @"closeSplit:"]]) {
+        if (entry.count == 1) { [menu addItem:NSMenuItem.separatorItem]; continue; }
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[0] action:@selector(chose:) keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = entry[1];
+        [menu addItem:item];
+    }
+    return menu;
+}
+
+- (void)chose:(NSMenuItem *)item { [_host act:NSSelectorFromString(item.representedObject)]; }
+
+// VoiceOver: a splitter with the left page's share, stepped 5% at a time.
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilitySplitterRole; }
+- (NSString *)accessibilityLabel { return @"Divider between the pages"; }
+- (id)accessibilityValue { return @(std::lround((_host ? _host.share : 0.5) * 100)); }
+- (BOOL)accessibilityPerformIncrement { return [self step:0.05]; }
+- (BOOL)accessibilityPerformDecrement { return [self step:-0.05]; }
+- (BOOL)step:(double)by {
+    PageHostView *host = _host;
+    if (!host || !host.onFraction) return NO;
+    host.onFraction(std::min(0.8, std::max(0.2, host.share + by)));
+    return YES;
+}
+
+@end
+
 // MARK: - Content area
 
 /// The card's background extension, flipped like the web view inside it: unflipped, it fills the
@@ -366,7 +717,8 @@
     // it, inside `_extension`, which fills the covered strip with the page's own edge.
     NSLayoutGuide *_uncovered;
     NSBackgroundExtensionView *_extension;
-    NSView *_pageHost;
+    PageHostView *_pageHost;
+    __weak BrowserTab *_partner;   // the page beside _tab, in Split View
     NSImageView *_wakeCover;   // a hibernated tab's picture, under its web view until the page draws
     NSLayoutConstraint *_uncoveredLeading;
     NSLayoutConstraint *_uncoveredTrailing;
@@ -410,8 +762,14 @@
             [_uncovered.bottomAnchor constraintEqualToAnchor:_clip.bottomAnchor],
         ]];
 
-        _pageHost = [NSView new];
+        _pageHost = [PageHostView new];
         _pageHost.translatesAutoresizingMaskIntoConstraints = NO;
+        _pageHost.onFocus = ^(NSInteger index) {
+            TabSplit *pair = BrowserState.shared.activeSplit;
+            if (BrowserTab *tab = index == 0 ? pair.left : pair.right) [BrowserState.shared selectTab:tab];
+        };
+        _pageHost.onFraction = ^(double fraction) { [BrowserState.shared setSplitFraction:fraction]; };
+        _pageHost.onAction = ^(SEL action) { [NSApp sendAction:action to:nil from:nil]; };
         _extension = [PageExtensionView new];
         _extension.translatesAutoresizingMaskIntoConstraints = NO;
         _extension.automaticallyPlacesContentView = NO;
@@ -423,18 +781,20 @@
         _wakeCover = [NSImageView new];
         _wakeCover.imageScaling = NSImageScaleAxesIndependently;
         _wakeCover.hidden = YES;
-        _wakeCover.frame = _pageHost.bounds;
-        _wakeCover.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-        [_pageHost addSubview:_wakeCover];
+        [_pageHost addSubview:_wakeCover positioned:NSWindowBelow relativeTo:nil];
+        _pageHost.under = _wakeCover;
 
         _empty.translatesAutoresizingMaskIntoConstraints = NO;
         [_clip addSubview:_empty];
         [self pin:_empty toGuide:_uncovered];
 
+        // Over the page it's about: with two up, only that page. Placed by frame (see PageHostView layout); never
+        // zero-sized, or its own margins can't be met.
         _errorView.hidden = YES;
-        _errorView.translatesAutoresizingMaskIntoConstraints = NO;
-        [_clip addSubview:_errorView];
-        [self pin:_errorView toGuide:_uncovered];
+        _errorView.translatesAutoresizingMaskIntoConstraints = YES;
+        _errorView.frame = NSMakeRect(0, 0, 800, 600);
+        [_pageHost addSubview:_errorView];
+        _pageHost.over = _errorView;
 
         _progress.backgroundColor = _accentColor.CGColor;
         _progress.opacity = 0;
@@ -575,14 +935,15 @@
 
 // MARK: Showing tabs
 
-- (void)showTab:(BrowserTab *)tab spaceName:(NSString *)spaceName {
+- (void)showTab:(BrowserTab *)tab split:(TabSplit *)split spaceName:(NSString *)spaceName {
     _tab = tab;
-    WKWebView *current = _webView;
-    if (current && current != tab.webView) [current removeFromSuperview];
+    BrowserTab *partner = [split partnerOf:tab];
+    _partner = partner;
     _linkBox.hidden = YES;
     _empty.spaceName = spaceName;
     if (!tab) {
         _webView = nil;
+        [_pageHost showPages:@[] focused:0 fraction:0.5];
         _empty.hidden = NO;
         _errorView.hidden = YES;
         _progress.opacity = 0;
@@ -592,15 +953,21 @@
     }
     _empty.hidden = YES;
     BrookWebView *wv = [tab materialize];
-    if (wv.superview != _pageHost) {
-        wv.frame = _pageHost.bounds;
-        wv.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-        [_pageHost addSubview:wv positioned:NSWindowAbove relativeTo:_wakeCover];
+    if (partner) {
+        BrookWebView *other = [partner materialize];
+        BOOL onLeft = tab == split.left;
+        [_pageHost showPages:onLeft ? @[wv, other] : @[other, wv] focused:onLeft ? 0 : 1 fraction:split.fraction];
+    } else {
+        [_pageHost showPages:@[wv] focused:0 fraction:0.5];
     }
+    // The keys' page on top of the other's cover and error: they're laid over the focused page.
+    [_pageHost addSubview:_wakeCover positioned:NSWindowBelow relativeTo:wv];
+    [_pageHost addSubview:_errorView positioned:NSWindowAbove relativeTo:wv];
     _webView = wv;
     [self updateWakeCover];
     [self updateError];
     [self updateProgress];
+    [self updateProgressFrameAnimated:NO];
     if (!_findBar.hidden) {
         _findBar.webView = wv;
         [_findBar invalidateCount];
@@ -608,7 +975,16 @@
     }
 }
 
+- (void)showTab:(BrowserTab *)tab spaceName:(NSString *)spaceName {
+    [self showTab:tab split:[BrowserState.shared splitFor:tab] spaceName:spaceName];
+}
+
 - (void)tabChanged:(BrowserTab *)tab change:(TabChange)change {
+    // The page beside: only a new web view (after a crash or a wake) matters here.
+    if (tab && tab == _partner && (change & TabChangeLoaded) && tab.webView && tab.webView.superview != _pageHost) {
+        [self showTab:_tab spaceName:_empty.spaceName];
+        return;
+    }
     if (tab != _tab) return;
     // A new page never reports the old link as gone, so the preview ends when a load starts.
     if ((change & TabChangeLoading) && tab.isLoading) _linkBox.hidden = YES;
@@ -667,8 +1043,13 @@
     [CATransaction setAnimationDuration:0.2];
     CGFloat h = 2.5;
     NSRect cb = _clip.bounds;
-    // Across the part of the page left showing, not under the rail.
+    // Across the part of the page left showing, not under the rail; with two up, across the focused one.
     CGFloat x = _coveredInsets.left, w = std::max<CGFloat>(0, cb.size.width - x - _coveredInsets.right);
+    if (_pageHost.paired) {
+        NSRect f = _pageHost.focusedFrame;
+        x += f.origin.x;
+        w = f.size.width;
+    }
     _progress.frame = CGRectMake(x, cb.size.height - h, w * (CGFloat)_lastProgress, h);
     [CATransaction commit];
 }

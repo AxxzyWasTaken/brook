@@ -62,6 +62,8 @@
 // Site settings, downloads, extensions
 - (void)showSiteInfo;
 /// Hiding things on pages: ⇧⌘H picks (again stops), ⌘Z while picking undoes, ⇧⌘U lists what's hidden.
+/// Split View (⌥⌘N): an empty page beside this one, then its address.
+- (void)startSplit;
 - (void)toggleHiding;
 - (void)stopHiding;
 - (void)undoHiding;

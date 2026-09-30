@@ -26,7 +26,9 @@
 @property (nonatomic, readonly) NSEdgeInsets coveredInsets;
 /// Animated: slides with the enclosing NSAnimationContext group.
 - (void)setCoveredInsets:(NSEdgeInsets)insets animated:(BOOL)animated;
-/// tab may be nil (shows the empty state).
+/// tab may be nil (shows the empty state). With a split, the page beside it shows too (Split View).
+- (void)showTab:(BrowserTab *)tab split:(TabSplit *)split spaceName:(NSString *)spaceName;
+/// The same, with the tab's own split as the state has it.
 - (void)showTab:(BrowserTab *)tab spaceName:(NSString *)spaceName;
 - (void)tabChanged:(BrowserTab *)tab change:(TabChange)change;
 - (void)showFind;

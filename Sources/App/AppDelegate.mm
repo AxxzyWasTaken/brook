@@ -221,6 +221,13 @@ static BOOL InspectorVisible(id inspector) {
     InspectorSend(inspector, InspectorVisible(inspector) ? @"close" : @"show");
 }
 - (void)toggleHiding:(id)sender { [self.wc toggleHiding]; }
+- (void)startSplit:(id)sender { [self.wc startSplit]; }
+- (void)focusLeftPage:(id)sender { [self.state focusPaneOnLeft:YES]; }
+- (void)focusRightPage:(id)sender { [self.state focusPaneOnLeft:NO]; }
+- (void)swapSplit:(id)sender { [self.state swapSplit]; }
+- (void)evenSplit:(id)sender { [self.state setSplitFraction:0.5]; }
+- (void)separateSplit:(id)sender { [self.state separateSplit]; }
+- (void)closeSplit:(id)sender { [self.state closeSplit]; }
 - (void)showHiddenElements:(id)sender { [self.wc showHiddenElements]; }
 - (void)showJavaScriptConsole:(id)sender { InspectorSend(self.selectedInspector, @"showConsole"); }
 - (void)inspectElement:(id)sender {
@@ -249,6 +256,16 @@ static BOOL InspectorVisible(id inspector) {
     } else if (action == @selector(toggleReader:)) {
         menuItem.title = tab.readerOn == YES ? @"Hide Reader" : @"Show Reader";
         return BrookHost(tab.url) != nil;
+    } else if (action == @selector(startSplit:)) {
+        menuItem.title = self.state.activeSplit ? @"Focus Right Page" : @"Split with New Page";
+        return tab != nil && (self.state.activeSplit || !tab.isPinned || tab.url != nil);
+    } else if (action == @selector(focusLeftPage:)) {
+        return self.state.activeSplit && self.state.activeSplit.left != tab;
+    } else if (action == @selector(focusRightPage:)) {
+        return self.state.activeSplit && self.state.activeSplit.right != tab;
+    } else if (action == @selector(swapSplit:) || action == @selector(evenSplit:) ||
+               action == @selector(separateSplit:) || action == @selector(closeSplit:)) {
+        return self.state.activeSplit != nil;
     } else if (action == @selector(toggleHiding:)) {
         menuItem.title = self.wc.hiding ? @"Stop Hiding Elements" : @"Hide Elements…";
         return self.wc.hiding || BrookHost(tab.url) != nil;
@@ -551,6 +568,14 @@ static NSString *BrookKey(unichar c) {
         separator(),
         item(@"Next Tab", @selector(nextTab:), @"\t", ctrl),
         item(@"Previous Tab", @selector(previousTab:), @"\t", ctrl | shift),
+        separator(),
+        item(@"Split with New Page", @selector(startSplit:), @"n", cmd | opt),
+        item(@"Focus Left Page", @selector(focusLeftPage:), BrookKey(NSLeftArrowFunctionKey), cmd | ctrl),
+        item(@"Focus Right Page", @selector(focusRightPage:), BrookKey(NSRightArrowFunctionKey), cmd | ctrl),
+        item(@"Swap Pages", @selector(swapSplit:)),
+        item(@"Even Out Pages", @selector(evenSplit:)),
+        item(@"Separate Split Pages", @selector(separateSplit:)),
+        item(@"Close Both Pages", @selector(closeSplit:)),
         separator(),
     ]];
     for (NSInteger i = 0; i < 9; i++) {

@@ -703,6 +703,7 @@ static const CGFloat kTabGap = 2;
         v.pinnedStyle = pinned;
         v.fontSize = _fontSize;
         v.selected = tab == selected;
+        [self markPartner:v];
         [next setObject:v forKey:tab];
         [views addObject:v];
     };
@@ -717,7 +718,15 @@ static const CGFloat kTabGap = 2;
     [self scrollToSelected];
 }
 
+/// The page beside the selected one in Split View: on screen, without the keys, so the soft fill.
+- (void)markPartner:(TopTabView *)v {
+    BrowserTab *tab = v.tab;
+    v.baseColor = tab != BrowserState.shared.selectedTab && [BrowserState.shared isShowing:tab] ? v.hoverColor
+                                                                                               : NSColor.clearColor;
+}
+
 - (void)updateSelection:(BrowserTab *)selected {
+    for (TopTabView *v in _byTab.objectEnumerator) [self markPartner:v];
     BrowserTab *previous = _selected;
     if (previous == selected) return;
     if (previous) [_byTab objectForKey:previous].selected = NO;
