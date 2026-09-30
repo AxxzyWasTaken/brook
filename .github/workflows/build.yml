@@ -28,6 +28,9 @@ jobs:
       - name: Blocklists
         run: scripts/blocklist.sh
 
+      - name: Scriptlets
+        run: scripts/scriptlets.sh
+
       - name: Generate project
         run: |
           brew install xcodegen

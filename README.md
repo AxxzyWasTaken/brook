@@ -97,3 +97,8 @@ button in the address pill: paste a Chrome Web Store link, or browse the store a
 - Extension and autoconsent integration modelled on
   [duckduckgo/apple-browsers](https://github.com/duckduckgo/apple-browsers) (Apache-2.0).
 - Favicons from DuckDuckGo's icon service. Not affiliated with DuckDuckGo or The Browser Company.
+
+## License
+Brook is free software under the [GNU General Public License v3.0](LICENSE). It ships uBlock Origin Lite's
+scriptlets (`Resources/scriptlets-*.js`, © Raymond Hill, GPLv3) for ad blocking that URL rules can't do,
+such as YouTube's in-player ads.

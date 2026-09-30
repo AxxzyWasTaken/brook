@@ -18,6 +18,7 @@ NSNotificationName const BrookHoveredLinkNotification = @"BrookHoveredLink";
 
 static WKUserScript *sBoostScript;
 static WKUserScript *sDarkScript;
+static NSArray<WKUserScript *> *sScriptlets = @[];
 
 /// Makes sites treat Brook like Safari (same engine), so nothing serves a degraded page.
 + (NSString *)userAgentSuffix { return @"Version/26.0 Safari/605.1.15"; }
@@ -28,6 +29,9 @@ static WKUserScript *sDarkScript;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         ucc = [WKUserContentController new];
+        // Scriptlets first: at document start they must patch the page before anything else runs.
+        sScriptlets = ContentBlocker.shared.scriptletScripts;
+        for (WKUserScript *s in sScriptlets) [ucc addUserScript:s];
         [AutoconsentHandler.shared installHandlersInto:ucc];
         [ChromeWebStoreBridge.shared installHandlersInto:ucc];
         [PasswordAutofill.shared installInto:ucc];
@@ -55,16 +59,20 @@ static WKUserScript *sDarkScript;
     return ucc;
 }
 
-/// Swaps in the current Boosts and force-dark scripts. WebKit can only remove all scripts at once,
-/// so every other script (including ones web extensions added) is put back as it was.
+/// Swaps in the current ad-blocking scriptlets, Boosts and force-dark scripts. WebKit can only remove all
+/// scripts at once, so every other script (including ones web extensions added) is put back as it was.
 /// Pages pick up the change on their next load.
 + (void)reloadSiteScripts {
     WKUserContentController *ucc = self.userContentController;
     NSMutableArray<WKUserScript *> *keep = [NSMutableArray array];
-    for (WKUserScript *s in ucc.userScripts) if (s != sBoostScript && s != sDarkScript) [keep addObject:s];
+    for (WKUserScript *s in ucc.userScripts)
+        if (s != sBoostScript && s != sDarkScript && ![sScriptlets containsObject:s]) [keep addObject:s];
+    sScriptlets = ContentBlocker.shared.scriptletScripts;
     sBoostScript = Boosts.userScript;
     sDarkScript = SiteSettings.forceDarkScript;
     [ucc removeAllUserScripts];
+    // Scriptlets first: at document start they must patch the page before anything else runs.
+    for (WKUserScript *s in sScriptlets) [ucc addUserScript:s];
     for (WKUserScript *s in keep) [ucc addUserScript:s];
     if (sBoostScript) [ucc addUserScript:sBoostScript];
     if (sDarkScript) [ucc addUserScript:sDarkScript];

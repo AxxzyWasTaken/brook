@@ -153,6 +153,61 @@ static NSDate *HTTPDate(NSString *value) {
 - (void)settingsChanged:(NSNotification *)note {
     NSString *key = note.userInfo[@"key"];
     if ([key isEqual:@"blockAds"] || [key isEqual:@"*"]) [self apply];
+    // The scriptlets follow the switch too (AppDelegate reloads the scripts for "*" and "siteSettings").
+    if ([key isEqual:@"blockAds"]) [WebViewFactory reloadSiteScripts];
+}
+
+// MARK: Scriptlets
+
+/// A bundle's source, read once. The files are ~0.7 and ~0.5 MB.
+static NSString *ScriptletSource(NSString *world) {
+    NSURL *url = [NSBundle.mainBundle URLForResource:[@"scriptlets-" stringByAppendingString:world] withExtension:@"js"];
+    return url ? [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil] : nil;
+}
+
+/// JS that's true when the top page's site has ad blocking turned off, resolved like SiteSettings (the nearest
+/// parent domain with a setting wins). Frames go by the top page, as the content rule list does.
+static NSString *SiteOffCheck() {
+    NSMutableDictionary<NSString *, NSNumber *> *set = [NSMutableDictionary dictionary];
+    [SiteSettings.all enumerateKeysAndObjectsUsingBlock:^(NSString *key, SiteOverride *o, BOOL *) {
+        if (o.blockAds) set[key] = o.blockAds;
+    }];
+    if (![set.allValues containsObject:@NO]) return nil;
+    NSData *json = [NSJSONSerialization dataWithJSONObject:set options:NSJSONWritingSortedKeys error:nil];
+    return [NSString stringWithFormat:
+        @"((s) => { const a = location.ancestorOrigins;"
+         " let h = a && a.length ? new URL(a[a.length - 1]).hostname : location.hostname;"
+         " for (;;) { if (h in s) return !s[h]; const i = h.indexOf('.'); if (i < 0) return false; h = h.slice(i + 1); }"
+         " })(%@)", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]];
+}
+
+- (NSArray<WKUserScript *> *)scriptletScripts {
+    static NSString *mainSource, *isolatedSource;
+    static NSArray<WKUserScript *> *cached;
+    static NSString *cachedCheck;
+    if (!Settings.blockAds || _pausedFor) return @[];
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        mainSource = ScriptletSource(@"main");
+        isolatedSource = ScriptletSource(@"isolated");
+    });
+    NSString *check = SiteOffCheck();
+    if (cached && (check == cachedCheck || [check isEqualToString:cachedCheck])) return cached;
+    // Each bundle is one IIFE that looks up the frame's hostname in its own table and runs only the scriptlets
+    // listed for it, so it goes into every frame at document start, before the page's scripts. Main-world ones
+    // patch the page's own functions (fetch, XHR, JSON.parse); isolated ones only touch the DOM and storage.
+    WKUserScript *(^make)(NSString *, WKContentWorld *) = ^WKUserScript *(NSString *source, WKContentWorld *world) {
+        if (!source) return nil;
+        if (check) source = [NSString stringWithFormat:@"if (!%@) {\n%@\n}", check, source];
+        return [[WKUserScript alloc] initWithSource:source injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                   forMainFrameOnly:NO inContentWorld:world];
+    };
+    NSMutableArray<WKUserScript *> *scripts = [NSMutableArray array];
+    if (WKUserScript *s = make(mainSource, WKContentWorld.pageWorld)) [scripts addObject:s];
+    if (WKUserScript *s = make(isolatedSource, [WKContentWorld worldWithName:@"BrookScriptlets"])) [scripts addObject:s];
+    cached = scripts;
+    cachedCheck = check;
+    return cached;
 }
 
 /// Running both would block twice and, worse, one blocker's exceptions can't override the other's
@@ -165,6 +220,7 @@ static NSDate *HTTPDate(NSString *value) {
     if (name == _pausedFor || [name isEqualToString:_pausedFor]) return;
     _pausedFor = name;
     [self apply];
+    [WebViewFactory reloadSiteScripts];
     [Settings notify:@"contentBlocker"];
 }
 
