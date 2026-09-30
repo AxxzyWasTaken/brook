@@ -505,6 +505,18 @@
     }
 }
 
+/// Only rows the data source can write (tabs) drag. Otherwise the table still starts a drag for
+/// "New Tab" or the divider and hides that row (gap feedback) with nothing to put back.
+- (BOOL)canDragRowsWithIndexes:(NSIndexSet *)rowIndexes atPoint:(NSPoint)mouseDownPoint {
+    id<NSTableViewDataSource> source = self.dataSource;
+    if (![source respondsToSelector:@selector(tableView:pasteboardWriterForRow:)]) return NO;
+    __block BOOL all = rowIndexes.count > 0;
+    [rowIndexes enumerateIndexesUsingBlock:^(NSUInteger row, BOOL *stop) {
+        if (![source tableView:self pasteboardWriterForRow:(NSInteger)row]) { all = NO; *stop = YES; }
+    }];
+    return all && [super canDragRowsWithIndexes:rowIndexes atPoint:mouseDownPoint];
+}
+
 - (BOOL)mouseDownCanMoveWindow { return NO; }
 - (BOOL)validateProposedFirstResponder:(NSResponder *)responder forEvent:(NSEvent *)event { return YES; }
 
