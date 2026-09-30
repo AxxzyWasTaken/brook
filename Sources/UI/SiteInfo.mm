@@ -128,6 +128,21 @@ static NSStackView *BrookVerticalStack(NSStackView *stack) {
             ov.userAgent = i == UserAgentChoiceSafari ? nil : UserAgentChoiceRaw((UserAgentChoice)i);
         }];
     }]];
+    // Location and notifications: what the page's origin was told when it asked, changeable here.
+    NSURL *page = BrowserState.shared.selectedTab.url;
+    NSString *origin = [[SiteSettings keyForHost:page.host] isEqualToString:host]
+        ? [SitePermissions originForScheme:page.scheme host:page.host port:page.port.integerValue]
+        : [SitePermissions originForScheme:secure ? @"https" : @"http" host:host port:0];
+    struct { SitePermission permission; NSString *label; } asks[] = {
+        {SitePermissionLocation, @"Location"}, {SitePermissionNotifications, @"Notifications"}};
+    for (auto ask : asks) {
+        SitePermission permission = ask.permission;
+        NSNumber *kept = [SitePermissions decisionFor:permission origin:origin];
+        [form row:ask.label view:[self popup:@[@"Ask", @"Allow", @"Don’t Allow"]
+                                    selected:!kept ? 0 : (kept.boolValue ? 1 : 2) onChange:^(NSInteger i) {
+            [SitePermissions setDecision:i == 0 ? nil : @(i == 1) for:permission origin:origin];
+        }]];
+    }
     [form finish];
     [form.grid columnAtIndex:0].width = 96;
     // One width for every popup, filling the column so the right edge lines up with the Reload

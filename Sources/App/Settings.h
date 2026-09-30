@@ -184,6 +184,8 @@ FOUNDATION_EXPORT NSInteger PinnedCloseBehaviorFromRaw(NSString *raw);
 @property (class) AutoplayPolicy autoplay;
 @property (class) BOOL blockCookiePopups;
 @property (class) BOOL blockAds;             // default YES
+/// Let websites ask to send notifications (off: every site is refused without asking).
+@property (class) BOOL siteNotifications;    // default YES
 
 // Passwords
 /// Offer to save a password after signing in to a site.

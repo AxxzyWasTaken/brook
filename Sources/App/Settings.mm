@@ -135,6 +135,7 @@ static NSUserDefaults *D(void) { return NSUserDefaults.standardUserDefaults; }
                       @"quitWarningTabs", @"commandBarTabs", @"commandBarHistory", @"commandBarSuggestions",
                       @"commandBarRows", @"commandBarPosition", @"downloadFolder", @"askDownloadLocation",
                       @"defaultZoom", @"javascriptEnabled", @"autoplay", @"blockCookiePopups", @"blockAds",
+                      @"siteNotifications", @"sitePermissions",
                       @"offerToSavePasswords", @"autofillPasswords",
                       @"defaultSearchEngine", @"searchEngines", @"siteSettings", @"boosts", @"shortcuts",
                       @"appearancePresets"];
@@ -356,6 +357,8 @@ BROOK_FLAG(commandBarSuggestions, setCommandBarSuggestions, @"commandBarSuggesti
 
 + (BOOL)blockAds { return flag(@"blockAds", YES); }
 + (void)setBlockAds:(BOOL)v { [self store:@(v) key:@"blockAds"]; }
++ (BOOL)siteNotifications { return flag(@"siteNotifications", YES); }
++ (void)setSiteNotifications:(BOOL)v { [self store:@(v) key:@"siteNotifications"]; }
 
 // Passwords
 

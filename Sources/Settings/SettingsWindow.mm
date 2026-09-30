@@ -1390,6 +1390,9 @@ static NSMutableArray<SearchEngine *> *CopyEngines(NSArray<SearchEngine *> *engi
     [f row:@"Cookie popups" view:_cookieCheck];
     [f row:@"Ads" view:[Controls check:@"Block ads and trackers" on:Settings.blockAds
                               onChange:^(BOOL on) { Settings.blockAds = on; }]];
+    [f row:@"Notifications" view:[Controls check:@"Let websites ask to send notifications" on:Settings.siteNotifications
+                                        onChange:^(BOOL on) { Settings.siteNotifications = on; }]];
+    [f row:@"" view:[Controls button:@"Forget Location and Notification Choices" action:^{ [SitePermissions forgetAll]; }]];
     if (NSString *blocker = ContentBlocker.shared.pausedFor) {
         [f note:[NSString stringWithFormat:@"Paused while “%@” is installed, so the two don’t block twice "
                                            "or undo each other’s exceptions.", blocker]];

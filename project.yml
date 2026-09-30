@@ -28,6 +28,7 @@ targets:
       - sdk: UniformTypeIdentifiers.framework
       - sdk: Security.framework
       - sdk: LocalAuthentication.framework
+      - sdk: UserNotifications.framework
       - sdk: libsqlite3.tbd
     info:
       path: Support/Info.plist
@@ -44,6 +45,8 @@ targets:
         NSSupportsAutomaticTermination: false
         NSCameraUsageDescription: Websites you allow can use your camera.
         NSMicrophoneUsageDescription: Websites you allow can use your microphone.
+        NSLocationUsageDescription: Websites you allow can know your location.
+        NSLocationWhenInUseUsageDescription: Websites you allow can know your location.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoadsInWebContent: true
         CFBundleURLTypes:

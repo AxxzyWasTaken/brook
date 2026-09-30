@@ -28,6 +28,8 @@ NS_ASSUME_NONNULL_END
 #import "BrowserTab.h"
 #import "BrowserState.h"
 #import "SiteSettings.h"
+#import "SitePermissions.h"
+#import "SiteNotifications.h"
 #import "Stores.h"
 #import "WebViewFactory.h"
 #import "Autoconsent.h"

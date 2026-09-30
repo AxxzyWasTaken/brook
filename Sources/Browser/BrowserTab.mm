@@ -135,6 +135,9 @@ static const NSUInteger kFirstVisuallyNonEmptyLayout = 1 << 1;
     wv.pageZoom = [SiteSettings zoomForHost:BrookHost(_url)];
     _webView = wv;
     [self observe:wv];
+    // Web notifications: a worker's come through the store's delegate, a page's through the pool's provider.
+    [SiteNotifications.shared attachStore:config.websiteDataStore];
+    [SiteNotifications.shared providePageNotificationsFor:wv];
     // A new web view starts with sound; a tab muted before it unloaded stays muted.
     if (_isMuted && BrowserTab.canMute) [self applyMuteTo:wv];
     // A view that is about to load a page stays transparent until WebKit says it has drawn something, so
@@ -735,6 +738,42 @@ static NSString *SaysTitle(WKFrameInfo *frame) {
         WKPermissionDecision decision = r == NSAlertFirstButtonReturn ? WKPermissionDecisionGrant : WKPermissionDecisionDeny;
         self->_mediaPermissions[key] = @(decision);
         decisionHandler(decision);
+    }];
+}
+
+/// The page's own origin, when the asking origin (and the frame asking) is that page: frames from elsewhere
+/// don't get to borrow the page's answer. nil otherwise.
+- (NSString *)pageOriginAskingFrom:(WKSecurityOrigin *)origin frame:(WKFrameInfo *)frame webView:(WKWebView *)webView {
+    NSURL *page = webView.URL;
+    if (!page.host.length || !origin.host.length) return nil;
+    NSString *site = [SitePermissions originForScheme:page.scheme host:page.host port:page.port.integerValue];
+    if (![[SitePermissions originOf:origin] isEqualToString:site]) return nil;
+    if (frame && ![[SitePermissions originOf:frame.securityOrigin] isEqualToString:site]) return nil;
+    return site;
+}
+
+/// WKUIDelegatePrivate: a page asking where you are. Unanswered, WebKit refuses every page. Only the tab
+/// on screen is asked, and only for itself; the question sits over the page, as Safari's does.
+- (void)_webView:(WKWebView *)webView requestGeolocationPermissionForOrigin:(WKSecurityOrigin *)origin
+    initiatedByFrame:(WKFrameInfo *)frame decisionHandler:(void (^)(WKPermissionDecision))decisionHandler {
+    NSString *site = [self pageOriginAskingFrom:origin frame:frame webView:webView];
+    if (!site || self != _state.selectedTab) { decisionHandler(WKPermissionDecisionDeny); return; }
+    [SitePermissions ask:SitePermissionLocation origin:site host:origin.host webView:webView completion:^(BOOL allowed) {
+        decisionHandler(allowed ? WKPermissionDecisionGrant : WKPermissionDecisionDeny);
+    }];
+}
+
+/// WKUIDelegatePrivate: a page asking to send notifications (Notification.requestPermission()).
+- (void)_webView:(WKWebView *)webView requestNotificationPermissionForSecurityOrigin:(WKSecurityOrigin *)origin
+    decisionHandler:(void (^)(BOOL))decisionHandler {
+    NSString *site = [self pageOriginAskingFrom:origin frame:nil webView:webView];
+    if (!site || !Settings.siteNotifications || !webView.configuration.websiteDataStore.isPersistent) {
+        decisionHandler(NO);
+        return;
+    }
+    [SitePermissions ask:SitePermissionNotifications origin:site host:origin.host webView:webView completion:^(BOOL allowed) {
+        if (allowed) [SiteNotifications.shared authorize];
+        decisionHandler(allowed);
     }];
 }
 
