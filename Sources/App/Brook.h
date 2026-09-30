@@ -30,6 +30,7 @@ NS_ASSUME_NONNULL_END
 #import "SiteSettings.h"
 #import "SitePermissions.h"
 #import "SiteNotifications.h"
+#import "ImageMenu.h"
 #import "Stores.h"
 #import "WebViewFactory.h"
 #import "Autoconsent.h"

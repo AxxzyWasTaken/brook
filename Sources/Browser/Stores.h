@@ -78,6 +78,9 @@ FOUNDATION_EXPORT NSNotificationName const DownloadManagerDidChangeNotification;
 @property (readonly) NSArray<DownloadItem *> *items;
 @property (readonly) BOOL hasActive;
 - (void)track:(WKDownload *)download;
+/// Saves bytes Brook already has (an image read from inside its page) as a finished download, under the same
+/// folder and naming as any other. Completion gets the file, or nil if it couldn't be written.
+- (void)saveData:(NSData *)data suggestedFilename:(NSString *)name completion:(void (^)(NSURL *file))completion;
 - (void)clearFinished;
 /// Stops a running download, keeping what it has so far to resume from.
 - (void)pause:(DownloadItem *)item;

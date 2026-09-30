@@ -516,6 +516,20 @@ static BOOL NewTabSelects(WKNavigationAction *action) {
     [DownloadManager.shared track:download];
 }
 
+/// WKNavigationDelegatePrivate: the right-click menu's Download Linked File. Unanswered, WebKit
+/// starts the download with nobody to ask where it goes, and nothing arrives.
+- (void)_webView:(WKWebView *)webView contextMenuDidCreateDownload:(WKDownload *)download {
+    [DownloadManager.shared track:download];
+}
+
+/// WKUIDelegatePrivate: WebKit's right-click menu, before it shows. Its Download Image and Copy Image are
+/// swapped for Brook's (see ImageMenu); everything else stays WebKit's.
+- (void)_webView:(WKWebView *)webView getContextMenuFromProposedMenu:(NSMenu *)menu forElement:(id)element
+        userInfo:(id)userInfo completionHandler:(void (^)(NSMenu *))completionHandler {
+    [ImageMenu adjustMenu:menu element:element webView:webView];
+    completionHandler(menu);
+}
+
 - (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
     [PasswordAutofill.shared navigationStartedForWebView:webView];
     if (_loadError) {

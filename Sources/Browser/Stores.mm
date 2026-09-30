@@ -328,7 +328,7 @@ NSNotificationName const DownloadManagerDidChangeNotification = @"BrookDownloads
 
 - (WKDownload *)download { return _download; }
 - (NSData *)resumeData { return _resumeData; }
-- (double)fraction { return _download.progress.fractionCompleted; }
+- (double)fraction { return _download ? _download.progress.fractionCompleted : 1; }
 
 @end
 
@@ -436,6 +436,46 @@ NSNotificationName const DownloadManagerDidChangeNotification = @"BrookDownloads
     [NSNotificationCenter.defaultCenter postNotificationName:DownloadManagerDidChangeNotification object:self];
 }
 
+/// The download folder (made if missing: WebKit fails a download outright without it) and a name in it
+/// nothing has yet: "name (1).ext" and so on.
+static NSURL *UnusedDestination(NSString *name) {
+    NSURL *folder = Settings.downloadFolder;
+    if (![folder checkResourceIsReachableAndReturnError:nil]) {
+        folder = [NSFileManager.defaultManager URLsForDirectory:NSDownloadsDirectory inDomains:NSUserDomainMask][0];
+    }
+    [NSFileManager.defaultManager createDirectoryAtURL:folder withIntermediateDirectories:YES attributes:nil error:nil];
+    NSString *base = name.stringByDeletingPathExtension;
+    NSString *ext = name.pathExtension;
+    NSURL *candidate = [folder URLByAppendingPathComponent:name];
+    NSInteger n = 1;
+    while ([NSFileManager.defaultManager fileExistsAtPath:candidate.path]) {
+        NSString *file = ext.length == 0 ? [NSString stringWithFormat:@"%@ (%ld)", base, (long)n]
+                                         : [NSString stringWithFormat:@"%@ (%ld).%@", base, (long)n, ext];
+        candidate = [folder URLByAppendingPathComponent:file];
+        n += 1;
+    }
+    return candidate;
+}
+
+- (void)saveData:(NSData *)data suggestedFilename:(NSString *)name completion:(void (^)(NSURL *))completion {
+    NSString *safe = [name.lastPathComponent stringByReplacingOccurrencesOfString:@":" withString:@"-"];
+    NSURL *file = UnusedDestination(safe.length && ![safe hasPrefix:@"."] ? safe : @"Image");
+    NSError *error = nil;
+    if (![data writeToURL:file options:NSDataWritingWithoutOverwriting error:&error]) {
+        NSLog(@"Brook: couldn't save %@: %@", file.path, error);
+        completion(nil);
+        return;
+    }
+    DownloadItem *item = [DownloadItem new];
+    item.filename = file.lastPathComponent;
+    item.destination = file;
+    item.status = DownloadStatusFinished;
+    [_items insertObject:item atIndex:0];
+    [NSDistributedNotificationCenter.defaultCenter postNotificationName:@"com.apple.DownloadFileFinished" object:file.path];
+    [self notify];
+    completion(file);
+}
+
 - (void)download:(WKDownload *)download decideDestinationUsingResponse:(NSURLResponse *)response
         suggestedFilename:(NSString *)suggestedFilename completionHandler:(void (^)(NSURL *))completionHandler {
     NSString *name = suggestedFilename.length == 0 ? @"Download" : suggestedFilename;
@@ -467,22 +507,7 @@ NSNotificationName const DownloadManagerDidChangeNotification = @"BrookDownloads
         else handle([panel runModal]);
         return;
     }
-    NSURL *folder = Settings.downloadFolder;
-    if (![folder checkResourceIsReachableAndReturnError:nil]) {
-        folder = [NSFileManager.defaultManager URLsForDirectory:NSDownloadsDirectory inDomains:NSUserDomainMask][0];
-    }
-    // WebKit fails the download outright if the folder is missing.
-    [NSFileManager.defaultManager createDirectoryAtURL:folder withIntermediateDirectories:YES attributes:nil error:nil];
-    NSString *base = name.stringByDeletingPathExtension;
-    NSString *ext = name.pathExtension;
-    NSURL *candidate = [folder URLByAppendingPathComponent:name];
-    NSInteger n = 1;
-    while ([NSFileManager.defaultManager fileExistsAtPath:candidate.path]) {
-        NSString *file = ext.length == 0 ? [NSString stringWithFormat:@"%@ (%ld)", base, (long)n]
-                                         : [NSString stringWithFormat:@"%@ (%ld).%@", base, (long)n, ext];
-        candidate = [folder URLByAppendingPathComponent:file];
-        n += 1;
-    }
+    NSURL *candidate = UnusedDestination(name);
     if (DownloadItem *item = [self itemFor:download]) {
         item.filename = candidate.lastPathComponent;
         item.destination = candidate;
