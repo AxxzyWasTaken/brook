@@ -23,6 +23,16 @@ static NSArray<WKUserScript *> *sScriptlets = @[];
 /// Makes sites treat Brook like Safari (same engine), so nothing serves a degraded page.
 + (NSString *)userAgentSuffix { return @"Version/26.0 Safari/605.1.15"; }
 
+/// One process pool for every tab. The property is deprecated and documented as doing nothing, but a
+/// configuration without it still gets a pool of its own when its web view is made, and each new pool
+/// starts its web content process cold. Sharing one lets WebKit keep the next process warm: a new tab's
+/// first commit went from ~62 ms to ~55 ms in a standalone probe, and the web view init from ~8 ms to ~3 ms
+/// (measured Sept 2026). Idea from Search by Office Commun (MIT).
++ (WKProcessPool *)processPool {
+    static WKProcessPool *pool = [WKProcessPool new];
+    return pool;
+}
+
 /// One shared content controller: scripts are compiled once and reused by every tab.
 + (WKUserContentController *)userContentController {
     static WKUserContentController *ucc;
@@ -87,6 +97,10 @@ static NSArray<WKUserScript *> *sScriptlets = @[];
 + (WKWebViewConfiguration *)makeConfigurationWithProfileID:(NSUUID *)profileID autoplay:(AutoplayPolicy)autoplay {
     WKWebViewConfiguration *c = [WKWebViewConfiguration new];
     c.websiteDataStore = [self dataStoreForProfileID:profileID];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    c.processPool = self.processPool;
+#pragma clang diagnostic pop
     c.userContentController = self.userContentController;
     c.applicationNameForUserAgent = self.userAgentSuffix;
     c.preferences.elementFullscreenEnabled = YES;

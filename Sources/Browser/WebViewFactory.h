@@ -17,6 +17,8 @@ FOUNDATION_EXPORT NSNotificationName const BrookHoveredLinkNotification;
 /// other script (including ones web extensions added) is put back as it was.
 /// Pages pick up the change on their next load.
 + (void)reloadSiteScripts;
+/// The one process pool every tab's configuration uses.
+@property (class, readonly) WKProcessPool *processPool;
 /// Website data for a space: its own store when it has a separate profile (non-nil), otherwise the shared one.
 + (WKWebsiteDataStore *)dataStoreForProfileID:(NSUUID *)profileID;
 + (WKWebViewConfiguration *)makeConfigurationWithProfileID:(NSUUID *)profileID autoplay:(AutoplayPolicy)autoplay;
