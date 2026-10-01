@@ -18,11 +18,11 @@ const CGFloat kFavoriteSize = 28;
 const CGFloat kFavoritePad = 3;
 const CGFloat kDragThreshold = 4;
 
-/// Where a drop lands in the strip: pinned or regular list, index in it, and x for the indicator.
+/// Where a drop lands in the strip: pinned or regular list, and the index in it among the tabs
+/// other than the one being dragged.
 struct Slot {
     bool pinned;
     NSInteger index;
-    CGFloat x;
 };
 }  // namespace
 
@@ -172,6 +172,10 @@ static NSColor *SelectedRimColor(void) {
 /// Hover changed; the strip hides the separators beside a hovered tab.
 @property (copy) void (^onHoverChange)(void);
 @property (copy) NSMenu *(^menuProvider)(BrowserTab *tab);
+/// The tab has started dragging (called just after the session begins).
+@property (copy) void (^onDragStart)(TopTabView *view);
+/// The drag this tab started has ended, wherever it was dropped (or cancelled).
+@property (copy) void (^onDragEnd)(void);
 - (void)refresh;
 - (void)reuseForTab:(BrowserTab *)tab;
 @end
@@ -493,6 +497,7 @@ static NSAttributedString *AddressText(BrowserTab *tab, CGFloat fontSize) {
     _mayDrag = NO;
     NSImage *image = TabDragImage(self.bounds.size, _icon.image, _pinnedStyle ? nil : _label.stringValue, _label.font);
     BeginTabDrag(self, event, _tab, image);
+    if (self.onDragStart) self.onDragStart(self);
 }
 
 - (void)mouseUp:(NSEvent *)event {
@@ -511,6 +516,10 @@ static NSAttributedString *AddressText(BrowserTab *tab, CGFloat fontSize) {
 - (NSDragOperation)draggingSession:(NSDraggingSession *)session
     sourceOperationMaskForDraggingContext:(NSDraggingContext)context {
     return context == NSDraggingContextWithinApplication ? NSDragOperationMove : NSDragOperationCopy;
+}
+
+- (void)draggingSession:(NSDraggingSession *)session endedAtPoint:(NSPoint)screenPoint operation:(NSDragOperation)operation {
+    if (self.onDragEnd) self.onDragEnd();
 }
 
 @end
@@ -568,8 +577,10 @@ static NSAttributedString *AddressText(BrowserTab *tab, CGFloat fontSize) {
 @implementation TabStripView {
     TabScrollView *_scroll;
     NSView *_document;
-    NSView *_indicator;
     NSArray<TopTabView *> *_tabViews;   // pinned first
+    /// The tabs left to right as shown: `_tabViews`, less a tab being dragged out of the strip.
+    NSArray<TopTabView *> *_shown;
+    CGFloat _pinnedEnd;                  // where the pinned tabs (and a gap among them) end; 0 = none
     NSMapTable<BrowserTab *, TopTabView *> *_byTab;
     NSMutableArray<CALayer *> *_separators;
     NSUInteger _pinnedCount;
@@ -579,6 +590,11 @@ static NSAttributedString *AddressText(BrowserTab *tab, CGFloat fontSize) {
     BOOL _fadesLeft;
     BOOL _fadesRight;
     CGFloat _fadeWidth;
+    // While a tab or link is dragged over the strip the tabs part to leave a gap where it would
+    // land, like Safari. A tab dragged from the strip hides and its place closes up.
+    __weak TopTabView *_dragSource;
+    BOOL _hasGap;
+    Slot _gap;
 }
 
 static const CGFloat kTabGap = 2;
@@ -587,6 +603,7 @@ static const CGFloat kTabGap = 2;
     if ((self = [super initWithFrame:frameRect])) {
         _fontSize = 13;
         _tabViews = @[];
+        _shown = @[];
         _byTab = [NSMapTable strongToStrongObjectsMapTable];
         _separators = [NSMutableArray array];
         self.wantsLayer = YES;
@@ -595,7 +612,6 @@ static const CGFloat kTabGap = 2;
         self.layer.masksToBounds = YES;
         _document = [NSView new];
         _document.wantsLayer = YES;
-        _indicator = MakeDropIndicator();
         _scroll = [TabScrollView new];
         _scroll.documentView = _document;
         _scroll.drawsBackground = NO;
@@ -653,6 +669,8 @@ static const CGFloat kTabGap = 2;
     v.onClose = ^(BrowserTab *t) { [BrowserState.shared close:t]; };
     v.onHoverChange = ^{ [weakSelf updateSeparators]; };
     v.menuProvider = ^NSMenu *(BrowserTab *t) { return [weakSelf.browser menuForTab:t]; };
+    v.onDragStart = ^(TopTabView *view) { [weakSelf beginDragOf:view]; };
+    v.onDragEnd = ^{ [weakSelf endDrag]; };
     v.onEdit = ^(BrowserTab *t) {
         TabStripView *self_ = weakSelf;
         if (self_.onEdit) self_.onEdit(t);
@@ -695,6 +713,11 @@ static const CGFloat kTabGap = 2;
 
 /// Tabs slide to their new widths as the edited one grows or shrinks back.
 - (void)animateLayout {
+    [self animateFrames];
+    [self scrollToSelected];
+}
+
+- (void)animateFrames {
     self.needsLayout = YES;
     if (!self.window) return;
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
@@ -702,7 +725,6 @@ static const CGFloat kTabGap = 2;
         ctx.allowsImplicitAnimation = YES;
         [self layoutSubtreeIfNeeded];
     }];
-    [self scrollToSelected];
 }
 
 - (void)reloadSpace:(Space *)space selected:(BrowserTab *)selected {
@@ -745,6 +767,7 @@ static const CGFloat kTabGap = 2;
     for (BrowserTab *t in space.tabs) take(t, NO);
     for (TopTabView *v in old.objectEnumerator) [v removeFromSuperview];
     _tabViews = views;
+    _shown = views;
     _byTab = next;
     _pinnedCount = space.pinned.count;
     _selected = selected;
@@ -791,10 +814,21 @@ static const CGFloat kTabGap = 2;
     NSRect inner = NSInsetRect(self.bounds, kTrackInset, kTrackInset);
     if (!NSEqualRects(_scroll.frame, inner)) _scroll.frame = inner;
     CGFloat width = inner.size.width, height = inner.size.height;
-    NSUInteger count = _tabViews.count, pinned = std::min(_pinnedCount, count), regular = count - pinned;
+    NSUInteger count = _tabViews.count, pinnedCount = std::min(_pinnedCount, count);
     auto place = [](NSView *v, NSRect r) {
         if (!NSEqualRects(v.frame, r)) v.frame = r;
     };
+    // What shows, in order: the tabs, less the one being dragged out of the strip, plus the gap
+    // where a drop would land (the dragged tab, still hidden, holds it so it's in place on drop).
+    std::vector<id> pinned, regular;
+    for (NSUInteger i = 0; i < count; i++) {
+        if (_tabViews[i] != _dragSource) (i < pinnedCount ? pinned : regular).push_back(_tabViews[i]);
+    }
+    if (_hasGap) {
+        std::vector<id> &list = _gap.pinned ? pinned : regular;
+        NSInteger at = std::clamp<NSInteger>(_gap.index, 0, (NSInteger)list.size());
+        list.insert(list.begin() + at, _dragSource ?: (id)NSNull.null);
+    }
     // Compact: the selected tab (or the one being edited) grows to fit its address; the others
     // share what's left. It never shrinks below an ordinary tab.
     TopTabView *editing = _editingTab ? [_byTab objectForKey:_editingTab] : nil;
@@ -803,28 +837,34 @@ static const CGFloat kTabGap = 2;
         if (v.addressWidth > 0) editing = v;
     }
     CGFloat editWidth = std::min({width, editing.addressWidth, kEditingMaxWidth});
+    NSMutableArray<TopTabView *> *shown = [NSMutableArray arrayWithCapacity:count];
     CGFloat x = 0;
-    for (NSUInteger i = 0; i < pinned; i++) {
-        CGFloat w = _tabViews[i] == editing ? editWidth : kPinnedTabWidth;
-        place(_tabViews[i], NSMakeRect(x, 0, w, height));
+    for (id item : pinned) {
+        // A regular tab dragged among the pinned icons holds an icon-sized gap.
+        CGFloat w = item == editing && item != _dragSource ? editWidth : kPinnedTabWidth;
+        if (item != NSNull.null) place(item, NSMakeRect(x, 0, w, height));
+        if (item != NSNull.null && item != _dragSource) [shown addObject:item];
         x += w + kTabGap;
     }
-    if (regular) {
-        BOOL editingRegular = editing && !editing.pinnedStyle;
-        CGFloat gaps = (CGFloat)(regular - 1) * kTabGap;
-        CGFloat plain = (width - x - gaps) / (CGFloat)regular;
+    _pinnedEnd = pinned.empty() ? 0 : x - kTabGap;
+    if (NSUInteger n = regular.size()) {
+        BOOL editingRegular = editing && std::find(regular.begin(), regular.end(), editing) != regular.end();
+        CGFloat gaps = (CGFloat)(n - 1) * kTabGap;
+        CGFloat plain = (width - x - gaps) / (CGFloat)n;
         CGFloat edited = editingRegular ? std::max(editWidth, plain) : 0;
-        CGFloat share = editingRegular && regular > 1 ? (width - x - gaps - edited) / (CGFloat)(regular - 1) : plain;
+        CGFloat share = editingRegular && n > 1 ? (width - x - gaps - edited) / (CGFloat)(n - 1) : plain;
         CGFloat w = std::max(_shrinkToFit ? kTabShrunkMinWidth : kTabMinWidth, share);
-        for (NSUInteger i = pinned; i < count; i++) {
-            CGFloat tw = _tabViews[i] == editing ? edited : w;
+        for (id item : regular) {
+            CGFloat tw = item == editing ? edited : w;
             // Round each edge, not each width, so the last tab ends flush with the track.
             CGFloat left = round(x), right = round(x + tw);
-            place(_tabViews[i], NSMakeRect(left, 0, right - left, height));
+            if (item != NSNull.null) place(item, NSMakeRect(left, 0, right - left, height));
+            if (item != NSNull.null && item != _dragSource) [shown addObject:item];
             x += tw + kTabGap;
         }
     }
-    CGFloat contentWidth = count ? x - kTabGap : 0;
+    _shown = shown;
+    CGFloat contentWidth = pinned.size() + regular.size() ? x - kTabGap : 0;
     place(_document, NSMakeRect(0, 0, std::max(width, contentWidth), height));
     [self updateSeparators];
     [self updateEdgeFade];
@@ -866,9 +906,11 @@ static const CGFloat kTabGap = 2;
 }
 
 /// One hairline in each gap, hidden beside the selected or hovered tab where a fill already
-/// marks the edge.
+/// marks the edge. None while tabs slide apart for a drag: the hairlines don't animate.
 - (void)updateSeparators {
-    NSUInteger needed = _tabViews.count > 1 ? _tabViews.count - 1 : 0;
+    NSArray<TopTabView *> *tabs = _shown;
+    BOOL dragging = _hasGap || _dragSource;
+    NSUInteger needed = tabs.count > 1 ? tabs.count - 1 : 0;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     while (_separators.count < needed) {
@@ -884,28 +926,78 @@ static const CGFloat kTabGap = 2;
     }
     CGFloat h = 14, y = floor((kTabHeight - h) / 2);
     for (NSUInteger i = 0; i < needed; i++) {
-        TopTabView *a = _tabViews[i], *b = _tabViews[i + 1];
+        TopTabView *a = tabs[i], *b = tabs[i + 1];
         CALayer *l = _separators[i];
         l.frame = CGRectMake(NSMaxX(a.frame) + kTabGap / 2 - 0.5, y, 1, h);
-        l.hidden = a.selected || b.selected || a.isHovering || b.isHovering;
+        l.hidden = dragging || a.selected || b.selected || a.isHovering || b.isHovering;
     }
     [CATransaction commit];
 }
 
-// Drops: tabs move (among the pinned icons pins them); links open as new tabs.
+// Drops: tabs move (among the pinned icons pins them); links open as new tabs. While something
+// is dragged over the strip, the tabs slide apart to open a gap where it would land.
 
-- (Slot)slotAt:(CGFloat)x {
-    NSUInteger count = _tabViews.count, pinned = std::min(_pinnedCount, count);
-    for (NSUInteger i = 0; i < count; i++) {
-        NSRect f = _tabViews[i].frame;
-        if (x < NSMidX(f)) {
-            BOOL isPinned = i < pinned;
-            return {(bool)isPinned, (NSInteger)(isPinned ? i : i - pinned), NSMinX(f) - kTabGap / 2};
+/// The slot under `x` among the tabs that stay put: all but the one being dragged (which may be
+/// holding the gap). A slot's boundary is a neighbour's middle, so the gap moves on once the
+/// pointer passes the middle of the tab beside it.
+- (Slot)slotAt:(CGFloat)x dragging:(BrowserTab *)dragged {
+    NSMutableArray<TopTabView *> *others = [NSMutableArray arrayWithCapacity:_shown.count];
+    for (TopTabView *v in _shown) if (v != _dragSource && v.tab != dragged) [others addObject:v];
+    NSInteger pinned = 0;
+    for (TopTabView *v in others) pinned += v.pinnedStyle ? 1 : 0;
+    NSInteger count = (NSInteger)others.count;
+    // Just past the pinned icons (or in a gap open among them) still pins.
+    BOOL pins = _pinnedEnd > 0 && x < _pinnedEnd + kTabGap;
+    for (NSInteger i = 0; i < count; i++) {
+        if (x < NSMidX(others[i].frame)) {
+            if (i == pinned && pins) return {true, pinned};
+            return {i < pinned, i < pinned ? i : i - pinned};
         }
-        if (i + 1 == pinned && x < NSMaxX(f) + kTabGap) return {true, (NSInteger)pinned, NSMaxX(f) + kTabGap / 2};
     }
-    CGFloat end = count ? NSMaxX(_tabViews.lastObject.frame) + kTabGap / 2 : 2;
-    return {false, (NSInteger)(count - pinned), end};
+    if (pinned == count && pins) return {true, pinned};
+    return {false, count - pinned};
+}
+
+- (Slot)slotFor:(id<NSDraggingInfo>)info {
+    return [self slotAt:[_document convertPoint:info.draggingLocation fromView:nil].x dragging:DraggedTab(info)];
+}
+
+/// Opens (or moves) the drop gap; the tabs slide to make room.
+- (void)showGap:(Slot)slot {
+    if (_hasGap && _gap.pinned == slot.pinned && _gap.index == slot.index) return;
+    _hasGap = YES;
+    _gap = slot;
+    [self animateFrames];
+}
+
+/// Closes the gap. A tab dragged out of the strip keeps its place hidden until its drag ends.
+- (void)hideGap {
+    if (!_hasGap) return;
+    _hasGap = NO;
+    [self animateFrames];
+}
+
+/// A tab from this strip started dragging: it lifts out and the tabs close up behind it, unless
+/// the pointer is still over the strip, where the gap opens straight away in its place.
+- (void)beginDragOf:(TopTabView *)view {
+    _dragSource = view;
+    view.hidden = YES;
+    NSUInteger i = [_tabViews indexOfObjectIdenticalTo:view];
+    NSUInteger pinned = std::min(_pinnedCount, _tabViews.count);
+    BOOL isPinned = i < pinned;
+    _hasGap = YES;
+    _gap = {(bool)isPinned, (NSInteger)(isPinned ? i : i - pinned)};
+    self.needsLayout = YES;
+}
+
+- (void)endDrag {
+    TopTabView *source = _dragSource;
+    _dragSource = nil;
+    source.hidden = NO;
+    [source resetInteractionState];
+    _hasGap = NO;
+    // A drop has already reloaded the strip in the new order; this slides it shut otherwise.
+    [self animateFrames];
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info { return [self draggingUpdated:info]; }
@@ -913,28 +1005,38 @@ static const CGFloat kTabGap = 2;
 - (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info {
     BOOL isTab = [info.draggingPasteboard stringForType:BrookTabPasteboardType] != nil;
     if (!isTab && !DraggedURL(info)) return NSDragOperationNone;
-    Slot slot = [self slotAt:[_document convertPoint:info.draggingLocation fromView:nil].x];
-    ShowDropIndicator(_indicator, _document, NSMakeRect(slot.x - 1, 5, 2, kTabHeight - 10));
+    [self showGap:[self slotFor:info]];
     return isTab ? NSDragOperationMove : NSDragOperationCopy;
 }
 
-- (void)draggingExited:(id<NSDraggingInfo>)info { _indicator.hidden = YES; }
-- (void)draggingEnded:(id<NSDraggingInfo>)info { _indicator.hidden = YES; }
+- (void)draggingExited:(id<NSDraggingInfo>)info { [self hideGap]; }
+- (void)draggingEnded:(id<NSDraggingInfo>)info {
+    if (!_dragSource) [self hideGap];   // a tab of ours ends in -endDrag
+}
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)info {
-    _indicator.hidden = YES;
-    Slot slot = [self slotAt:[_document convertPoint:info.draggingLocation fromView:nil].x];
+    Slot slot = _hasGap ? _gap : [self slotFor:info];
     BrowserState *state = BrowserState.shared;
     Space *space = state.currentSpace;
     TabLocation destination = slot.pinned ? TabLocation::pinnedIn(space) : TabLocation::tabsIn(space);
-    if (BrowserTab *tab = DraggedTab(info)) {
-        [state move:tab to:destination index:slot.index];
-        return YES;
+    BrowserTab *tab = DraggedTab(info);
+    if (!tab) {
+        NSURL *url = DraggedURL(info);
+        if (!url) return NO;
+        tab = [state openTabWithURL:url inSpace:nil select:YES];
     }
-    NSURL *url = DraggedURL(info);
-    if (!url) return NO;
-    BrowserTab *tab = [state openTabWithURL:url inSpace:nil select:YES];
-    [state move:tab to:destination index:slot.index];
+    // The slot counts the tabs other than this one; -move:to:index: counts it where it is now.
+    NSInteger index = slot.index;
+    auto from = [state locationOf:tab];
+    if (from && from->location == destination && from->index <= index) index += 1;
+    // Land where the gap was: the dragged tab already sits there, so no slide on the reload.
+    if (TopTabView *source = _dragSource; source.tab == tab) {
+        _dragSource = nil;
+        source.hidden = NO;
+        [source resetInteractionState];
+    }
+    _hasGap = NO;
+    [state move:tab to:destination index:index];
     return YES;
 }
 

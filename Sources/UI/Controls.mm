@@ -146,6 +146,15 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
 
 - (BOOL)canBecomeKeyView { return self.acceptsFirstResponder && !self.isHiddenOrHasHiddenAncestor; }
 
+/// In the titlebar strip AppKit hands a press to the window (to move it) unless the view under it
+/// is a control that accepts first responder, which these refuse (above). So a control that drags
+/// something of its own (compact tabs, favorites) moved the window instead. Private, but it's the
+/// hook AppKit's own NSControl uses; if it goes, those drag the window again.
+- (NSRect)_opaqueRectForWindowMoveWhenInTitlebar {
+    BOOL dragsItself = [self conformsToProtocol:@protocol(NSDraggingSource)];
+    return dragsItself && self.isEnabled ? self.visibleRect : NSZeroRect;
+}
+
 - (void)keyDown:(NSEvent *)event {
     NSString *key = event.charactersIgnoringModifiers;
     if (self.isEnabled && ([key isEqualToString:@" "] || [key isEqualToString:@"\r"])) [self fire];
