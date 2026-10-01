@@ -25,12 +25,17 @@ fi
 # Same coverage as uBlock Origin Lite's defaults, which scores 100/100 on adblock-tester.com.
 # AdGuard's own lists were tried first: they leave out Sentry/Bugsnag and the tester's banner paths,
 # score 73, and their "full" versions don't fit under the 150k cap.
+# unbreak.min.txt must be in: its $badfilter lines cancel other lists' rules that break sites, e.g.
+# Peter Lowe's ||t.co^, which otherwise blocks every Twitter/X link (t.co is X's link wrapper).
 : > "$WORK/rules.txt"
 for url in https://easylist.to/easylist/easylist.txt \
            https://easylist.to/easylist/easyprivacy.txt \
            https://ublockorigin.github.io/uAssets/filters/filters.min.txt \
+           https://ublockorigin.github.io/uAssets/filters/privacy.min.txt \
+           https://ublockorigin.github.io/uAssets/filters/quick-fixes.min.txt \
            "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=1&mimetype=plaintext" \
-           https://ublockorigin.github.io/uAssets/filters/badware.min.txt; do
+           https://ublockorigin.github.io/uAssets/filters/badware.min.txt \
+           https://ublockorigin.github.io/uAssets/filters/unbreak.min.txt; do
     curl -fsSL "$url" >> "$WORK/rules.txt"
     echo >> "$WORK/rules.txt"
 done
