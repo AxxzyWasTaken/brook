@@ -187,7 +187,9 @@
 }
 
 - (void)refresh {
-    _icon.image = self.tab.favicon ?: [NSImage brook_symbol:@"globe" size:16];
+    static NSImage *globe = [NSImage brook_symbol:@"globe" size:16];
+    NSImage *image = self.tab.favicon ?: globe;
+    if (_icon.image != image) _icon.image = image;
     _icon.contentTintColor = NSColor.secondaryLabelColor;
     _icon.alphaValue = self.tab.isLoaded ? 1 : 0.6;
     self.toolTip = self.tab.displayTitle;

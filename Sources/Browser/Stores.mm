@@ -5,9 +5,33 @@
 @interface HistoryEntry ()
 + (instancetype)fromJSON:(NSDictionary *)d;
 - (NSDictionary *)toJSON;
+- (double)matchScore:(NSString *)query;
 @end
 
-@implementation HistoryEntry
+@implementation HistoryEntry {
+    NSString *_searchURLSource, *_searchTitleSource;
+    NSString *_searchURL, *_searchTitle, *_searchStrippedURL;
+}
+
+- (double)matchScore:(NSString *)query {
+    NSString *url = self.url, *title = self.title;
+    if (url != _searchURLSource) {
+        _searchURLSource = url;
+        _searchURL = url.lowercaseString;
+        NSMutableString *stripped = [_searchURL mutableCopy];
+        for (NSString *prefix in @[@"https://", @"http://", @"www."]) {
+            [stripped replaceOccurrencesOfString:prefix withString:@"" options:0 range:NSMakeRange(0, stripped.length)];
+        }
+        _searchStrippedURL = [stripped copy];
+    }
+    if (title != _searchTitleSource) {
+        _searchTitleSource = title;
+        _searchTitle = title.lowercaseString;
+    }
+    if ([_searchStrippedURL hasPrefix:query]) return 4;
+    if ([_searchTitle hasPrefix:query]) return 3;
+    return [_searchURL containsString:query] || [_searchTitle containsString:query] ? 1 : 0;
+}
 
 /// nil when a key is missing or has the wrong type.
 + (instancetype)fromJSON:(NSDictionary *)d {
@@ -99,28 +123,24 @@
 /// Simple frecency ranking: matches in the host or title, weighted by visits and recency.
 - (NSArray<HistoryEntry *> *)search:(NSString *)query limit:(NSInteger)limit {
     NSString *q = BrookTrim(query.lowercaseString);
-    if (q.length == 0) return @[];
+    if (q.length == 0 || limit <= 0) return @[];
     NSDate *now = [NSDate date];
-    std::vector<std::pair<HistoryEntry *, double>> scored;
+    struct Match { HistoryEntry *entry; double score; size_t order; };
+    std::vector<Match> scored;
     for (HistoryEntry *e in _entries.objectEnumerator) {
-        NSString *u = e.url.lowercaseString;
-        NSString *t = e.title.lowercaseString;
-        NSString *stripped = [[[u stringByReplacingOccurrencesOfString:@"https://" withString:@""]
-                                  stringByReplacingOccurrencesOfString:@"http://" withString:@""]
-                                  stringByReplacingOccurrencesOfString:@"www." withString:@""];
-        double score;
-        if ([stripped hasPrefix:q]) score = 4;
-        else if ([t hasPrefix:q]) score = 3;
-        else if ([u containsString:q] || [t containsString:q]) score = 1;
-        else continue;
+        double score = [e matchScore:q];
+        if (score == 0) continue;
         double ageDays = [now timeIntervalSinceDate:e.last] / 86400;
         score *= log2((double)e.visits + 1) + 1;
         score /= (1 + ageDays / 14);
-        scored.emplace_back(e, score);
+        scored.push_back({e, score, scored.size()});
     }
-    std::stable_sort(scored.begin(), scored.end(), [](const auto &a, const auto &b) { return a.second > b.second; });
-    NSMutableArray *out = [NSMutableArray array];
-    for (size_t i = 0; i < scored.size() && (NSInteger)i < limit; i++) [out addObject:scored[i].first];
+    size_t count = std::min(scored.size(), (size_t)limit);
+    std::partial_sort(scored.begin(), scored.begin() + count, scored.end(), [](const Match &a, const Match &b) {
+        return a.score == b.score ? a.order < b.order : a.score > b.score;
+    });
+    NSMutableArray *out = [NSMutableArray arrayWithCapacity:count];
+    for (size_t i = 0; i < count; i++) [out addObject:scored[i].entry];
     return out;
 }
 

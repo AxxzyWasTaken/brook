@@ -297,7 +297,8 @@ NSInteger CharacterCount(NSString *s) {
     [self useAttachedLayout:NO];
     _editingCurrent = editingCurrent;
     NSString *current = editingCurrent ? (BrowserState.shared.selectedTab.url.absoluteString ?: @"") : @"";
-    _field.stringValue = current;
+    NSTextView *activeEditor = (NSTextView *)_field.currentEditor;
+    if (![_field.stringValue isEqualToString:current] || activeEditor.hasMarkedText) _field.stringValue = current;
     _initialText = current;
     [self cancelAutocomplete];
     _phrases = @[];   // the last session's search suggestions don't belong to this one
@@ -316,8 +317,12 @@ NSInteger CharacterCount(NSString *s) {
         [self layoutPanel];
         [_panel makeKeyWindow];
     }
-    [_panel makeFirstResponder:_field];
-    [_field.currentEditor selectAll:nil];
+    NSText *editor = _field.currentEditor;
+    if (!editor || _panel.firstResponder != editor) {
+        [_panel makeFirstResponder:_field];
+        editor = _field.currentEditor;
+    }
+    [editor selectAll:nil];
 }
 
 /// Attached, the panel is just the suggestions list: the field it types into lives in the tab.
@@ -450,7 +455,8 @@ NSInteger CharacterCount(NSString *s) {
     CGFloat w = std::min(_width, NSWidth(pf) - 80);
     // Settings → Search → Position: the upper third (Spotlight-like) or just under the toolbar.
     CGFloat top = NSMaxY(pf) - (Settings.commandBarPosition == CommandBarPositionTop ? 60 : NSHeight(pf) * 0.2);
-    [_panel setFrame:NSMakeRect(NSMidX(pf) - w / 2, top - height, w, height) display:YES];
+    NSRect frame = NSMakeRect(NSMidX(pf) - w / 2, top - height, w, height);
+    if (!NSEqualRects(_panel.frame, frame)) [_panel setFrame:frame display:YES];
     _separator.hidden = visibleRows == 0;
     // The window shadow is traced from the content's alpha. Retrace it once the glass has drawn
     // its rounded shape at the new size, or a square shadow shows outside the corners.
@@ -533,7 +539,17 @@ NSInteger CharacterCount(NSString *s) {
         }
     }
     _suggestions = std::move(list);
-    [_table reloadData];
+    if (_table.numberOfRows == (NSInteger)_suggestions.size()) {
+        [_table enumerateAvailableRowViewsUsingBlock:^(NSTableRowView *rowView, NSInteger row) {
+            id cell = [rowView viewAtColumn:0];
+            if ([cell isKindOfClass:SuggestionCell.class] && row >= 0 && (size_t)row < _suggestions.size()) {
+                [self configureCell:cell forRow:row];
+                [cell setBackgroundStyle:rowView.interiorBackgroundStyle];
+            }
+        }];
+    } else {
+        [_table reloadData];
+    }
     // Make the rows before selecting one: a row made already selected keeps a non-vibrant look
     // after the selection moves on, so its labels draw dimmer than every other row's.
     [_table layoutSubtreeIfNeeded];
@@ -686,6 +702,11 @@ NSInteger CharacterCount(NSString *s) {
 - (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row {
     id made = [tableView makeViewWithIdentifier:SuggestionCell.reuseID owner:self];
     SuggestionCell *cell = [made isKindOfClass:SuggestionCell.class] ? made : [SuggestionCell new];
+    [self configureCell:cell forRow:row];
+    return cell;
+}
+
+- (void)configureCell:(SuggestionCell *)cell forRow:(NSInteger)row {
     const Suggestion &s = _suggestions[row];
     switch (s.kind) {
     case Suggestion::Passwords:
@@ -722,7 +743,6 @@ NSInteger CharacterCount(NSString *s) {
         break;
     }
     }
-    return cell;
 }
 
 @end

@@ -226,7 +226,6 @@
 
 - (void)focus {
     [self.window makeFirstResponder:_field];
-    [_field.currentEditor selectAll:nil];
 }
 
 - (void)close {
@@ -559,6 +558,7 @@ static const CGFloat kSplitUnsnap = 20;     // and how far past it the pointer g
 @end
 
 @implementation PaneDivider {
+    NSTrackingArea *_tracking;
     CALayer *_line;
     BOOL _hovering;
     BOOL _dragging;
@@ -612,11 +612,12 @@ static const CGFloat kSplitUnsnap = 20;     // and how far past it the pointer g
 
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
-    for (NSTrackingArea *a in self.trackingAreas) [self removeTrackingArea:a];
-    [self addTrackingArea:[[NSTrackingArea alloc] initWithRect:NSZeroRect
-                                                       options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow |
-                                                               NSTrackingInVisibleRect
-                                                         owner:self userInfo:nil]];
+    if (_tracking) return;
+    _tracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+                                           options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow |
+                                                   NSTrackingInVisibleRect
+                                             owner:self userInfo:nil];
+    [self addTrackingArea:_tracking];
 }
 
 - (void)mouseEntered:(NSEvent *)event {

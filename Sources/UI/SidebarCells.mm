@@ -221,7 +221,7 @@
 
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
-    if (_tracking) [self removeTrackingArea:_tracking];
+    if (_tracking) return;
     NSTrackingArea *t = [[NSTrackingArea alloc]
         initWithRect:NSZeroRect
              options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect
@@ -267,7 +267,9 @@
     if ([host hasPrefix:@"www."]) host = [host substringFromIndex:4];
     _subtitle.stringValue = host ?: @"";
     _subtitle.hidden = !(Settings.tabSubtitles && host.length);
-    _icon.image = tab.favicon ?: [NSImage brook_symbol:@"globe" size:13];
+    static NSImage *globe = [NSImage brook_symbol:@"globe" size:13];
+    NSImage *image = tab.favicon ?: globe;
+    if (_icon.image != image) _icon.image = image;
     _icon.contentTintColor = NSColor.secondaryLabelColor;
     _icon.alphaValue = tab.isLoaded || tab.isPinned == NO ? 1 : 0.6;
     // Settings → Layout → While loading: the bar only spins icons that have none yet.
@@ -426,7 +428,7 @@
 
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
-    if (_tracking) [self removeTrackingArea:_tracking];
+    if (_tracking) return;
     NSTrackingArea *t = [[NSTrackingArea alloc]
         initWithRect:NSZeroRect
              options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect

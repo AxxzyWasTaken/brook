@@ -44,10 +44,17 @@ static const CGFloat kIconSize = 16;
     WKWebExtensionAction *action = [ctx actionForTab:tab];
     NSSize size = NSMakeSize(kIconSize, kIconSize);
     NSImage *image = [action iconForSize:size] ?: [ctx.webExtension iconForSize:size];
-    if (_icon.image != image) _icon.image = image ?: [NSImage brook_symbol:@"puzzlepiece.extension" size:13];
-    _icon.contentTintColor = image ? nil : NSColor.secondaryLabelColor;
+    if (_icon.image != image) {
+        static NSImage *fallback = [NSImage brook_symbol:@"puzzlepiece.extension" size:13];
+        NSImage *shown = image ?: fallback;
+        if (_icon.image != shown) {
+            _icon.image = shown;
+            _icon.contentTintColor = image ? nil : NSColor.secondaryLabelColor;
+        }
+    }
     BOOL enabled = action ? action.isEnabled : YES;
-    _icon.alphaValue = enabled ? 1 : 0.4;
+    CGFloat alpha = enabled ? 1 : 0.4;
+    if (_icon.alphaValue != alpha) _icon.alphaValue = alpha;
     NSString *name = action.label.length ? action.label : (ctx.webExtension.displayName ?: @"Extension");
     if (![self.toolTip isEqualToString:name]) {
         self.toolTip = name;

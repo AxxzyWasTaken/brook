@@ -23,7 +23,7 @@
 
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
-    if (_tracking) [self removeTrackingArea:_tracking];
+    if (_tracking) return;
     // Moved as well as Entered: the pointer may already be resting in the strip when the sidebar hides.
     NSTrackingArea *t = [[NSTrackingArea alloc]
         initWithRect:NSZeroRect
@@ -84,7 +84,7 @@ static const CGFloat kLightSize = 14, kLightSlot = 16, kLightStep = 23;
 
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
-    if (_tracking) [self removeTrackingArea:_tracking];
+    if (_tracking) return;
     _tracking = [[NSTrackingArea alloc]
         initWithRect:NSZeroRect
              options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect

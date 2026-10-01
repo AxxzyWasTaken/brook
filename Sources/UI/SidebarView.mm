@@ -25,6 +25,7 @@ struct Row {
 } // namespace
 
 @interface SidebarView () <NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate>
+- (void)applyTabChange:(BrowserTab *__unsafe_unretained)incoming change:(TabChange)change __attribute__((objc_direct));
 @end
 
 @implementation SidebarView {
@@ -470,7 +471,32 @@ static const CGFloat kRailButtonInset = 4;
 }
 
 - (void)reloadAllTransition:(std::optional<bool>)forward {
+    NSRange visible = [_table rowsInRect:_table.visibleRect];
+    auto previous = std::move(_rows);
     [self rebuildRows];
+    BOOL inserted = _rows.size() == previous.size() + 1;
+    BOOL removed = previous.size() == _rows.size() + 1;
+    NSUInteger changed = NSNotFound;
+    BOOL reuseRows = forward && previous.size() == _rows.size() &&
+        _table.numberOfRows == (NSInteger)_rows.size() && _table.hiddenRowIndexes.count == 0 &&
+        std::equal(previous.begin(), previous.end(), _rows.begin(), [](const Row &a, const Row &b) {
+            return a.kind == b.kind;
+        });
+    if (!forward && (inserted || removed) && _table.numberOfRows == (NSInteger)previous.size() &&
+        _table.hiddenRowIndexes.count == 0) {
+        auto same = [](const Row &a, const Row &b) { return a.kind == b.kind && a.tab() == b.tab(); };
+        size_t index = 0;
+        while (index < std::min(previous.size(), _rows.size()) && same(previous[index], _rows[index])) ++index;
+        const Row &edit = inserted ? _rows[index] : previous[index];
+        if (edit.kind == Row::Tab) {
+            size_t oldIndex = index + (removed ? 1 : 0), newIndex = index + (inserted ? 1 : 0);
+            while (oldIndex < previous.size() && same(previous[oldIndex], _rows[newIndex])) { ++oldIndex; ++newIndex; }
+            // ponytail: offscreen edits reload; extend reuse only with exact variable-row heights.
+            BOOL onScreen = NSLocationInRange(index, visible) ||
+                (inserted && index == previous.size() && index > 0 && NSLocationInRange(index - 1, visible));
+            if (oldIndex == previous.size() && onScreen) changed = index;
+        }
+    }
     if (forward) {
         CATransition *t = [CATransition animation];
         if (BrookReduceMotion()) {
@@ -484,7 +510,29 @@ static const CGFloat kRailButtonInset = 4;
         t.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
         [_scrollView.layer addAnimation:t forKey:@"spaceSwitch"];
     }
-    [_table reloadData];
+    if (changed != NSNotFound) {
+        NSPoint origin = _scrollView.contentView.bounds.origin;
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+            context.duration = 0;
+            NSIndexSet *indexes = [NSIndexSet indexSetWithIndex:changed];
+            if (inserted) [_table insertRowsAtIndexes:indexes withAnimation:NSTableViewAnimationEffectNone];
+            else [_table removeRowsAtIndexes:indexes withAnimation:NSTableViewAnimationEffectNone];
+            if (inserted) [_table noteHeightOfRowsWithIndexesChanged:indexes];
+        }];
+        [_scrollView.contentView scrollToPoint:origin];
+        [_scrollView reflectScrolledClipView:_scrollView.contentView];
+    } else if (!reuseRows) {
+        [_table reloadData];
+    }
+    if (changed != NSNotFound || reuseRows) {
+        [_table enumerateAvailableRowViewsUsingBlock:^(NSTableRowView *rowView, NSInteger row) {
+            id cell = [rowView viewAtColumn:0];
+            if ([cell isKindOfClass:TabCellView.class] && row >= 0 && (size_t)row < _rows.size()) {
+                BrowserTab *tab = _rows[row].tab();
+                [(TabCellView *)cell configureWithTab:tab selected:tab == self.state.selectedTab];
+            }
+        }];
+    }
     [self reloadFavorites];
     [self updateRailTabsHeight];
     [self rebuildSpaceDots];
@@ -595,17 +643,26 @@ static const CGFloat kRailButtonInset = 4;
     if (_scrollToSelectionPending) [self scrollToSelection];
 }
 
-- (void)tabChanged:(BrowserTab *)tab change:(TabChange)change {
-    if (tab.isFavorite) {
-        [_favoritesGrid refresh:tab];
-    } else {
-        NSInteger idx = [self rowIndexOfTab:tab];
-        if (idx >= 0) {
-            id cell = [_table viewAtColumn:0 row:idx makeIfNecessary:NO];
-            if ([cell isKindOfClass:TabCellView.class]) [(TabCellView *)cell updateWithTab:tab];
+- (void)tabChanged:(BrowserTab *__unsafe_unretained)incoming change:(TabChange)change {
+    if (change == TabChangeProgress) return;
+    [self applyTabChange:incoming change:change];
+}
+
+- (void)applyTabChange:(BrowserTab *__unsafe_unretained)incoming change:(TabChange)change {
+    BrowserTab *tab = incoming;
+    if (change & (TabChangeTitle | TabChangeURL | TabChangeFavicon | TabChangeLoading | TabChangeLoaded)) {
+        if (tab.isFavorite) {
+            [_favoritesGrid refresh:tab];
+        } else {
+            NSInteger idx = [self rowIndexOfTab:tab];
+            if (idx >= 0) {
+                id cell = [_table viewAtColumn:0 row:idx makeIfNecessary:NO];
+                if ([cell isKindOfClass:TabCellView.class]) [(TabCellView *)cell updateWithTab:tab];
+            }
         }
     }
-    if (tab == self.state.selectedTab) [self updateChrome];
+    if ((change & (TabChangeTitle | TabChangeURL | TabChangeLoading | TabChangeNavigation | TabChangeLoaded)) &&
+        tab == self.state.selectedTab) [self updateChrome];
 }
 
 /// Back/forward/reload state and the address pill.

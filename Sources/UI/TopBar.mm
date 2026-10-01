@@ -173,6 +173,7 @@ static NSColor *SelectedRimColor(void) {
 @property (copy) void (^onHoverChange)(void);
 @property (copy) NSMenu *(^menuProvider)(BrowserTab *tab);
 - (void)refresh;
+- (void)reuseForTab:(BrowserTab *)tab;
 @end
 
 @implementation TopTabView {
@@ -199,6 +200,7 @@ static NSColor *SelectedRimColor(void) {
         _icon.contentTintColor = NSColor.secondaryLabelColor;
         [self addSubview:_icon];
         _label = [FadingLabel labelWithString:@""];
+        _label.clipsToBounds = YES;
         _label.lineBreakMode = NSLineBreakByClipping;   // faded out at the end instead, like Safari
         _label.textColor = NSColor.labelColor;
         [self addSubview:_label];
@@ -213,6 +215,19 @@ static NSColor *SelectedRimColor(void) {
 - (NSAccessibilityRole)accessibilityRole { return NSAccessibilityRadioButtonRole; }
 - (id)accessibilityValue { return @(_selected); }
 - (void)fire { if (self.onSelect) self.onSelect(_tab); }
+
+- (void)reuseForTab:(BrowserTab *)tab {
+    self.editField = nil;
+    _mayDrag = NO;
+    _wasSelected = NO;
+    [self resetInteractionState];
+    [_closeButton resetInteractionState];
+    [_reloadButton resetInteractionState];
+    _tab = tab;
+    self.toolTip = tab.displayTitle;
+    self.accessibilityLabel = tab.displayTitle;
+    [self refresh];
+}
 
 - (NSArray<NSAccessibilityCustomAction *> *)accessibilityCustomActions {
     if (_pinnedStyle || !self.onClose) return nil;
@@ -561,6 +576,9 @@ static NSAttributedString *AddressText(BrowserTab *tab, CGFloat fontSize) {
     __weak BrowserTab *_selected;
     __weak BrowserTab *_editingTab;
     CAGradientLayer *_edgeMask;
+    BOOL _fadesLeft;
+    BOOL _fadesRight;
+    CGFloat _fadeWidth;
 }
 
 static const CGFloat kTabGap = 2;
@@ -690,6 +708,17 @@ static const CGFloat kTabGap = 2;
 - (void)reloadSpace:(Space *)space selected:(BrowserTab *)selected {
     NSMapTable<BrowserTab *, TopTabView *> *old = _byTab;
     NSMapTable<BrowserTab *, TopTabView *> *next = [NSMapTable strongToStrongObjectsMapTable];
+    NSSet<BrowserTab *> *incoming = [NSSet setWithArray:[space.pinned arrayByAddingObjectsFromArray:space.tabs]];
+    NSMutableArray<TopTabView *> *reusable = [NSMutableArray array];
+    BOOL mouseUp = NSEvent.pressedMouseButtons == 0;
+    NSResponder *responder = self.window.firstResponder;
+    NSView *focused = [responder isKindOfClass:NSView.class] ? (NSView *)responder : nil;
+    for (TopTabView *view in _tabViews) {
+        if (mouseUp && ![incoming containsObject:view.tab] && !view.editField && !view.isPressed && !view.hidden &&
+            focused != view && ![focused isDescendantOf:view])
+            [reusable addObject:view];
+    }
+    NSUInteger reuseIndex = 0;
     NSMutableArray<TopTabView *> *views = [NSMutableArray arrayWithCapacity:space.pinned.count + space.tabs.count];
     auto take = [&](BrowserTab *tab, BOOL pinned) {
         TopTabView *v = [old objectForKey:tab];
@@ -697,7 +726,12 @@ static const CGFloat kTabGap = 2;
             [old removeObjectForKey:tab];
             [v refresh];   // pinning changes how an unloaded tab looks
         } else {
-            v = [self makeViewForTab:tab];
+            if (reuseIndex < reusable.count) {
+                v = reusable[reuseIndex++];
+                [old removeObjectForKey:v.tab];
+                v.fontSize = _fontSize;
+                [v reuseForTab:tab];
+            } else v = [self makeViewForTab:tab];
             [_document addSubview:v];
         }
         v.pinnedStyle = pinned;
@@ -739,8 +773,9 @@ static const CGFloat kTabGap = 2;
 
 - (void)refresh:(BrowserTab *)tab {
     TopTabView *v = [_byTab objectForKey:tab];
+    CGFloat width = _addressWhenSelected && v.selected ? v.addressWidth : 0;
     [v refresh];
-    if (_addressWhenSelected && v.selected) self.needsLayout = YES;   // its address may have changed length
+    if (_addressWhenSelected && v.selected && (v.editField || width != v.addressWidth)) self.needsLayout = YES;
 }
 
 - (void)scrollToSelected {
@@ -807,14 +842,26 @@ static const CGFloat kTabGap = 2;
         layer.mask = nil;
         return;
     }
-    id opaque = (id)NSColor.blackColor.CGColor, clear = (id)NSColor.clearColor.CGColor;
-    CGFloat f = kEdgeFade / width;
+    if (layer.mask == _edgeMask && _fadesLeft == left && _fadesRight == right && _fadeWidth == width &&
+        CGRectEqualToRect(_edgeMask.frame, layer.bounds)) return;
+    _fadesLeft = left;
+    _fadesRight = right;
+    static NSArray * const colors[] = {
+        @[(id)NSColor.blackColor.CGColor, (id)NSColor.blackColor.CGColor, (id)NSColor.blackColor.CGColor, (id)NSColor.blackColor.CGColor],
+        @[(id)NSColor.clearColor.CGColor, (id)NSColor.blackColor.CGColor, (id)NSColor.blackColor.CGColor, (id)NSColor.blackColor.CGColor],
+        @[(id)NSColor.blackColor.CGColor, (id)NSColor.blackColor.CGColor, (id)NSColor.blackColor.CGColor, (id)NSColor.clearColor.CGColor],
+        @[(id)NSColor.clearColor.CGColor, (id)NSColor.blackColor.CGColor, (id)NSColor.blackColor.CGColor, (id)NSColor.clearColor.CGColor]
+    };
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    _edgeMask.frame = layer.bounds;
-    _edgeMask.colors = @[left ? clear : opaque, opaque, opaque, right ? clear : opaque];
-    _edgeMask.locations = @[@0, @(f), @(1 - f), @1];
-    layer.mask = _edgeMask;
+    if (_fadeWidth != width || !CGRectEqualToRect(_edgeMask.frame, layer.bounds)) {
+        CGFloat f = kEdgeFade / width;
+        _fadeWidth = width;
+        _edgeMask.frame = layer.bounds;
+        _edgeMask.locations = @[@0, @(f), @(1 - f), @1];
+    }
+    _edgeMask.colors = colors[(left ? 1 : 0) | (right ? 2 : 0)];
+    if (layer.mask != _edgeMask) layer.mask = _edgeMask;
     [CATransaction commit];
 }
 
@@ -1195,6 +1242,10 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
 
 // MARK: - Top bar
 
+@interface TopBarView ()
+- (void)applyTabChange:(BrowserTab *__unsafe_unretained)incoming change:(TabChange)change __attribute__((objc_direct));
+@end
+
 @implementation TopBarView {
     NSView *_toolbar;
     NSLayoutConstraint *_titleRowTop;
@@ -1474,14 +1525,21 @@ static CGFloat CapsuleWidth(NSUInteger icons) {
     [self updateChrome];
 }
 
-- (void)tabChanged:(BrowserTab *)tab change:(TabChange)change {
+- (void)tabChanged:(BrowserTab *__unsafe_unretained)incoming change:(TabChange)change {
+    if (change == TabChangeProgress) return;
+    [self applyTabChange:incoming change:change];
+}
+
+- (void)applyTabChange:(BrowserTab *__unsafe_unretained)incoming change:(TabChange)change {
+    BrowserTab *tab = incoming;
     // Tabs show only these; URL, navigation and consent changes matter to the toolbar alone.
     // (URL too: the selected compact tab shows its address.)
     if (change & (TabChangeTitle | TabChangeURL | TabChangeFavicon | TabChangeLoading | TabChangeLoaded)) {
         if (tab.isFavorite) [_favorites refresh:tab];
         else [_strip refresh:tab];
     }
-    if (tab == BrowserState.shared.selectedTab) [self updateChrome];
+    if ((change & (TabChangeTitle | TabChangeURL | TabChangeLoading | TabChangeNavigation | TabChangeLoaded)) &&
+        tab == BrowserState.shared.selectedTab) [self updateChrome];
 }
 
 - (void)updateChrome {

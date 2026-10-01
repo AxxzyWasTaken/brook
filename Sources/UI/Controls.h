@@ -19,6 +19,7 @@ FOUNDATION_EXPORT NSPasteboardType const BrookTabPasteboardType;
 @property (nonatomic) BOOL isPressed;                // redraws
 /// Called whenever isHovering changes. Default does nothing.
 - (void)hoverChanged;
+- (void)resetInteractionState;
 /// Runs onClick, then sends the control's action (if any) to its target.
 - (void)fire;
 /// Pressing it does something (default: has an onClick or action). Only these are accessibility

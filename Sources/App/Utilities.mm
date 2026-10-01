@@ -387,9 +387,8 @@ BROOK_DYNAMIC(divider, 0, 0.1, 1, 0.1)
 @implementation NSView (Brook)
 
 - (CGColorRef)brook_cg:(NSColor *)color {
-    __block CGColorRef result = CGColorRetain(color.CGColor);
+    __block CGColorRef result = nullptr;
     [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
-        CGColorRelease(result);
         result = CGColorRetain(color.CGColor);
     }];
     return (CGColorRef)CFAutorelease(result);
@@ -418,8 +417,19 @@ BROOK_DYNAMIC(divider, 0, 0.1, 1, 0.1)
 }
 
 + (NSImage *)brook_symbol:(NSString *)name size:(CGFloat)size weight:(NSFontWeight)weight {
+    static NSCache<NSArray *, NSImage *> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        cache = [NSCache new];
+        cache.countLimit = 128;
+    });
+    NSArray *key = @[self, [name copy], @(size), @(weight)];
+    NSImage *image = [cache objectForKey:key];
+    if (image) return [image copy];
     NSImageSymbolConfiguration *cfg = [NSImageSymbolConfiguration configurationWithPointSize:size weight:weight];
-    return [[NSImage imageWithSystemSymbolName:name accessibilityDescription:nil] imageWithSymbolConfiguration:cfg];
+    image = [[NSImage imageWithSystemSymbolName:name accessibilityDescription:nil] imageWithSymbolConfiguration:cfg];
+    if (image) [cache setObject:image forKey:key];
+    return [image copy];
 }
 
 @end

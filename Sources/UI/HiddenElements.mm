@@ -20,6 +20,7 @@
 @end
 
 @implementation HiddenElementRow {
+    NSTrackingArea *_tracking;
     NSButton *_restore;
     BOOL _hovering;
 }
@@ -67,10 +68,11 @@
 
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
-    for (NSTrackingArea *a in self.trackingAreas) [self removeTrackingArea:a];
-    [self addTrackingArea:[[NSTrackingArea alloc] initWithRect:NSZeroRect
-                                                       options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect
-                                                         owner:self userInfo:nil]];
+    if (_tracking) return;
+    _tracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+                                           options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect
+                                             owner:self userInfo:nil];
+    [self addTrackingArea:_tracking];
 }
 
 - (void)setHovering:(BOOL)on {

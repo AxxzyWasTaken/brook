@@ -26,17 +26,20 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
 }
 
 - (void)setCornerRadius:(CGFloat)cornerRadius {
+    if (_cornerRadius == cornerRadius) return;
     _cornerRadius = cornerRadius;
     self.needsDisplay = YES;
     [self noteFocusRingMaskChanged];
 }
 
 - (void)setBaseColor:(NSColor *)baseColor {
+    if (_baseColor == baseColor) return;
     _baseColor = baseColor;
     self.needsDisplay = YES;
 }
 
 - (void)setIsHighlightedState:(BOOL)isHighlightedState {
+    if (_isHighlightedState == isHighlightedState) return;
     _isHighlightedState = isHighlightedState;
     self.needsDisplay = YES;
 }
@@ -51,6 +54,7 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
 }
 
 - (void)setIsPressed:(BOOL)isPressed {
+    if (_isPressed == isPressed) return;
     _isPressed = isPressed;
     self.needsDisplay = YES;
 }
@@ -60,6 +64,11 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
 
 - (void)hoverChanged {}
+
+- (void)resetInteractionState {
+    self.isHovering = NO;
+    self.isPressed = NO;
+}
 
 - (void)updateLayer {
     CALayer *layer = self.layer;
@@ -83,7 +92,7 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
 
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
-    if (_tracking) [self removeTrackingArea:_tracking];
+    if (_tracking) return;
     NSTrackingArea *t = [[NSTrackingArea alloc]
         initWithRect:NSZeroRect
              options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect
@@ -225,7 +234,11 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
 // MARK: - IconButton
 
 /// An SF Symbol button, Arc-style: no border, soft hover background.
-@implementation IconButton
+@implementation IconButton {
+    NSString *_symbol;
+    CGFloat _symbolSize;
+    __weak NSImage *_symbolImage;
+}
 
 - (instancetype)initWithSymbol:(NSString *)symbol size:(CGFloat)size tooltip:(NSString *)tooltip
                      dimension:(CGFloat)dimension onClick:(void (^)(void))onClick {
@@ -235,7 +248,7 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
         self.onClick = onClick;
         self.toolTip = tooltip;
         self.cornerRadius = 7;
-        _imageView.image = [NSImage brook_symbol:symbol size:size];
+        [self setSymbol:symbol size:size];
         _imageView.contentTintColor = NSColor.secondaryLabelColor;
         _imageView.imageScaling = NSImageScaleNone;
         _imageView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -269,7 +282,11 @@ NSPasteboardType const BrookTabPasteboardType = @"app.brook.tab";
 }
 
 - (void)setSymbol:(NSString *)name size:(CGFloat)size {
+    if (_symbolImage && _imageView.image == _symbolImage && _symbolSize == size && [_symbol isEqualToString:name]) return;
     self.imageView.image = [NSImage brook_symbol:name size:size];
+    _symbol = [name copy];
+    _symbolSize = size;
+    _symbolImage = _imageView.image;
 }
 
 - (void)setEnabled:(BOOL)enabled {
