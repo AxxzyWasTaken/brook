@@ -98,6 +98,8 @@ FOUNDATION_EXPORT NSNotificationName const BrowserStateArchiveDidChangeNotificat
 /// Snapshots the session now; the file is written on a background queue (see
 /// BrookFinishBackgroundWrites).
 - (void)saveNow;
+/// At quit: writes every tab's back/forward list and scroll position, read back (and deleted) by the next load.
+- (void)saveTabStatesNow;
 
 - (std::optional<TabPosition>)locationOf:(BrowserTab *)tab;
 - (Space *)spaceOf:(BrowserTab *)tab;

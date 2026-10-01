@@ -81,6 +81,7 @@
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
     [self.state saveNow];
+    [self.state saveTabStatesNow];
     [HistoryStore.shared saveNow];
     [DownloadManager.shared discardUnfinished];   // nothing to resume them from after quitting
     BrookFinishBackgroundWrites();   // the saves above are queued; don't quit before they land

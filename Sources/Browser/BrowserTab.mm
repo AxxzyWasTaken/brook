@@ -266,6 +266,16 @@ static void SnapshotJPEG(WKWebView *wv, void (^done)(NSData *jpeg)) {
     _sleepPicture = state ? jpeg : nil;
 }
 
+- (NSData *)savedState {
+    BrookWebView *wv = _webView;
+    id state = wv ? (wv.isLoading || _loadError ? nil : wv.interactionState) : _sleepState;
+    return [state isKindOfClass:NSData.class] ? state : nil;
+}
+
+- (void)restoreSavedState:(NSData *)state {
+    if (!_webView) _sleepState = state;
+}
+
 - (void)load:(NSURL *)url {
     _url = url;
     _loadError = nil;

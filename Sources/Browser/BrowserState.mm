@@ -114,6 +114,22 @@ struct ClosedTab {
     NSUUID *spaceID;
 };
 
+/// Tab id -> WKWebView interactionState, written once at quit as a binary plist (raw bytes, no base64)
+/// and kept apart from session.json, which is rewritten on every tab change.
+static NSURL *TabStatesURL(void) {
+    return [AppPaths.support URLByAppendingPathComponent:@"tab-states.plist"];
+}
+
+/// Reads the states saved at the last quit and deletes the file, so nothing outlives the launch that used it.
+static NSDictionary *TakeTabStates(void) {
+    NSURL *url = TabStatesURL();
+    NSData *data = [NSData dataWithContentsOfURL:url];
+    if (!data) return nil;
+    [NSFileManager.defaultManager removeItemAtURL:url error:nil];
+    id plist = [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:nil error:nil];
+    return [plist isKindOfClass:NSDictionary.class] ? plist : nil;
+}
+
 // MARK: - State
 
 NSNotificationName const BrowserStateArchiveDidChangeNotification = @"BrookArchiveDidChange";
@@ -232,10 +248,19 @@ NSNotificationName const BrowserStateArchiveDidChangeNotification = @"BrookArchi
         }
         [self applyLaunchBehavior];
         [self pruneSplits];
+        // Back/forward lists from the last quit, for the tabs that survived the launch behaviour.
+        NSDictionary *states = TakeTabStates();
+        if (states.count) {
+            for (BrowserTab *t in self.allTabs) {
+                id state = states[t.identifier.UUIDString];
+                if ([state isKindOfClass:NSData.class]) [t restoreSavedState:state];
+            }
+        }
         NSUUID *sel = UUIDFromJSON(record[@"selected"]);
         BrowserTab *tab = sel ? [self tabWithID:sel] : nil;
         [self selectTab:tab ?: self.currentSpace.tabs.firstObject ?: self.currentSpace.pinned.firstObject];
     } else {
+        TakeTabStates();   // no session to restore them into
         [_spaces addObject:[[Space alloc] initWithName:@"Personal" colorHex:Palette.spaceColors[0][1]]];
         [self applyLaunchBehavior];
     }
@@ -309,6 +334,21 @@ NSNotificationName const BrowserStateArchiveDidChangeNotification = @"BrookArchi
     if (_selectedTab) record[@"selected"] = _selectedTab.identifier.UUIDString;
     // Built here from fresh objects, so the writer thread has the only reference to it.
     BrookWriteJSONInBackground(record, 0, _fileURL);
+}
+
+- (void)saveTabStatesNow {
+    NSMutableDictionary *states = [NSMutableDictionary dictionary];
+    for (BrowserTab *t in self.allTabs) {
+        if (NSData *state = t.savedState) states[t.identifier.UUIDString] = state;
+    }
+    NSURL *url = TabStatesURL();
+    if (!states.count) {
+        [NSFileManager.defaultManager removeItemAtURL:url error:nil];
+        return;
+    }
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:states format:NSPropertyListBinaryFormat_v1_0
+                                                             options:0 error:nil];
+    [data writeToURL:url options:NSDataWritingAtomic error:nil];
 }
 
 // MARK: Locating tabs

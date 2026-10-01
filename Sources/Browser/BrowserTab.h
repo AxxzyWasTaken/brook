@@ -76,6 +76,11 @@ NSError *BrowserTabError(NSString *message);
 /// Unloads the tab but keeps its back/forward list, scroll position and a picture of the page, so it
 /// wakes where it was. Does nothing to the selected tab. Doesn't check isBusy; callers that should, do.
 - (void)hibernate;
+/// The back/forward list and scroll position to keep across a quit: the live page's (none while it is
+/// loading or failed) or the one kept by hibernate. nil when there is none.
+@property (readonly) NSData *savedState;
+/// Gives an unloaded tab a savedState from the last launch, so its first materialize wakes there.
+- (void)restoreSavedState:(NSData *)state;
 /// Pinned tabs and favorites return to their home page when closed.
 - (void)resetToHome;
 - (void)load:(NSURL *)url;
