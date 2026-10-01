@@ -1,0 +1,7 @@
+{
+  "archive": "five-path-regression-evidence-20261001.tar.gz",
+  "sha256": "e96f1e90aff97acfe0d638772bb0e419cf6072e6b6a01268bafb381617e06a8f",
+  "verified_files": 1533,
+  "bytes": 41977095,
+  "excluded": "Duplicate trial executables and objects; raw Instruments trace excluded, parsed exports and profiler summaries retained."
+}
